@@ -1,0 +1,9 @@
+# Units masked on the image, as symlinks to /dev/null. Same reason as
+# services.enable: git on Windows cannot check out a symlink, so the list is
+# text and scripts/build-iso.sh makes the links on the Linux build host.
+#
+# plymouth-quit tears the splash down at the end of boot, which is several
+# seconds before Hyprland and the launcher have drawn anything — exactly the
+# black gap the splash exists to cover. omni-launcher quits plymouth itself
+# once it is on screen, and omnios-splash-guard.service is the backstop.
+plymouth-quit.service

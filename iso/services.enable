@@ -12,3 +12,5 @@ gamemoded.service           multi-user.target
 cpupower.service            multi-user.target
 seatd.service               multi-user.target
 sshd.service                multi-user.target
+omnios-live-credentials.service  multi-user.target
+omnios-splash-guard.service      multi-user.target

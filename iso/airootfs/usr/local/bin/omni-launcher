@@ -31,6 +31,14 @@ fi
 
 "$OMNICTL" init
 
+# The boot splash is held up deliberately (plymouth-quit.service is masked) so
+# it covers Hyprland's startup instead of leaving a black screen. Now that
+# there is a UI to reveal, take it down. --retain-splash leaves the last frame
+# painted so the handoff is not a flash of black.
+if command -v plymouth >/dev/null 2>&1; then
+    plymouth quit --retain-splash >/dev/null 2>&1 || true
+fi
+
 while true; do
     clear
     cat <<'BANNER'

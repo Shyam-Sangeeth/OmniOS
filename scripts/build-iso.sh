@@ -60,6 +60,15 @@ while read -r unit target; do
     printf '    %s -> %s\n' "$unit" "$target"
 done < "$PROFILE/services.enable"
 
+# Masked units are symlinks to /dev/null. Same Windows-symlink reason as above.
+if [[ -r "$PROFILE/services.mask" ]]; then
+    while read -r unit; do
+        [[ -z "${unit:-}" || "$unit" == \#* ]] && continue
+        ln -sfn /dev/null "$PROFILE/airootfs/etc/systemd/system/${unit}"
+        printf '    masked %s\n' "$unit"
+    done < "$PROFILE/services.mask"
+fi
+
 # /etc/localtime is a symlink into the zoneinfo database. Git on Windows cannot
 # check one out, so it is made here rather than committed — without it systemd
 # has no timezone and asks for one interactively on first boot.

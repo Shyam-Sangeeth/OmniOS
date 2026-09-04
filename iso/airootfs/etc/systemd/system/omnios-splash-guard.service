@@ -1,0 +1,15 @@
+[Unit]
+Description=Force the OmniOS boot splash down if the launcher never appears
+# plymouth-quit.service is masked so the splash survives until the launcher has
+# drawn. That is a deadlock risk: if the launcher never starts, the splash would
+# cover the failure forever. This is the backstop, and it is why masking is
+# safe to do at all.
+After=multi-user.target
+ConditionPathExists=/usr/bin/plymouth
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/sh -c 'sleep 45; /usr/bin/plymouth quit >/dev/null 2>&1 || true'
+
+[Install]
+WantedBy=multi-user.target

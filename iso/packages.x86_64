@@ -26,7 +26,6 @@ linux-zen-headers
 ## airootfs/etc/mkinitcpio.d/linux-zen.preset asks for.
 mkinitcpio
 mkinitcpio-archiso
-mkinitcpio-nfs-utils
 syslinux
 edk2-shell
 memtest86+

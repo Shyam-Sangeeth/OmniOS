@@ -1,0 +1,45 @@
+# OmniOS boot splash.
+#
+# Deliberately minimal: a logo and a spinner on the launcher's own background,
+# so the handoff from splash to launcher is not a colour change. The script
+# plugin can only place images, not draw, which is why the spinner ships as
+# pre-rendered frames from tools/make-splash-assets.py.
+
+# #0A0A12 — the launcher background from OmniOS.md §12.
+Window.SetBackgroundTopColor(0.039, 0.039, 0.071);
+Window.SetBackgroundBottomColor(0.039, 0.039, 0.071);
+
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+logo.image = Image("logo.png");
+logo.sprite = Sprite(logo.image);
+logo.x = screen_width / 2 - logo.image.GetWidth() / 2;
+logo.y = screen_height / 2 - logo.image.GetHeight() / 2 - 30;
+logo.sprite.SetPosition(logo.x, logo.y, 0);
+
+spinner.count = 12;
+for (i = 0; i < spinner.count; i++)
+    spinner.images[i] = Image("progress-" + i + ".png");
+
+spinner.sprite = Sprite();
+spinner.sprite.SetPosition(
+    screen_width / 2 - spinner.images[0].GetWidth() / 2,
+    logo.y + logo.image.GetHeight() + 46,
+    1);
+
+# The refresh callback runs about 50 times a second; step the spinner every
+# fourth call so it turns at a readable speed rather than a blur.
+progress = 0;
+fun refresh_callback() {
+    progress++;
+    spinner.sprite.SetImage(spinner.images[Math.Int(progress / 4) % spinner.count]);
+}
+Plymouth.SetRefreshFunction(refresh_callback);
+
+# Leave the last frame on screen at handoff so the compositor fades in over a
+# painted background rather than a flash of black.
+fun quit_callback() {
+    spinner.sprite.SetOpacity(0);
+}
+Plymouth.SetQuitFunction(quit_callback);

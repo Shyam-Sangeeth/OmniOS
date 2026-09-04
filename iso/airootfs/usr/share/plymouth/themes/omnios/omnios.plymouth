@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=OmniOS
+Description=OmniOS boot splash — ring logo over the launcher background
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/omnios
+ScriptFile=/usr/share/plymouth/themes/omnios/omnios.script

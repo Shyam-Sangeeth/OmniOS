@@ -31,9 +31,20 @@ spinner.sprite.SetPosition(
 # The refresh callback runs about 50 times a second; step the spinner every
 # fourth call so it turns at a readable speed rather than a blur.
 progress = 0;
+shown = -1;
 fun refresh_callback() {
     progress++;
-    spinner.sprite.SetImage(spinner.images[Math.Int(progress / 4) % spinner.count]);
+    index = Math.Int(progress / 5) % spinner.count;
+
+    # Only touch the sprite when the frame actually changes. SetImage marks the
+    # sprite dirty and forces a repaint, so calling it on every refresh redrew
+    # the whole 1280x800 framebuffer ~50 times a second — under software
+    # rendering that is visible as fast, intermittent flicker rather than a
+    # smooth spin. At one frame in five the spinner still turns at 10fps.
+    if (index != shown) {
+        spinner.sprite.SetImage(spinner.images[index]);
+        shown = index;
+    }
 }
 Plymouth.SetRefreshFunction(refresh_callback);
 

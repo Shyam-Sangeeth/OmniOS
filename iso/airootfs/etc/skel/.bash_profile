@@ -18,6 +18,15 @@ if grep -qw omnios.nolauncher /proc/cmdline 2>/dev/null; then
     return 2>/dev/null || true
 fi
 
+# Hyprland, like every wlroots compositor, exits rather than run with
+# superuser privileges. Reaching here as root means the autologin user is
+# misconfigured; say that plainly instead of failing inside the compositor.
+if [ "$(id -u)" = "0" ]; then
+    echo "OmniOS: refusing to start the compositor as root."
+    echo "The live user is 'omni' — check the getty autologin drop-in."
+    return 2>/dev/null || true
+fi
+
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 [ -d "$XDG_RUNTIME_DIR" ] || { mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; }
 
@@ -30,7 +39,9 @@ if ! [ -e /dev/dri/renderD128 ]; then
     export LIBGL_ALWAYS_SOFTWARE=1
 fi
 
-readonly OMNI_LOG=/var/log/omnios-session.log
+# /tmp, not /var/log: the live user is unprivileged, and a log the session
+# cannot write is a log that does not exist when it is needed most.
+readonly OMNI_LOG=/tmp/omnios-session.log
 
 Hyprland >"$OMNI_LOG" 2>&1
 status=$?

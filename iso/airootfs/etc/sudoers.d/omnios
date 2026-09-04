@@ -1,0 +1,3 @@
+# Live image: the launcher has to install packages and manage services without
+# stopping to ask for a password there is no keyboard flow to type.
+%wheel ALL=(ALL:ALL) NOPASSWD: ALL

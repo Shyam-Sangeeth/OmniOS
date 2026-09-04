@@ -50,4 +50,6 @@ file_permissions=(
   ["/usr/local/bin/omni-first-boot"]="0:0:755"
   ["/usr/local/bin/omni-launcher"]="0:0:755"
   ["/usr/local/bin/omnictl"]="0:0:755"
+  # sudo ignores any sudoers file that is group- or world-writable.
+  ["/etc/sudoers.d/omnios"]="0:0:440"
 )

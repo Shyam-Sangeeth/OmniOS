@@ -153,6 +153,25 @@ renderer, no matching devices found" and nothing renders at all; it is useful
 only for capturing the splash, because QEMU's `screendump` can read its scanout
 at every stage of boot where virtio's cannot.
 
+## Running the VM repeatedly
+
+Leave at least ten seconds between killing a QEMU process and starting the next
+one. Force-killing and immediately relaunching leaves stale WHPX partition
+state, and the next VM then starts, burns about five CPU-seconds, and freezes
+with a monitor that accepts a TCP connection but never answers — which looks
+exactly like a broken ISO and is not.
+
+Two symptoms tell the difference:
+
+- **stuck VM:** `(Get-Process qemu-system-x86_64).CPU` stops rising, the serial
+  log holds only the ISOLINUX banner, and `screendump` writes nothing.
+- **healthy VM:** CPU climbs past thirty seconds within a minute.
+
+The QEMU monitor also serves exactly one client and leaves the socket in
+CloseWait afterwards, so a second connection is refused for the life of the VM.
+Do all monitor work — every screendump, every sendkey — over one held
+connection.
+
 ## Known gaps in the profile
 
 Honest list of what has not been verified, because it cannot be without a

@@ -10,8 +10,11 @@ set -uo pipefail
 
 readonly OMNICTL=/usr/local/bin/omnictl
 
-# Under Hyprland there is no terminal yet, so open one and re-run inside it.
-if [[ -n "${WAYLAND_DISPLAY:-}" && -z "${OMNI_IN_TERMINAL:-}" ]]; then
+# Open a terminal and re-run inside it when there is nowhere to draw. The test
+# is whether stdout is a terminal, not whether WAYLAND_DISPLAY is set: Hyprland
+# does not guarantee that variable in an exec-once child, and keying off it
+# meant the launcher wrote its whole UI to a stdout nobody could see.
+if [[ ! -t 1 && -z "${OMNI_IN_TERMINAL:-}" ]]; then
     export OMNI_IN_TERMINAL=1
     for term in foot kitty alacritty; do
         if command -v "$term" >/dev/null 2>&1; then

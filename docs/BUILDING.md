@@ -153,19 +153,26 @@ renderer, no matching devices found" and nothing renders at all; it is useful
 only for capturing the splash, because QEMU's `screendump` can read its scanout
 at every stage of boot where virtio's cannot.
 
-## Running the VM repeatedly
+## Running the VM on Windows
 
-Leave at least ten seconds between killing a QEMU process and starting the next
-one. Force-killing and immediately relaunching leaves stale WHPX partition
-state, and the next VM then starts, burns about five CPU-seconds, and freezes
-with a monitor that accepts a TCP connection but never answers — which looks
-exactly like a broken ISO and is not.
+`run-qemu.ps1` passes `kernel-irqchip=off,hpet=off`. Both are required and they
+fix different things:
 
-Two symptoms tell the difference:
+- **`kernel-irqchip=off`** — without it the VM never leaves SeaBIOS under WHPX:
+  it starts, burns under two CPU-seconds and sits paused.
+- **`hpet=off`** — with the emulated HPET present, the guest kernel's IO-APIC
+  timer check fails and it panics during early boot:
 
-- **stuck VM:** `(Get-Process qemu-system-x86_64).CPU` stops rising, the serial
-  log holds only the ISOLINUX banner, and `screendump` writes nothing.
-- **healthy VM:** CPU climbs past thirty seconds within a minute.
+      Kernel panic - not syncing: IO-APIC + timer doesn't work!
+
+  The check is timing-sensitive, so the panic is intermittent. That makes it
+  look like a flaky hypervisor rather than a guest that died on the first
+  screenful, especially since the serial log then holds only the ISOLINUX
+  banner and `screendump` appears to do nothing.
+
+If a VM looks stuck, screendump it before theorising: `(Get-Process
+qemu-system-x86_64).CPU` frozen near five seconds almost always means the guest
+panicked, and the panic text is on screen.
 
 The QEMU monitor also serves exactly one client and leaves the socket in
 CloseWait afterwards, so a second connection is refused for the life of the VM.

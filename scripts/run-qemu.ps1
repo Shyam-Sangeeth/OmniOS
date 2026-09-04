@@ -82,7 +82,17 @@ $qemuArgs = @(
     # kernel-irqchip=off is mandatory for WHPX: with the in-kernel irqchip the
     # VM starts and then sits paused in SeaBIOS, burning no CPU and never
     # bringing up a display. It is ignored by the tcg fallback.
-    '-machine', 'q35,accel=whpx:tcg,kernel-irqchip=off'
+    # hpet=off is not optional here. With WHPX and kernel-irqchip=off the
+    # emulated HPET makes the guest kernel's IO-APIC timer check fail, and it
+    # panics during early boot:
+    #
+    #   Kernel panic - not syncing: IO-APIC + timer doesn't work!
+    #
+    # It is intermittent, because the check is timing-sensitive — which made it
+    # look like a flaky hypervisor rather than a guest panic. Dropping
+    # kernel-irqchip=off is not an alternative: without it the VM never leaves
+    # SeaBIOS.
+    '-machine', 'q35,accel=whpx:tcg,kernel-irqchip=off,hpet=off'
     '-cpu', 'max,-hypervisor'
     '-m', '4G'
     '-smp', "$cpus"

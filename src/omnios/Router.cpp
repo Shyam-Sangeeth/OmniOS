@@ -18,6 +18,12 @@ namespace fs = std::filesystem;
 const std::vector<Engine> kEngines = {
     {"native", "Native", "", "", Tier::Native,
      "runs directly on the host CPU"},
+    // Booting the ISO showed Proton as "not installed" even though steam is on
+    // the image, and that is accurate: Proton is not a binary on PATH. Steam
+    // downloads it into ~/.steam/root/compatibilitytools.d and runs it through
+    // its own runtime, so detecting and launching it needs to go through Steam
+    // rather than exec a command. Left as-is until that path is built; the
+    // failure is at least honest and the install hint is right.
     {"proton", "Proton", "proton", "steam", Tier::ApiLayer,
      "Windows NT API layer with DXVK/VKD3D"},
     {"wine", "Wine", "wine", "wine", Tier::ApiLayer,

@@ -8,10 +8,22 @@ distribution.
 
 Pick whichever route matches what you already have.
 
-## Route A — Docker Desktop (least invasive)
+## Route A — Docker Desktop (verified: this is how the shipped ISO was built)
 
-No reboot, no Windows features, nothing permanent. The Arch image is ~800 MB
-and the build pulls a few GB of packages.
+Docker Desktop on Windows runs its engine inside a Linux VM, so it needs
+**WSL2 or Hyper-V** — enabling either is a Windows optional feature and takes a
+reboot. Docker alone is not enough on a machine that has neither. Check first:
+
+```powershell
+wsl --status            # "Default Version: 2" means WSL2 is live
+Get-Service vmcompute   # Running means Hyper-V is live
+```
+
+Nothing works until those features are enabled *and the machine has rebooted* —
+a pending servicing operation reports as "not installed" and Docker's engine
+returns 500 with no VM behind it.
+
+The Arch image is ~800 MB and the build pulls a few GB of packages.
 
 ```powershell
 winget install --id Docker.DockerDesktop
@@ -105,14 +117,18 @@ the plumbing, hardware proves the performance.
 Honest list of what has not been verified, because it cannot be without a
 build:
 
-- **Package names.** All 89 entries in `packages.x86_64` are believed to be in
-  `core`/`extra`/`multilib`, but only a real `pacman -Sy` proves it. A wrong
-  name fails the build loudly and is a one-line fix.
-- **No live user account.** The image autologins as root. Creating a real user
-  needs `passwd`/`shadow`/`group` files in the airootfs; Phase 13.3's setup
-  wizard is where that belongs.
+- **Proton is not detected.** It shows as "not installed" on a booted image
+  even though `steam` is present, and that is correct: Proton is not a binary
+  on `PATH`. Steam fetches it into `compatibilitytools.d` and runs it through
+  its own runtime, so both detecting and launching it have to go via Steam.
+- **AUR package names are unverified.** The ISO build never sees them — pacman
+  has no AUR support — so `pcsx2-git`, `shadps4-bin`, `ryubing` and the rest
+  are only proven when `omni-first-boot` runs on a live system.
 - **Not an installer yet.** This is a live image. Phase 13.2's auto-installer —
   boot, confirm once, install to disk — is not written. `archinstall` is on the
   image as a manual fallback.
+- **No GPU in a VM.** Mesa falls back to `llvmpipe`, which is enough for the
+  compositor and the launcher but not for any game. Phase 13.4 still means
+  real hardware.
 - **No branding.** Phase 11's Plymouth theme, GRUB theme and boot splash are
   not in the profile; the boot is plain text.

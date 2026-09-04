@@ -32,13 +32,17 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
 # Virtual GPUs need coaxing. Read the DRM driver rather than guessing from
 # device names, so this keys off what is actually bound.
+# Match anywhere in the resolved driver path, not on its basename. card0's
+# "device" is the PCI parent, so virtio-vga resolves to .../drivers/virtio-pci
+# rather than virtio_gpu — an exact-name match silently never fires, which is
+# exactly what happened on the first attempt at this.
 omni_drm_driver=""
 if [ -e /sys/class/drm/card0/device/driver ]; then
-    omni_drm_driver=$(basename "$(readlink -f /sys/class/drm/card0/device/driver)")
+    omni_drm_driver=$(readlink -f /sys/class/drm/card0/device/driver)
 fi
 
 case "$omni_drm_driver" in
-    virtio_gpu | bochs-drm | vmwgfx | qxl)
+    *virtio* | *bochs* | *vmwgfx* | *qxl* | *vboxvideo* | *cirrus*)
         # AQ_NO_MODIFIERS is the important one. Without it aquamarine
         # negotiates DRM format modifiers that these drivers cannot satisfy
         # under software rendering, and every mode is refused:
@@ -89,6 +93,11 @@ if [ -e /dev/ttyS0 ]; then
         cat "$OMNI_LOG" 2>/dev/null
         echo "===== PROCESSES ON TTY1 ====="
         ps -t tty1 -o pid,stat,cmd --no-headers 2>/dev/null
+        echo "===== GRAPHICS ENVIRONMENT ====="
+        echo "drm driver path: ${omni_drm_driver:-none}"
+        echo "AQ_NO_MODIFIERS=${AQ_NO_MODIFIERS:-unset}"
+        echo "LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE:-unset}"
+        echo "WLR_NO_HARDWARE_CURSORS=${WLR_NO_HARDWARE_CURSORS:-unset}"
         echo "===== DRM DEVICES ====="
         ls -l /dev/dri 2>/dev/null
         echo "===== END ====="

@@ -56,15 +56,18 @@ if command -v plymouth >/dev/null 2>&1; then
     plymouth quit --retain-splash >/dev/null 2>&1 || true
 fi
 
-# start-hyprland is the supported entry point and ships in the hyprland
-# package. Launching the bare Hyprland binary makes it warn, on screen and on
-# every boot, that this is a debugging-only path — it does not set up the
-# session (dbus, systemd user units, environment) the way the wrapper does.
-if command -v start-hyprland >/dev/null 2>&1; then
-    start-hyprland >"$OMNI_LOG" 2>&1
-else
-    Hyprland >"$OMNI_LOG" 2>&1
-fi
+# Hyprland is invoked directly, on purpose.
+#
+# start-hyprland is the upstream-recommended entry point and silences the
+# "started without start-hyprland" warning, but it hands off to a session
+# manager and returns immediately. From a tty autologin that means this script
+# finishes, the login shell exits, getty respawns, and the boot never reaches
+# the launcher — which is exactly what it did. Verified by isolation: the
+# failure was identical under both stdvga and virtio-vga, so the display device
+# was not involved.
+#
+# The warning is cosmetic. A console that never starts is not.
+Hyprland >"$OMNI_LOG" 2>&1
 status=$?
 
 if [ $status -ne 0 ]; then

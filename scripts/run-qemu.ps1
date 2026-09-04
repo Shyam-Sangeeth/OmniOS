@@ -27,6 +27,12 @@ param(
     [string]$Iso,
     [switch]$Uefi,
     [switch]$Disk,
+    # Display device. stdvga dumps reliably at every stage of boot, which is
+    # what makes the VM debuggable; virtio is closer to what a compositor
+    # expects. Being able to switch isolates "did the compositor break" from
+    # "can the harness see it".
+    [ValidateSet('std','virtio')]
+    [string]$Vga = 'std',
     # Expose QEMU's monitor on this TCP port, so the boot can be screenshotted
     # with "screendump" without anyone having to watch the window.
     [int]$MonitorPort = 0
@@ -71,12 +77,9 @@ $qemuArgs = @(
     '-cpu', 'max,-hypervisor'
     '-m', '4G'
     '-smp', "$cpus"
-    # Standard VGA rather than virtio-vga. There is no GPU acceleration in this
-    # VM either way (Mesa falls back to llvmpipe), and QEMU's screendump cannot
-    # read a virtio-gpu scanout once something holds the DRM device — the boot
-    # splash capture came back empty for exactly that reason. stdvga dumps
-    # reliably at every stage of boot, which is what makes the VM debuggable.
-    '-device', 'VGA,vgamem_mb=64'
+    # See the -Vga parameter. There is no GPU acceleration in this VM either
+    # way; Mesa falls back to llvmpipe regardless.
+    '-device', $(if ($Vga -eq 'virtio') { 'virtio-vga' } else { 'VGA,vgamem_mb=64' })
     '-display', 'sdl'
     '-device', 'qemu-xhci'
     '-device', 'usb-tablet'

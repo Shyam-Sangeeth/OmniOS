@@ -25,7 +25,7 @@ for (i = 0; i < spinner.count; i++)
 spinner.sprite = Sprite();
 spinner.sprite.SetPosition(
     screen_width / 2 - spinner.images[0].GetWidth() / 2,
-    logo.y + logo.image.GetHeight() + 46,
+    logo.y + logo.image.GetHeight() + 22,
     1);
 
 # The refresh callback runs about 50 times a second; step the spinner every

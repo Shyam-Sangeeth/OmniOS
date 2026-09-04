@@ -55,7 +55,12 @@ readonly OMNI_LOG=/tmp/omnios-session.log
 # keyboard through QEMU's monitor proved unreliable past a couple of commands.
 #
 # Harmless where there is no serial port: the test guards it.
-if [ -w /dev/ttyS0 ]; then
+if [ -e /dev/ttyS0 ]; then
+    if [ -w /dev/ttyS0 ]; then
+        omni_serial() { cat >/dev/ttyS0; }
+    else
+        omni_serial() { sudo -n tee /dev/ttyS0 >/dev/null; }
+    fi
     (
         sleep 30
         echo "===== OMNIOS SESSION LOG ====="
@@ -65,7 +70,7 @@ if [ -w /dev/ttyS0 ]; then
         echo "===== DRM DEVICES ====="
         ls -l /dev/dri 2>/dev/null
         echo "===== END ====="
-    ) >/dev/ttyS0 2>&1 &
+    ) 2>&1 | omni_serial &
 fi
 
 # Hand the display over before starting the compositor. plymouth holds DRM

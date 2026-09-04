@@ -31,8 +31,13 @@ param(
     # what makes the VM debuggable; virtio is closer to what a compositor
     # expects. Being able to switch isolates "did the compositor break" from
     # "can the harness see it".
+    # Default virtio: stdvga (bochs-drm) exposes no render node, so aquamarine
+    # cannot create a renderer at all and the compositor never presents. std is
+    # kept only because QEMU's screendump can read its scanout at every stage
+    # of boot, which virtio's cannot once something holds the device — useful
+    # for capturing the splash, useless for testing the launcher.
     [ValidateSet('std','virtio')]
-    [string]$Vga = 'std',
+    [string]$Vga = 'virtio',
     # Capture the guest's serial port to a file on the host. The image writes
     # its session log there, which is the only reliable way to see inside a
     # compositor that runs without producing output.

@@ -30,17 +30,39 @@ fi
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 [ -d "$XDG_RUNTIME_DIR" ] || { mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; }
 
-# No render node means no GPU: some virtual display devices (bochs/stdvga)
-# expose /dev/dri/card0 for modesetting but no /dev/dri/renderD128. Fall back
-# to Mesa's software GL so the compositor still has an OpenGL implementation.
+# Virtual GPUs need coaxing. Read the DRM driver rather than guessing from
+# device names, so this keys off what is actually bound.
+omni_drm_driver=""
+if [ -e /sys/class/drm/card0/device/driver ]; then
+    omni_drm_driver=$(basename "$(readlink -f /sys/class/drm/card0/device/driver)")
+fi
+
+case "$omni_drm_driver" in
+    virtio_gpu | bochs-drm | vmwgfx | qxl)
+        # AQ_NO_MODIFIERS is the important one. Without it aquamarine
+        # negotiates DRM format modifiers that these drivers cannot satisfy
+        # under software rendering, and every mode is refused:
+        #
+        #   ERR: Monitor Virtual-1: REJECTED available mode 1280x800@74.99Hz!
+        #   ERR: Monitor Virtual-1: REJECTED preferred mode!!!
+        #
+        # The compositor then runs perfectly with nothing ever committed to
+        # the screen — no error, no exit, no clue.
+        export AQ_NO_MODIFIERS=1
+        export WLR_NO_HARDWARE_CURSORS=1
+        ;;
+esac
+
+# No render node at all means no GL device to bind: bochs/stdvga exposes
+# card0 for modesetting but no renderD128, and aquamarine then reports
+# "Can't create renderer, no matching devices found". Software GL does not
+# rescue that — the device has to exist — so this only helps drivers that do
+# expose one.
 #
-# WLR_RENDERER=pixman is deliberately NOT set here. Hyprland does not support
-# the pixman renderer — it needs GLES — and setting it produces a compositor
-# that starts, stays running and never puts anything on screen. That cost four
-# rebuilds to find, because nothing fails and nothing is logged.
+# WLR_RENDERER=pixman is deliberately NOT set. Hyprland has no pixman
+# renderer; setting it yields a compositor that runs and never draws.
 if ! [ -e /dev/dri/renderD128 ]; then
     export LIBGL_ALWAYS_SOFTWARE=1
-    export WLR_NO_HARDWARE_CURSORS=1
 fi
 
 # /tmp, not /var/log: the live user is unprivileged, and a log the session

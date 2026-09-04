@@ -114,7 +114,17 @@ fi
 # exits, so the display stays covered across the handoff and the compositor
 # draws over a splash rather than over black.
 if command -v plymouth >/dev/null 2>&1; then
-    plymouth quit --retain-splash >/dev/null 2>&1 || true
+    # NOT --retain-splash. Retaining the splash means plymouth keeps the
+    # display rather than handing it back, so the compositor never becomes DRM
+    # master and every framebuffer allocation is refused:
+    #
+    #   KMS: DRM_IOCTL_MODE_CREATE_DUMB failed: Permission denied
+    #   GBM: Failed to allocate a GBM buffer: bo null
+    #   Monitor Virtual-1: REJECTED available mode 1280x800@74.99Hz!
+    #
+    # The rejected modes were only the symptom. A brief black frame during the
+    # handoff is the price of the compositor actually getting the device.
+    plymouth quit >/dev/null 2>&1 || true
 
     # 'plymouth quit' returns as soon as the request is sent, not when the
     # daemon has exited and dropped DRM master. Starting the compositor into

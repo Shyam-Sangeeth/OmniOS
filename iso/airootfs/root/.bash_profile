@@ -43,6 +43,19 @@ fi
 # cannot write is a log that does not exist when it is needed most.
 readonly OMNI_LOG=/tmp/omnios-session.log
 
+# Hand the display over before starting the compositor. plymouth holds DRM
+# master for as long as it runs, and a wlroots compositor cannot take the
+# device from it — Hyprland simply blocks. Holding the splash until the
+# launcher had drawn therefore deadlocked one step later than the last fix:
+# boot reached autologin and stopped there.
+#
+# --retain-splash leaves the last frame painted on the screen while plymouth
+# exits, so the display stays covered across the handoff and the compositor
+# draws over a splash rather than over black.
+if command -v plymouth >/dev/null 2>&1; then
+    plymouth quit --retain-splash >/dev/null 2>&1 || true
+fi
+
 # start-hyprland is the supported entry point and ships in the hyprland
 # package. Launching the bare Hyprland binary makes it warn, on screen and on
 # every boot, that this is a debugging-only path — it does not set up the

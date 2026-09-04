@@ -66,7 +66,7 @@ $script = @"
 set -euo pipefail
 echo '==> refreshing keyring and installing build tools'
 pacman -Sy --noconfirm archlinux-keyring
-pacman -S --noconfirm --needed archiso cmake ninja gcc git
+pacman -S --noconfirm --needed archiso cmake ninja gcc git qt6-base qt6-declarative qt6-tools
 echo '==> building'
 ./scripts/build-iso.sh $buildFlags
 echo '==> copying the ISO out of the build volume'

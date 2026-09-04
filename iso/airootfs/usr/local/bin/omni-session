@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Chooses the shell Hyprland starts.
+#
+# The Qt6 tile launcher is the real Phase 10 UI. The terminal launcher stays as
+# a fallback for images built without Qt6 — and, more usefully, for when the
+# QML shell fails to start: a console that drops to a working text UI is far
+# better than one that shows an empty desktop.
+set -uo pipefail
+
+readonly LOG=/tmp/omnios-shell.log
+
+if command -v omni-launcher-qml >/dev/null 2>&1; then
+    omni-launcher-qml >>"$LOG" 2>&1
+    status=$?
+    [ $status -eq 0 ] && exit 0
+    echo "omni-launcher-qml exited with status $status; falling back" >>"$LOG"
+fi
+
+exec foot --app-id=omni-launcher --fullscreen omni-launcher

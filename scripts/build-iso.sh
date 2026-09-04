@@ -50,6 +50,27 @@ fi
 [[ -x "$CORE_BUILD/omnictl" ]] || die "$CORE_BUILD/omnictl missing; run without --skip-core"
 install -Dm755 "$CORE_BUILD/omnictl" "$PROFILE/airootfs/usr/local/bin/omnictl"
 
+# The Phase 10 shell. Absent when the build host has no Qt6, in which case the
+# image falls back to the terminal launcher — say so rather than shipping a
+# broken exec-once that leaves a blank desktop.
+launcher_bin="$CORE_BUILD/src/launcher/omni-launcher"
+if [[ -x "$launcher_bin" ]]; then
+    install -Dm755 "$launcher_bin" "$PROFILE/airootfs/usr/local/bin/omni-launcher-qml"
+    step "including the Qt6 launcher"
+else
+    # profiledef.sh lists this path in file_permissions, and mkarchiso aborts
+    # the build if a listed path is missing. Install a shim so a Qt6-less build
+    # degrades to the terminal launcher instead of failing outright — archiso
+    # copies the airootfs with --no-preserve=mode, so file_permissions is the
+    # only thing that can make either version executable.
+    install -Dm755 /dev/stdin "$PROFILE/airootfs/usr/local/bin/omni-launcher-qml" <<'SHIM'
+#!/usr/bin/env bash
+echo "omni-launcher-qml: not built into this image (no Qt6 at build time)" >&2
+exit 127
+SHIM
+    echo "warning: Qt6 launcher not built; image uses the terminal launcher" >&2
+fi
+
 # --- 2. service symlinks git could not carry --------------------------------
 step "enabling systemd units"
 while read -r unit target; do

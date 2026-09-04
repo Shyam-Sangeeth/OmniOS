@@ -39,5 +39,21 @@ endif()
 add_executable(omnictl src/omnictl/main.cpp)
 target_link_libraries(omnictl PRIVATE omnios_core)
 
+# The Phase 10 QML shell. Optional on purpose: Qt6 is not installed on the
+# Windows host this profile is authored from, and the core plus its 68 tests
+# must stay buildable there. The ISO build runs in an Arch container where Qt6
+# is present, so the image always ships the real launcher.
+option(OMNIOS_BUILD_LAUNCHER "Build the Qt6/QML launcher when Qt6 is available" ON)
+
+if(OMNIOS_BUILD_LAUNCHER)
+    find_package(Qt6 6.5 COMPONENTS Core Gui Quick QuickControls2 QUIET)
+    if(Qt6_FOUND)
+        message(STATUS "Qt6 ${Qt6_VERSION} found - building omni-launcher")
+        add_subdirectory(src/launcher)
+    else()
+        message(STATUS "Qt6 not found - skipping omni-launcher (core and omnictl still build)")
+    endif()
+endif()
+
 enable_testing()
 add_subdirectory(tests)

@@ -38,10 +38,14 @@ bootstrap_tarball_compression=('zstd' '-c' '-T0' '--auto-threads=logical' '--lon
 # a Unix mode bit. Anything that has to be executable or private is listed here
 # explicitly rather than relying on what git checked out.
 #
-# mkarchiso declares this associative array itself before sourcing the profile;
-# declaring it here too is harmless and lets the file be sourced standalone for
-# checking, which is the only validation possible on a non-Arch host.
-declare -A file_permissions
+# NOTE the -g. mkarchiso sources this profile from inside a function, so a bare
+# `declare -A` here would create a function-local that shadows mkarchiso's own
+# global and is discarded the moment the function returns — leaving the array
+# empty and every permission below silently unapplied. That is exactly what
+# happened: omnictl shipped as 0644 and the launcher died with "Permission
+# denied". Releng profiles omit the declaration entirely; -g keeps the file
+# sourceable standalone for checking without breaking mkarchiso.
+declare -gA file_permissions
 file_permissions=(
   ["/etc/shadow"]="0:0:400"
   ["/etc/gshadow"]="0:0:400"

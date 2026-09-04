@@ -85,7 +85,11 @@ seatd
 polkit
 # Terminal emulator: the launcher's escape hatch, and the surface the
 # placeholder launcher draws into until the QML shell exists.
+# foot-terminfo is only an optional dependency of foot, so it has to be named
+# explicitly. Without it TERM=foot falls back to whatever ncurses ships, and
+# screen control the launcher relies on (clear, cursor addressing) degrades.
 foot
+foot-terminfo
 
 ## Core gaming services — Phase 4
 gamemode

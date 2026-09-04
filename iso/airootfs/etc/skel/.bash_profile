@@ -43,7 +43,15 @@ fi
 # cannot write is a log that does not exist when it is needed most.
 readonly OMNI_LOG=/tmp/omnios-session.log
 
-Hyprland >"$OMNI_LOG" 2>&1
+# start-hyprland is the supported entry point and ships in the hyprland
+# package. Launching the bare Hyprland binary makes it warn, on screen and on
+# every boot, that this is a debugging-only path — it does not set up the
+# session (dbus, systemd user units, environment) the way the wrapper does.
+if command -v start-hyprland >/dev/null 2>&1; then
+    start-hyprland >"$OMNI_LOG" 2>&1
+else
+    Hyprland >"$OMNI_LOG" 2>&1
+fi
 status=$?
 
 if [ $status -ne 0 ]; then

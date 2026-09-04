@@ -6,8 +6,6 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
-#include <QQuickStyle>
-#include <QSurfaceFormat>
 #include <cstdlib>
 
 #include "LauncherController.h"
@@ -27,8 +25,6 @@ int main(int argc, char* argv[]) {
     QGuiApplication::setApplicationVersion(QStringLiteral("0.1.0"));
     // Hyprland matches this against its fullscreen window rule.
     QGuiApplication::setDesktopFileName(QStringLiteral("omni-launcher"));
-
-    QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     LauncherController controller;
 

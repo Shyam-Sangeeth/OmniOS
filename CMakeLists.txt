@@ -46,7 +46,7 @@ target_link_libraries(omnictl PRIVATE omnios_core)
 option(OMNIOS_BUILD_LAUNCHER "Build the Qt6/QML launcher when Qt6 is available" ON)
 
 if(OMNIOS_BUILD_LAUNCHER)
-    find_package(Qt6 6.5 COMPONENTS Core Gui Quick QuickControls2 QUIET)
+    find_package(Qt6 6.5 COMPONENTS Core Gui Quick QUIET)
     if(Qt6_FOUND)
         message(STATUS "Qt6 ${Qt6_VERSION} found - building omni-launcher")
         add_subdirectory(src/launcher)

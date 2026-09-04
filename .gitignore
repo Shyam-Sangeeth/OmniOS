@@ -9,6 +9,11 @@ compile_commands.json
 # and regenerated on every run. The .wants symlinks in particular cannot even
 # be indexed by git on Windows, which is why services.enable exists as text.
 iso/airootfs/etc/systemd/system/*.wants/
+# Masked units are symlinks to /dev/null created by the build, and git on
+# Windows cannot index a symlink. Ignore unit files in this directory but keep
+# the ones the profile actually owns, which are all prefixed omnios-.
+iso/airootfs/etc/systemd/system/*.service
+!iso/airootfs/etc/systemd/system/omnios-*.service
 iso/airootfs/usr/local/bin/omnictl
 iso/airootfs/usr/share/omnios/
 iso/airootfs/etc/localtime

@@ -7,3 +7,9 @@
 # black gap the splash exists to cover. omni-launcher quits plymouth itself
 # once it is on screen, and omnios-splash-guard.service is the backstop.
 plymouth-quit.service
+# plymouth-quit-wait blocks multi-user.target until plymouth exits. Masking
+# only plymouth-quit leaves nothing to make it exit, so boot deadlocks behind
+# the splash: no getty, no autologin, no launcher, and a black tty2. Both have
+# to go, and omnios-splash-guard becomes the only thing that ends the splash if
+# the launcher never starts.
+plymouth-quit-wait.service

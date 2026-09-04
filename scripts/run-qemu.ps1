@@ -71,7 +71,12 @@ $qemuArgs = @(
     '-cpu', 'max,-hypervisor'
     '-m', '4G'
     '-smp', "$cpus"
-    '-device', 'virtio-vga'
+    # Standard VGA rather than virtio-vga. There is no GPU acceleration in this
+    # VM either way (Mesa falls back to llvmpipe), and QEMU's screendump cannot
+    # read a virtio-gpu scanout once something holds the DRM device — the boot
+    # splash capture came back empty for exactly that reason. stdvga dumps
+    # reliably at every stage of boot, which is what makes the VM debuggable.
+    '-device', 'VGA,vgamem_mb=64'
     '-display', 'sdl'
     '-device', 'qemu-xhci'
     '-device', 'usb-tablet'

@@ -4,12 +4,17 @@ Description=Force the OmniOS boot splash down if the launcher never appears
 # drawn. That is a deadlock risk: if the launcher never starts, the splash would
 # cover the failure forever. This is the backstop, and it is why masking is
 # safe to do at all.
-After=multi-user.target
+# Anchored to systemd-user-sessions, not multi-user.target. The first version
+# of this unit waited on multi-user.target — the exact target a splash deadlock
+# prevents from being reached — so the backstop could never fire in the one
+# situation it existed for. This runs as sessions become available, which
+# happens before getty.
+After=systemd-user-sessions.service
 ConditionPathExists=/usr/bin/plymouth
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/sh -c 'sleep 45; /usr/bin/plymouth quit >/dev/null 2>&1 || true'
+ExecStart=/usr/bin/sh -c 'sleep 40; /usr/bin/plymouth quit >/dev/null 2>&1 || true'
 
 [Install]
 WantedBy=multi-user.target

@@ -41,6 +41,20 @@ docker run --rm --privileged `
 `--privileged` is required: `mkarchiso` mounts loop devices, which a default
 container cannot do.
 
+In practice use the wrapper rather than that raw command. It mounts a Docker
+volume for the work tree, which is not optional: `mkarchiso` builds a real root
+filesystem, and a Windows bind mount cannot carry Unix ownership, setuid bits
+or device nodes — pacstrap dies partway through if you try. It also refreshes
+`archlinux-keyring` first, since a stale keyring in the base image makes every
+package fail signature verification for no obvious reason.
+
+```powershell
+.\scripts\build-iso-docker.ps1 -KeepCache
+```
+
+`-KeepCache` persists pacman's package cache in a named volume, so a second
+build does not re-download several GB.
+
 The ISO lands in `out/`. Boot it from Windows:
 
 ```powershell

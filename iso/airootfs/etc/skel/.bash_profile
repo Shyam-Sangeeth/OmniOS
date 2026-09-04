@@ -30,13 +30,17 @@ fi
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 [ -d "$XDG_RUNTIME_DIR" ] || { mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"; }
 
-# A VM has no real GPU. wlroots defaults to a GL renderer that needs one, so
-# without a hardware device Hyprland exits before drawing anything. pixman is
-# the software renderer, and hardware cursors have to go with it.
+# No render node means no GPU: some virtual display devices (bochs/stdvga)
+# expose /dev/dri/card0 for modesetting but no /dev/dri/renderD128. Fall back
+# to Mesa's software GL so the compositor still has an OpenGL implementation.
+#
+# WLR_RENDERER=pixman is deliberately NOT set here. Hyprland does not support
+# the pixman renderer — it needs GLES — and setting it produces a compositor
+# that starts, stays running and never puts anything on screen. That cost four
+# rebuilds to find, because nothing fails and nothing is logged.
 if ! [ -e /dev/dri/renderD128 ]; then
-    export WLR_RENDERER=pixman
-    export WLR_NO_HARDWARE_CURSORS=1
     export LIBGL_ALWAYS_SOFTWARE=1
+    export WLR_NO_HARDWARE_CURSORS=1
 fi
 
 # /tmp, not /var/log: the live user is unprivileged, and a log the session

@@ -126,6 +126,33 @@ and every emulator will either crawl or refuse to start. That is expected and
 is exactly why OmniOS.md Phase 13.4 is "test on real hardware" — the VM proves
 the plumbing, hardware proves the performance.
 
+## The boot handoff, and why it is fragile
+
+Boot passes the display through three owners: plymouth (from the initramfs),
+then Hyprland, then the launcher inside it. Two rules make that work, and both
+were learned by breaking them:
+
+1. **plymouth must be gone, not merely asked to go.** `plymouth quit` returns
+   when the request is sent. `plymouth --ping` then reports the daemon gone
+   while it is still alive holding DRM master. Poll for the `plymouthd`
+   *process*. Until that was right the compositor could not allocate a single
+   framebuffer — `DRM_IOCTL_MODE_CREATE_DUMB failed: Permission denied`, 482
+   times — and every display mode was refused as a downstream symptom.
+2. **Do not pass `--retain-splash`.** Retaining the splash means plymouth keeps
+   the display instead of handing it back, which is the same failure.
+
+The symptom of getting either wrong is a compositor that starts, stays running,
+logs nothing alarming, and never draws. `ps` shows Hyprland and Xwayland alive;
+the screen shows the console underneath. Nothing fails, so nothing points at
+the cause. Read `/tmp/omnios-session.log` over the serial port
+(`run-qemu.ps1 -SerialLog`) rather than inferring from screenshots.
+
+A VM also needs a display device with a render node. `-Vga std` (bochs-drm)
+exposes `card0` but no `renderD128`, so aquamarine reports "Can't create
+renderer, no matching devices found" and nothing renders at all; it is useful
+only for capturing the splash, because QEMU's `screendump` can read its scanout
+at every stage of boot where virtio's cannot.
+
 ## Known gaps in the profile
 
 Honest list of what has not been verified, because it cannot be without a

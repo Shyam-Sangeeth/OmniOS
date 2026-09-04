@@ -1,5 +1,13 @@
 build/
+out/
 .cache/
 compile_commands.json
 *.o
 *.exe
+
+# Generated into the profile by scripts/build-iso.sh on the Linux build host,
+# and regenerated on every run. The .wants symlinks in particular cannot even
+# be indexed by git on Windows, which is why services.enable exists as text.
+iso/airootfs/etc/systemd/system/*.wants/
+iso/airootfs/usr/local/bin/omnictl
+iso/airootfs/usr/share/omnios/

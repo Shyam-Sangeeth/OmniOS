@@ -9,6 +9,10 @@
 #   ryujinx-bin -> ryubing   (Ryujinx was discontinued in October 2024)
 #   citra-bin   -> azahar    (Citra was taken down in March 2024)
 
+# Verified against the repos on 2026-09-05: pcsx2 and game-devices-udev are no
+# longer in extra, so they moved here. AUR package names themselves are NOT
+# verified by the ISO build — pacman never sees them.
+
 shadps4-bin                 # PS4 / PS5  — Orbis API layer
 ryubing                     # Switch     — ARM64 JIT
 rpcs3-bin                   # PS3        — Cell/PowerPC recompiler
@@ -18,3 +22,5 @@ waydroid                    # Android    — LXC container
 heroic-games-launcher-bin   # Epic + GOG
 dxvk-bin                    # DirectX 9/10/11 -> Vulkan for non-Steam titles
 vkd3d-proton-bin            # DirectX 12 -> Vulkan for non-Steam titles
+pcsx2-git                   # PS2        — dropped from extra; AUR-only now
+game-devices-udev           # udev rules for third-party controllers

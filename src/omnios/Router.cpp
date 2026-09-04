@@ -28,7 +28,10 @@ const std::vector<Engine> kEngines = {
      "Switch ARM64 JIT (maintained Ryujinx fork)"},
     {"rpcs3", "RPCS3", "rpcs3", "rpcs3-bin", Tier::Emulator,
      "PS3 Cell/PowerPC recompiler"},
-    {"pcsx2", "PCSX2", "pcsx2", "pcsx2", Tier::Emulator,
+    // PCSX2 was dropped from the official repos, so the install hint has to
+    // point at the AUR. PCSX2 2.x ships its binary as pcsx2-qt, matching
+    // DuckStation's naming.
+    {"pcsx2", "PCSX2", "pcsx2-qt", "pcsx2-git", Tier::Emulator,
      "PS2 MIPS recompiler"},
     {"duckstation", "DuckStation", "duckstation-qt", "duckstation-bin", Tier::Emulator,
      "PS1 MIPS dynarec"},

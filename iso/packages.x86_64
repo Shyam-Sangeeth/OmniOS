@@ -29,6 +29,7 @@ mkinitcpio-archiso
 mkinitcpio-nfs-utils
 syslinux
 edk2-shell
+memtest86+
 memtest86+-efi
 arch-install-scripts
 archinstall
@@ -103,7 +104,6 @@ wine-gecko
 winetricks
 vkd3d
 lib32-vkd3d
-pcsx2
 dolphin-emu
 retroarch
 retroarch-assets-ozone
@@ -123,7 +123,9 @@ ttf-dejavu
 noto-fonts
 noto-fonts-emoji
 
-## Controllers
+## Controllers. multilib ships no lib32 SDL2 of any kind; lib32-sdl3 is the
+## only 32-bit SDL there, and sdl2-compat serves the SDL2 API on top of SDL3.
+## game-devices-udev is AUR-only and lives in packages.aur.txt.
 sdl2-compat
-lib32-sdl2-compat
-game-devices-udev
+sdl3
+lib32-sdl3

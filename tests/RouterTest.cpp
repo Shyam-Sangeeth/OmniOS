@@ -88,7 +88,7 @@ TEST("router: wrappers are applied outermost first") {
     const LaunchPlan plan = planLaunch(gameOn(Platform::PS2), options);
     CHECK_EQ(plan.argv[0], std::string("gamemoderun"));
     CHECK_EQ(plan.argv[1], std::string("mangohud"));
-    CHECK_EQ(plan.argv[2], std::string("pcsx2"));
+    CHECK_EQ(plan.argv[2], std::string("pcsx2-qt"));
     CHECK_EQ(plan.environment.at("MANGOHUD"), std::string("1"));
 }
 

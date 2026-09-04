@@ -16,8 +16,17 @@ set -euo pipefail
 
 readonly REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly PROFILE="$REPO/iso"
-readonly OUT="$REPO/out"
-readonly WORK="$REPO/build/iso-work"
+# mkarchiso builds a real root filesystem: ownership, setuid bits, device nodes
+# and hardlinks all have to survive. A Windows bind mount (Route A passes the
+# repo through Docker's 9p/virtiofs layer) cannot represent any of that, and
+# pacstrap dies partway through. Both directories are therefore overridable so
+# the container can point them at a Linux volume and copy the ISO back after.
+readonly OUT="${OMNIOS_OUT_DIR:-$REPO/out}"
+readonly WORK="${OMNIOS_WORK_DIR:-$REPO/build/iso-work}"
+# The Linux build gets its own tree. build/ may already hold a CMake cache from
+# a Windows host — the repo is bind-mounted into the container in Route A — and
+# CMake refuses to reuse a cache whose compiler and source paths are C:/...
+readonly CORE_BUILD="$REPO/build/linux"
 
 skip_core=0
 [[ "${1:-}" == "--skip-core" ]] && skip_core=1
@@ -33,13 +42,13 @@ command -v pacman    >/dev/null || die "not an Arch system; see docs/BUILDING.md
 if [[ $skip_core -eq 0 ]]; then
     step "building omnios_core and omnictl"
     command -v cmake >/dev/null || die "cmake not found — pacman -S cmake ninja gcc"
-    cmake -S "$REPO" -B "$REPO/build" -G Ninja -DCMAKE_BUILD_TYPE=Release
-    cmake --build "$REPO/build"
-    ctest --test-dir "$REPO/build" --output-on-failure
+    cmake -S "$REPO" -B "$CORE_BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release
+    cmake --build "$CORE_BUILD"
+    ctest --test-dir "$CORE_BUILD" --output-on-failure
 fi
 
-[[ -x "$REPO/build/omnictl" ]] || die "build/omnictl missing; run without --skip-core"
-install -Dm755 "$REPO/build/omnictl" "$PROFILE/airootfs/usr/local/bin/omnictl"
+[[ -x "$CORE_BUILD/omnictl" ]] || die "$CORE_BUILD/omnictl missing; run without --skip-core"
+install -Dm755 "$CORE_BUILD/omnictl" "$PROFILE/airootfs/usr/local/bin/omnictl"
 
 # --- 2. service symlinks git could not carry --------------------------------
 step "enabling systemd units"

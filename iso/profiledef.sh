@@ -23,10 +23,9 @@ buildmodes=('iso')
 
 # BIOS and 64-bit UEFI. Both are needed to boot under QEMU either way round:
 # plain qemu-system-x86_64 is BIOS, and -bios OVMF is UEFI.
-bootmodes=('bios.syslinux.mbr'
-           'bios.syslinux.eltorito'
-           'uefi-x64.systemd-boot.esp'
-           'uefi-x64.systemd-boot.eltorito')
+# The four-way split into .mbr/.eltorito and .esp/.eltorito is deprecated;
+# current archiso takes one name per firmware and emits both variants itself.
+bootmodes=('bios.syslinux' 'uefi.systemd-boot')
 
 arch="x86_64"
 pacman_conf="pacman.conf"

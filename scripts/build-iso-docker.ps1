@@ -41,10 +41,17 @@ if ($LASTEXITCODE -ne 0) {
     throw "The Docker daemon is not responding. Start Docker Desktop and wait for it to say 'Engine running'."
 }
 
+# The work tree lives in a Linux volume, never on the bind mount: mkarchiso
+# builds a real root filesystem and the Windows 9p/virtiofs layer cannot carry
+# Unix ownership, setuid bits or device nodes. Only the finished ISO is copied
+# back to the repo at the end.
 $dockerArgs = @(
     'run', '--rm', '--privileged',
     '-v', "${repo}:/repo",
-    '-w', '/repo'
+    '-v', 'omnios-work:/work',
+    '-w', '/repo',
+    '-e', 'OMNIOS_WORK_DIR=/work/iso-work',
+    '-e', 'OMNIOS_OUT_DIR=/work/out'
 )
 
 if ($KeepCache) {
@@ -62,6 +69,9 @@ pacman -Sy --noconfirm archlinux-keyring
 pacman -S --noconfirm --needed archiso cmake ninja gcc git
 echo '==> building'
 ./scripts/build-iso.sh $buildFlags
+echo '==> copying the ISO out of the build volume'
+mkdir -p /repo/out
+cp -v /work/out/*.iso /repo/out/
 "@
 
 $dockerArgs += @('archlinux:latest', 'bash', '-c', $script)

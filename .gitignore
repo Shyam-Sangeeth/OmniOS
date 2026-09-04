@@ -15,5 +15,9 @@ iso/airootfs/etc/systemd/system/*.wants/
 iso/airootfs/etc/systemd/system/*.service
 !iso/airootfs/etc/systemd/system/omnios-*.service
 iso/airootfs/usr/local/bin/omnictl
+# The Qt6 shell, also build-generated. Tracking it would put a 1.1MB ELF
+# under the iso/** text=lf rule, which rewrites line endings inside the
+# binary and corrupts it.
+iso/airootfs/usr/local/bin/omni-launcher-qml
 iso/airootfs/usr/share/omnios/
 iso/airootfs/etc/localtime

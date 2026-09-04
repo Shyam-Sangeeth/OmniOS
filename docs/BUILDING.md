@@ -171,5 +171,6 @@ build:
 - **No GPU in a VM.** Mesa falls back to `llvmpipe`, which is enough for the
   compositor and the launcher but not for any game. Phase 13.4 still means
   real hardware.
-- **No branding.** Phase 11's Plymouth theme, GRUB theme and boot splash are
-  not in the profile; the boot is plain text.
+- **Branding is partial.** The Plymouth splash is in and working; the boot menu
+  is silent. A GRUB theme and launcher sound effects are not done, and the
+  Hyprland config still uses the .conf format that Hyprland 0.57 removes.

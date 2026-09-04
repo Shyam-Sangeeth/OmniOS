@@ -15,3 +15,13 @@ CMakeLists.txt  text eol=lf
 
 # PowerShell is the one thing that stays CRLF.
 *.ps1           text eol=crlf
+
+# Binaries must be exempt from all of the above. The iso/** rule is a glob and
+# happily claims the Plymouth artwork as text, which would rewrite line endings
+# inside the PNG streams and corrupt them on checkout.
+*.png           binary
+*.jpg           binary
+*.gz            binary
+*.zst           binary
+*.iso           binary
+*.opkg          binary

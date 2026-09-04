@@ -1,0 +1,8 @@
+# mkinitcpio preset for the live image. mkarchiso builds exactly the presets
+# listed here, and copies /boot/vmlinuz-linux-zen alongside the result.
+ALL_kver="/boot/vmlinuz-linux-zen"
+
+PRESETS=('archiso')
+
+archiso_config="/etc/mkinitcpio.conf.d/archiso.conf"
+archiso_image="/boot/initramfs-linux-zen.img"

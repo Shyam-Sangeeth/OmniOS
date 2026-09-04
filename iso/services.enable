@@ -1,0 +1,14 @@
+# Systemd units enabled on the image.
+#
+# archiso enables units through symlinks inside airootfs. This profile is
+# edited on Windows, where git cannot check out a symlink as a symlink, so the
+# list lives here as text and scripts/build-iso.sh creates the links on the
+# Linux build host instead.
+#
+# format: <unit> <target>
+NetworkManager.service      multi-user.target
+systemd-timesyncd.service   sysinit.target
+gamemoded.service           multi-user.target
+cpupower.service            multi-user.target
+seatd.service               multi-user.target
+sshd.service                multi-user.target

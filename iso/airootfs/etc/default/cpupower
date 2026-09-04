@@ -1,0 +1,2 @@
+# Phase 4.4 (OmniOS.md §6.4.4). No frequency ramp-up stutter mid-frame.
+governor='performance'

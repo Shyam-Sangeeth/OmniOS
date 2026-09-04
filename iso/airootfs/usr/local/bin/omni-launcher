@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# omni-launcher — the shell Hyprland starts (OmniOS.md §5.3.3, exec-once).
+#
+# Phase 10's Qt6/QML tile grid is not built yet. Until it is, this stands in
+# for it and does the one thing that matters for validating the image: it runs
+# the real compatibility engine against the real ~/Games tree and shows what
+# the launcher would show. If this prints a library, every layer below it —
+# kernel, compositor, scanner, router — is working.
+set -uo pipefail
+
+readonly OMNICTL=/usr/local/bin/omnictl
+
+# Under Hyprland there is no terminal yet, so open one and re-run inside it.
+if [[ -n "${WAYLAND_DISPLAY:-}" && -z "${OMNI_IN_TERMINAL:-}" ]]; then
+    export OMNI_IN_TERMINAL=1
+    for term in foot kitty alacritty; do
+        if command -v "$term" >/dev/null 2>&1; then
+            exec "$term" -- "$0" "$@"
+        fi
+    done
+fi
+
+if [[ ! -x "$OMNICTL" ]]; then
+    echo "omnictl is not installed on this image."
+    echo "scripts/build-iso.sh builds it from src/ and installs it here."
+    exec bash -i
+fi
+
+"$OMNICTL" init
+
+while true; do
+    clear
+    cat <<'BANNER'
+   ___                 _  ___  ___
+  / _ \ _ __ ___  _ __ (_)/ _ \/ __|
+ | (_) | '  \/ _ \| '  \| | (_) \__ \
+  \___/|_|_|_\___/|_|_|_|_|\___/|___/   0.1.0
+  Play everything.
+
+BANNER
+    "$OMNICTL" scan --quiet
+    "$OMNICTL" list
+    echo
+    echo "  [id] launch (dry run)   e) engines   p) platforms   s) shell   q) quit"
+    printf '  > '
+    read -r choice || break
+
+    case "$choice" in
+        e) "$OMNICTL" engines ;;
+        p) "$OMNICTL" platforms ;;
+        s) echo "  type 'exit' to come back"; bash -i ;;
+        q) break ;;
+        "") continue ;;
+        *) "$OMNICTL" info "$choice"; "$OMNICTL" launch "$choice" ;;
+    esac
+
+    printf '\n  press enter to continue '
+    read -r _ || break
+done

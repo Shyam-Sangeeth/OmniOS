@@ -1,0 +1,129 @@
+# OmniOS ISO package set.
+#
+# Only packages that exist in the official Arch repositories can appear here:
+# mkarchiso installs with pacman, which has no idea what the AUR is. The AUR
+# half of Phase 8 (shadPS4, Ryubing, Azahar, DuckStation, Waydroid, Heroic) is
+# in packages.aur.txt and installed by omni-first-boot on the running system.
+
+## Base system — Phase 1
+base
+base-devel
+linux-firmware
+sudo
+git
+curl
+wget
+vim
+nano
+
+## Kernel — Phase 1.2. This is the whole point of the profile: the gaming
+## kernel is a property of the image, not an archinstall menu choice.
+## BORE scheduler, futex2/fsync for Proton, CONFIG_HZ=1000 (OmniOS.md §16).
+linux-zen
+linux-zen-headers
+
+## Live medium plumbing. mkinitcpio-archiso provides the hooks the preset in
+## airootfs/etc/mkinitcpio.d/linux-zen.preset asks for.
+mkinitcpio
+mkinitcpio-archiso
+mkinitcpio-nfs-utils
+syslinux
+edk2-shell
+memtest86+-efi
+arch-install-scripts
+archinstall
+squashfs-tools
+dosfstools
+e2fsprogs
+btrfs-progs
+exfatprogs
+ntfs-3g
+
+## GPU — Phase 2.1. All three vendors ship on the image; the right one binds at
+## boot. lib32 variants are required by Proton and every 32-bit Windows title.
+mesa
+lib32-mesa
+vulkan-icd-loader
+lib32-vulkan-icd-loader
+vulkan-radeon
+lib32-vulkan-radeon
+vulkan-intel
+lib32-vulkan-intel
+vulkan-mesa-layers
+lib32-vulkan-mesa-layers
+libva-mesa-driver
+mesa-utils
+vulkan-tools
+
+## Audio — Phase 2.2. PipeWire at 3-5 ms (OmniOS.md §16).
+pipewire
+lib32-pipewire
+pipewire-alsa
+pipewire-pulse
+pipewire-jack
+lib32-pipewire-jack
+wireplumber
+
+## Networking — Phase 2.3
+networkmanager
+iwd
+openssh
+
+## Storage and input — Phases 2.4, 2.5
+udisks2
+udiskie
+libinput
+usbutils
+
+## Display — Phase 3. Hyprland is the phase-1 compositor; the custom wlroots
+## shell replaces it later without changing anything else in this profile.
+hyprland
+xorg-xwayland
+qt6-wayland
+seatd
+polkit
+# Terminal emulator: the launcher's escape hatch, and the surface the
+# placeholder launcher draws into until the QML shell exists.
+foot
+
+## Core gaming services — Phase 4
+gamemode
+lib32-gamemode
+mangohud
+lib32-mangohud
+cpupower
+zram-generator
+
+## Compatibility layers available in the official repos — Phase 8.
+## Steam brings Proton; the rest of the tier-3 emulators are packaged in extra.
+steam
+wine
+wine-mono
+wine-gecko
+winetricks
+vkd3d
+lib32-vkd3d
+pcsx2
+dolphin-emu
+retroarch
+retroarch-assets-ozone
+libretro-core-info
+
+## Launcher toolchain — Phase 10. Qt6 + QML, and the compiler the core needs.
+qt6-base
+qt6-declarative
+qt6-svg
+cmake
+ninja
+gcc
+
+## Branding — Phase 11
+plymouth
+ttf-dejavu
+noto-fonts
+noto-fonts-emoji
+
+## Controllers
+sdl2-compat
+lib32-sdl2-compat
+game-devices-udev

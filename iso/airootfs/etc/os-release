@@ -1,0 +1,9 @@
+NAME="OmniOS"
+PRETTY_NAME="OmniOS 0.1.0"
+ID=omnios
+ID_LIKE=arch
+BUILD_ID=rolling
+VERSION_ID=0.1.0
+ANSI_COLOR="0;38;2;108;99;255"
+HOME_URL="https://github.com/omnios"
+LOGO=omnios

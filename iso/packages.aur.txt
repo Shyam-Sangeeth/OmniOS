@@ -1,0 +1,20 @@
+# Phase 8 layers that live only in the AUR.
+#
+# mkarchiso cannot install these: pacman has no AUR support, and building them
+# at ISO time would mean running makepkg as a non-root user inside the
+# pacstrap tree. omni-first-boot installs them on the running system instead.
+#
+# Two of the packages OmniOS.md Phase 8 names are dead upstream and are
+# replaced here by the maintained forks:
+#   ryujinx-bin -> ryubing   (Ryujinx was discontinued in October 2024)
+#   citra-bin   -> azahar    (Citra was taken down in March 2024)
+
+shadps4-bin                 # PS4 / PS5  — Orbis API layer
+ryubing                     # Switch     — ARM64 JIT
+rpcs3-bin                   # PS3        — Cell/PowerPC recompiler
+duckstation-bin             # PS1        — MIPS dynarec
+azahar-bin                  # 3DS
+waydroid                    # Android    — LXC container
+heroic-games-launcher-bin   # Epic + GOG
+dxvk-bin                    # DirectX 9/10/11 -> Vulkan for non-Steam titles
+vkd3d-proton-bin            # DirectX 12 -> Vulkan for non-Steam titles

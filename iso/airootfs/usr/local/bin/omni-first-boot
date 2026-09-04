@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# omni-first-boot — installs the Phase 8 layers that live only in the AUR.
+#
+# These cannot be baked into the ISO: pacman has no AUR support, so mkarchiso
+# has no way to fetch them. They are installed here, on the running system,
+# where makepkg can build as a non-root user.
+#
+# Safe to re-run: yay skips what is already installed.
+set -euo pipefail
+
+readonly AUR_LIST=/usr/share/omnios/packages.aur.txt
+
+if [[ $EUID -eq 0 ]]; then
+    echo "run this as your normal user, not root — makepkg refuses to build as root" >&2
+    exit 1
+fi
+
+if ! command -v yay >/dev/null 2>&1; then
+    echo "==> installing yay (AUR helper)"
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    git clone --depth 1 https://aur.archlinux.org/yay.git "$tmp/yay"
+    (cd "$tmp/yay" && makepkg -si --noconfirm)
+fi
+
+if [[ ! -r "$AUR_LIST" ]]; then
+    echo "missing $AUR_LIST" >&2
+    exit 1
+fi
+
+# Strip comments and inline notes, keeping just the package names.
+mapfile -t packages < <(sed 's/#.*//' "$AUR_LIST" | awk 'NF { print $1 }')
+
+if [[ ${#packages[@]} -eq 0 ]]; then
+    echo "nothing to install"
+    exit 0
+fi
+
+echo "==> installing ${#packages[@]} compatibility layers from the AUR"
+printf '    %s\n' "${packages[@]}"
+yay -S --needed --noconfirm "${packages[@]}"
+
+# Waydroid needs its container image pulled before it can run anything.
+if command -v waydroid >/dev/null 2>&1; then
+    echo "==> initialising the Waydroid container"
+    sudo systemctl enable --now waydroid-container.service
+    sudo waydroid init || echo "    waydroid init failed; run it by hand once networking is up"
+fi
+
+echo
+echo "done. 'omnictl engines' will now show which layers are installed."

@@ -11,3 +11,4 @@ compile_commands.json
 iso/airootfs/etc/systemd/system/*.wants/
 iso/airootfs/usr/local/bin/omnictl
 iso/airootfs/usr/share/omnios/
+iso/airootfs/etc/localtime

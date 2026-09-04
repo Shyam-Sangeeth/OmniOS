@@ -26,7 +26,10 @@
 param(
     [string]$Iso,
     [switch]$Uefi,
-    [switch]$Disk
+    [switch]$Disk,
+    # Expose QEMU's monitor on this TCP port, so the boot can be screenshotted
+    # with "screendump" without anyone having to watch the window.
+    [int]$MonitorPort = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,7 +60,15 @@ if ($cpus -gt 8) { $cpus = 8 }
 
 $qemuArgs = @(
     '-name', 'OmniOS'
-    '-machine', 'q35'
+    # accel=whpx:tcg is QEMU's own fallback chain: it uses WHPX when the
+    # Windows Hypervisor Platform is available and drops to software emulation
+    # when it is not. Probing from PowerShell is not worth it — QEMU prints
+    # -accel help on stderr, and capturing that reliably in 5.1 is a trap.
+    # kernel-irqchip=off is mandatory for WHPX: with the in-kernel irqchip the
+    # VM starts and then sits paused in SeaBIOS, burning no CPU and never
+    # bringing up a display. It is ignored by the tcg fallback.
+    '-machine', 'q35,accel=whpx:tcg,kernel-irqchip=off'
+    '-cpu', 'max,-hypervisor'
     '-m', '4G'
     '-smp', "$cpus"
     '-device', 'virtio-vga'
@@ -70,14 +81,9 @@ $qemuArgs = @(
     '-boot', 'd'
 )
 
-# WHPX is the Windows equivalent of KVM. Probe it rather than assume it.
-$whpx = Get-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform -ErrorAction SilentlyContinue
-if ($whpx -and $whpx.State -eq 'Enabled') {
-    $qemuArgs += @('-accel', 'whpx,kernel-irqchip=off', '-cpu', 'max,-hypervisor')
-} else {
-    Write-Warning "Windows Hypervisor Platform is off - falling back to software emulation, which is slow."
-    Write-Warning "Enable it with: Enable-WindowsOptionalFeature -Online -FeatureName HypervisorPlatform"
-    $qemuArgs += @('-accel', 'tcg', '-cpu', 'max')
+
+if ($MonitorPort -gt 0) {
+    $qemuArgs += @('-monitor', "tcp:127.0.0.1:$MonitorPort,server,nowait")
 }
 
 if ($Uefi) {

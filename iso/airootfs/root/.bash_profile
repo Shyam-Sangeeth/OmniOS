@@ -54,6 +54,21 @@ readonly OMNI_LOG=/tmp/omnios-session.log
 # draws over a splash rather than over black.
 if command -v plymouth >/dev/null 2>&1; then
     plymouth quit --retain-splash >/dev/null 2>&1 || true
+
+    # 'plymouth quit' returns as soon as the request is sent, not when the
+    # daemon has exited and dropped DRM master. Starting the compositor into
+    # that gap produced the worst possible outcome: Hyprland came up healthy
+    # with no output device at all — process running, Xwayland running, screen
+    # still showing the console underneath. A compositor that fails is
+    # debuggable; one that runs invisibly is not.
+    #
+    # Wait for it to actually go, but never longer than five seconds: a stuck
+    # plymouth must not stop the console from booting.
+    waited=0
+    while plymouth --ping >/dev/null 2>&1 && [ "$waited" -lt 50 ]; do
+        sleep 0.1
+        waited=$((waited + 1))
+    done
 fi
 
 # Hyprland is invoked directly, on purpose.

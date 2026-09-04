@@ -47,6 +47,27 @@ fi
 # cannot write is a log that does not exist when it is needed most.
 readonly OMNI_LOG=/tmp/omnios-session.log
 
+# Mirror the session to the serial port a little after the compositor should
+# have come up. A compositor that runs without output produces no error and no
+# exit, so there is nothing for the failure handler below to catch — the only
+# way to see it is to read the log while it is still running. Serial reaches
+# the host with no keyboard involved, which matters because driving the guest
+# keyboard through QEMU's monitor proved unreliable past a couple of commands.
+#
+# Harmless where there is no serial port: the test guards it.
+if [ -w /dev/ttyS0 ]; then
+    (
+        sleep 30
+        echo "===== OMNIOS SESSION LOG ====="
+        cat "$OMNI_LOG" 2>/dev/null
+        echo "===== PROCESSES ON TTY1 ====="
+        ps -t tty1 -o pid,stat,cmd --no-headers 2>/dev/null
+        echo "===== DRM DEVICES ====="
+        ls -l /dev/dri 2>/dev/null
+        echo "===== END ====="
+    ) >/dev/ttyS0 2>&1 &
+fi
+
 # Hand the display over before starting the compositor. plymouth holds DRM
 # master for as long as it runs, and a wlroots compositor cannot take the
 # device from it — Hyprland simply blocks. Holding the splash until the

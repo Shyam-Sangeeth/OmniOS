@@ -33,6 +33,10 @@ param(
     # "can the harness see it".
     [ValidateSet('std','virtio')]
     [string]$Vga = 'std',
+    # Capture the guest's serial port to a file on the host. The image writes
+    # its session log there, which is the only reliable way to see inside a
+    # compositor that runs without producing output.
+    [string]$SerialLog,
     # Expose QEMU's monitor on this TCP port, so the boot can be screenshotted
     # with "screendump" without anyone having to watch the window.
     [int]$MonitorPort = 0
@@ -89,6 +93,13 @@ $qemuArgs = @(
     '-boot', 'd'
 )
 
+
+if ($SerialLog) {
+    $dir = Split-Path -Parent $SerialLog
+    if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+    if (Test-Path $SerialLog) { Remove-Item $SerialLog -Force }
+    $qemuArgs += @('-serial', "file:$SerialLog")
+}
 
 if ($MonitorPort -gt 0) {
     $qemuArgs += @('-monitor', "tcp:127.0.0.1:$MonitorPort,server,nowait")

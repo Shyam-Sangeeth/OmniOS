@@ -74,6 +74,7 @@ udisks2
 udiskie
 libinput
 usbutils
+psmisc
 
 ## Display — Phase 3. Hyprland is the phase-1 compositor; the custom wlroots
 ## shell replaces it later without changing anything else in this profile.

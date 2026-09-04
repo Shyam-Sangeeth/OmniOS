@@ -93,6 +93,12 @@ if [ -e /dev/ttyS0 ]; then
         cat "$OMNI_LOG" 2>/dev/null
         echo "===== PROCESSES ON TTY1 ====="
         ps -t tty1 -o pid,stat,cmd --no-headers 2>/dev/null
+        echo "===== DISPLAY HOLDERS ====="
+        echo "plymouthd: $(pgrep -a plymouthd 2>/dev/null || echo none)"
+        echo "card0 held by:"
+        sudo -n fuser -v /dev/dri/card0 2>&1 | head -8 || echo "  (fuser unavailable)"
+        echo "logind session:"
+        loginctl session-status 2>/dev/null | head -8 || echo "  (none)"
         echo "===== GRAPHICS ENVIRONMENT ====="
         echo "drm driver path: ${omni_drm_driver:-none}"
         echo "AQ_NO_MODIFIERS=${AQ_NO_MODIFIERS:-unset}"
@@ -135,11 +141,23 @@ if command -v plymouth >/dev/null 2>&1; then
     #
     # Wait for it to actually go, but never longer than five seconds: a stuck
     # plymouth must not stop the console from booting.
+    # Wait on the process, not on 'plymouth --ping'. The ping talks to a socket
+    # and can report the daemon gone while it is still alive holding DRM
+    # master, which leaves the compositor unable to allocate any framebuffer:
+    # DRM_IOCTL_MODE_CREATE_DUMB fails with Permission denied and every mode is
+    # then rejected.
     waited=0
-    while plymouth --ping >/dev/null 2>&1 && [ "$waited" -lt 50 ]; do
+    while pgrep -x plymouthd >/dev/null 2>&1 && [ "$waited" -lt 100 ]; do
         sleep 0.1
         waited=$((waited + 1))
     done
+
+    # Last resort. A splash daemon that will not leave must not be allowed to
+    # keep the console from starting.
+    if pgrep -x plymouthd >/dev/null 2>&1; then
+        sudo -n pkill -x plymouthd >/dev/null 2>&1 || true
+        sleep 0.5
+    fi
 fi
 
 # Hyprland is invoked directly, on purpose.

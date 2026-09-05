@@ -18,17 +18,22 @@ namespace {
 // reason to open a file manager is almost always to move a game or read a USB
 // stick, and §18's install flow starts from exactly there.
 const std::vector<App> kApps = {
-    // --vo is pinned deliberately. Left to choose, mpv falls back to its X11
-    // output when hardware GL is unavailable, and that path crashes outright:
+    // Both --vo and --gpu-context are pinned, and the second one is the one
+    // that matters. Without hardware GL, mpv crashes here:
     //
     //   MESA-EGL: warning: egl: failed to create dri2 screen
     //   mpv: video/out/x11_common.c:679: vo_x11_init: Assertion !vo->x11 failed
     //
-    // gpu first so a real machine uses its GPU; wlshm — Wayland shared memory,
-    // software scaling — behind it for anything without one. X11 is absent
-    // from the list, so the crashing path cannot be reached at all.
+    // vo_x11_init is called by the *gpu* output's X11 context, not by the x11
+    // output, so restricting --vo alone changes nothing — it was tried and the
+    // assertion came back unchanged. --gpu-context=wayland is what keeps mpv
+    // off X11; OmniOS is a Wayland system, so nothing is given up.
+    //
+    // --vo=gpu,wlshm then means: use the GPU on a real machine, and fall back
+    // to Wayland shared memory (software scaling) where there is none.
     {"video", "Video Player", "mpv",
-     "--player-operation-mode=pseudo-gui --force-window=yes --idle=yes --vo=gpu,wlshm",
+     "--player-operation-mode=pseudo-gui --force-window=yes --idle=yes "
+     "--vo=gpu,wlshm --gpu-context=wayland",
      "mpv",
      "Play video and music from a drive or USB stick",
      "#6C63FF"},

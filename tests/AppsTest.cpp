@@ -57,6 +57,18 @@ TEST("apps: argv starts with the command") {
         }
     }
     CHECK(pinsOutput);
+
+    // Pinning the GPU context is the part that actually keeps mpv off X11:
+    // the crash is inside the gpu output's X11 context, which --vo cannot
+    // reach. Anything containing "x11" here reintroduces the crash.
+    bool pinsContext = false;
+    for (const std::string& arg : argv) {
+        if (arg.rfind("--gpu-context=", 0) == 0) {
+            pinsContext = true;
+            CHECK(arg.find("x11") == std::string::npos);
+        }
+    }
+    CHECK(pinsContext);
 }
 
 TEST("apps: %GAMES% expands to the real games directory") {

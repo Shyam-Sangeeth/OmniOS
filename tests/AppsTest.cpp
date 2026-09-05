@@ -42,6 +42,21 @@ TEST("apps: argv starts with the command") {
         if (arg.find("force-window") != std::string::npos) forcesWindow = true;
     }
     CHECK(forcesWindow);
+
+    // The video output list must be explicit and must not offer x11: mpv's
+    // X11 output asserts and dies when hardware GL is unavailable, which is
+    // every VM and any machine with a broken driver.
+    bool pinsOutput = false;
+    for (const std::string& arg : argv) {
+        if (arg.rfind("--vo=", 0) == 0) {
+            pinsOutput = true;
+            CHECK(arg.find("x11") == std::string::npos);
+            // A software fallback has to be present or a GPU-less machine has
+            // nothing left to try.
+            CHECK(arg.find("wlshm") != std::string::npos);
+        }
+    }
+    CHECK(pinsOutput);
 }
 
 TEST("apps: %GAMES% expands to the real games directory") {

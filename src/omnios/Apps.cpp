@@ -18,8 +18,17 @@ namespace {
 // reason to open a file manager is almost always to move a game or read a USB
 // stick, and §18's install flow starts from exactly there.
 const std::vector<App> kApps = {
+    // --vo is pinned deliberately. Left to choose, mpv falls back to its X11
+    // output when hardware GL is unavailable, and that path crashes outright:
+    //
+    //   MESA-EGL: warning: egl: failed to create dri2 screen
+    //   mpv: video/out/x11_common.c:679: vo_x11_init: Assertion !vo->x11 failed
+    //
+    // gpu first so a real machine uses its GPU; wlshm — Wayland shared memory,
+    // software scaling — behind it for anything without one. X11 is absent
+    // from the list, so the crashing path cannot be reached at all.
     {"video", "Video Player", "mpv",
-     "--player-operation-mode=pseudo-gui --force-window=yes --idle=yes",
+     "--player-operation-mode=pseudo-gui --force-window=yes --idle=yes --vo=gpu,wlshm",
      "mpv",
      "Play video and music from a drive or USB stick",
      "#6C63FF"},

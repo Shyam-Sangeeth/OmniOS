@@ -177,7 +177,8 @@ Window {
             top: sectionLabel.bottom; topMargin: 14
             left: parent.left; leftMargin: Theme.gutter
             right: parent.right; rightMargin: Theme.gutter
-            bottom: footer.top; bottomMargin: 10
+            bottom: runningBanner.visible ? runningBanner.top : footer.top
+            bottomMargin: 10
         }
         clip: true
         cellWidth: Theme.gridWidth + 18
@@ -226,7 +227,7 @@ Window {
         anchors {
             top: sectionLabel.bottom; topMargin: 14
             left: parent.left; right: parent.right
-            bottom: footer.top
+            bottom: runningBanner.visible ? runningBanner.top : footer.top
         }
         // Only covers the games area; the apps row above stays usable, which
         // matters because a fresh install has no games but does have apps.
@@ -261,7 +262,7 @@ Window {
 
         Text {
             anchors { left: parent.left; leftMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
-            text: qsTr("↑↓←→ move    Enter open    Esc back    F5 rescan")
+            text: qsTr("↑↓←→ move    Enter open    Esc back    Super home    F5 rescan")
             color: Theme.textSecondary
             font.pixelSize: 12
         }
@@ -301,27 +302,37 @@ Window {
         detailLoader.active = true
     }
 
-    // A running game owns the screen; the shell says so instead of appearing
-    // frozen behind it.
+    // Something is running on workspace 2.
+    //
+    // A strip, not a screen-filling cover. The Windows key returns here while
+    // the app keeps running, so covering the library would hide the very grid
+    // the home button exists to show. The earlier full-screen version made
+    // sense only when running something meant losing the launcher entirely.
     Rectangle {
-        anchors.fill: parent
+        id: runningBanner
         visible: Launcher.gameRunning
-        color: "#E60A0A12"
-        Column {
-            anchors.centerIn: parent
-            spacing: 10
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: Launcher.runningTitle
-                color: Theme.textPrimary
-                font.pixelSize: 30
-            }
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: qsTr("Running — the library returns when it exits")
-                color: Theme.textSecondary
-                font.pixelSize: 14
-            }
+        anchors { left: parent.left; right: parent.right; bottom: footer.top }
+        height: 42
+        color: "#1B1830"
+
+        Rectangle {
+            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+            width: 3
+            color: Theme.accent
+        }
+
+        Text {
+            anchors { left: parent.left; leftMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
+            text: qsTr("▶  %1 is running").arg(Launcher.runningTitle)
+            color: Theme.textPrimary
+            font.pixelSize: 14
+        }
+
+        Text {
+            anchors { right: parent.right; rightMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
+            text: qsTr("Super  library    ·    Super+Tab  back to it")
+            color: Theme.textSecondary
+            font.pixelSize: 12
         }
     }
 }

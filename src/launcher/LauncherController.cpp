@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QMap>
 #include <QProcessEnvironment>
 
 #include "omnios/Apps.h"
@@ -469,6 +470,35 @@ void LauncherController::updateApp(const QString& appId) {
             .arg(packagePathFor(appId));
     runPackageCommand(script, tr("Updating %1 ...").arg(ref.title),
                       tr("%1 is up to date").arg(ref.title));
+}
+
+void LauncherController::powerAction(const QString& action) {
+    // A fixed table, not string interpolation. The action arrives from QML, and
+    // "hand a string from the UI to a process that turns the machine off" is
+    // not a sentence worth writing without a whitelist in it.
+    static const QMap<QString, QString> kActions = {
+        {QStringLiteral("suspend"), QStringLiteral("suspend")},
+        {QStringLiteral("reboot"), QStringLiteral("reboot")},
+        {QStringLiteral("poweroff"), QStringLiteral("poweroff")},
+    };
+    const auto it = kActions.constFind(action);
+    if (it == kActions.constEnd()) {
+        setStatus(tr("Unknown power action %1").arg(action));
+        return;
+    }
+
+    // Whatever is running is ended first. Suspending with a game mid-frame and
+    // resuming into it is a good way to find out which emulators survive a
+    // suspend, and a console should not conduct that experiment for you.
+    stopRunning(true);
+
+    // logind allows an active local session to do all three without a password,
+    // and /etc/polkit-1/rules.d says so explicitly for this image. No sudo:
+    // going through systemctl means logind still gets to run the inhibitors,
+    // so anything holding a shutdown off is respected.
+    setStatus(action == QStringLiteral("suspend") ? tr("Suspending …")
+                                                  : tr("Shutting down …"));
+    QProcess::startDetached(QStringLiteral("systemctl"), {*it});
 }
 
 void LauncherController::quitRunningGame() { stopRunning(true); }

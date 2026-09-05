@@ -56,12 +56,32 @@ Window {
         anchors { top: parent.top; left: parent.left; right: parent.right }
         height: 58
 
-        Text {
+        // The mark, and the way to turn the machine off.
+        //
+        // It replaced a wordmark that only told you what you were already
+        // looking at. A console needs somewhere to put sleep and shutdown, and
+        // the corner the logo already occupies is where anyone would look.
+        Rectangle {
+            id: powerButton
             anchors { left: parent.left; leftMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
-            text: "OmniOS"
-            color: Theme.textPrimary
-            font.pixelSize: 22
-            font.letterSpacing: 2
+            width: 38
+            height: 38
+            radius: 8
+            color: powerHover.containsMouse || menuPanel.context === "power"
+                   ? "#1FFFFFFF" : "transparent"
+            Behavior on color { ColorAnimation { duration: Theme.focusDuration } }
+
+            OmniLogo {
+                anchors.centerIn: parent
+                diameter: 28
+            }
+
+            MouseArea {
+                id: powerHover
+                anchors.fill: parent
+                hoverEnabled: true
+                onClicked: window.openPowerMenu()
+            }
         }
 
         // A package operation takes minutes and matters more than the scan
@@ -235,8 +255,10 @@ Window {
 
                     onMenuRequested: function (anchorItem) {
                         appsGrid.currentIndex = index
-                        tileMenu.openFor(anchorItem, model.appId, model.title,
-                                         model.removable, model.playable)
+                        menuPanel.openFor(anchorItem, model.title,
+                                          window.appMenuEntries(model.removable,
+                                                                model.playable),
+                                          "app", model.appId)
                     }
 
                     // Below the button in stacking order, so a click on the
@@ -307,8 +329,8 @@ Window {
         Text {
             anchors { left: parent.left; leftMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
             text: window.currentTab === 0
-                  ? qsTr("↑↓←→ move    Enter open    Tab switch tab    Super home    F5 rescan")
-                  : qsTr("↑↓←→ move    Enter open    M menu    Tab switch tab    Super home")
+                  ? qsTr("↑↓←→ move    Enter open    Tab switch tab    F10 power    F5 rescan")
+                  : qsTr("↑↓←→ move    Enter open    M menu    Tab switch tab    F10 power")
             color: Theme.textSecondary
             font.pixelSize: 12
         }
@@ -338,13 +360,17 @@ Window {
         onLoaded: item.forceActiveFocus()
     }
 
-    // ---- tile menu --------------------------------------------------------
+    // ---- menus ------------------------------------------------------------
     // One instance for the whole window, filling it, so the panel is never
-    // clipped by the grid cell whose tile opened it.
-    TileMenu {
-        id: tileMenu
+    // clipped by the grid cell whose tile opened it. Both the tile menus and
+    // the system menu go through it.
+    MenuPanel {
+        id: menuPanel
         anchors.fill: parent
-        onRequested: function (action) { window.runTileAction(action) }
+        onChosen: function (action, context) {
+            if (context === "power") Launcher.powerAction(action)
+            else window.runTileAction(action)
+        }
         onClosed: window.activeGrid.forceActiveFocus()
     }
 
@@ -355,6 +381,14 @@ Window {
     //
     // F5 is not a navigation key, so a Shortcut works and covers the case
     // where focus has gone somewhere unexpected.
+    // The mark is clickable, but a console has to be usable with no pointer at
+    // all, so the system menu gets a key of its own. Not a navigation key, so a
+    // Shortcut works and reaches it from either tab.
+    Shortcut {
+        sequence: "F10"
+        onActivated: window.openPowerMenu()
+    }
+
     Shortcut {
         sequence: "F5"
         onActivated: {
@@ -381,17 +415,51 @@ Window {
         return AppLibrary.get(appsGrid.currentIndex)
     }
 
-    // The keyboard route to the menu, anchored to the focused tile so the panel
-    // lands in the same place it would have from a click.
+    // What a tile's menu offers.
+    //
+    // An entry that does not apply is left out rather than greyed. A disabled
+    // "Install" on something already installed is noise: it describes a state
+    // you can see from the tile.
+    //
+    // The one exception is uninstalling a system app, which stays visible and
+    // disabled with its reason. That is a rule, not a state — dropping it
+    // silently would leave someone wondering whether the tile was special or
+    // the menu was broken.
+    function appMenuEntries(removable, installed) {
+        var entries = []
+        if (installed) {
+            entries.push({ action: "open",   label: qsTr("Open"),             enabled: true })
+            entries.push({ action: "check",  label: qsTr("Check for update"), enabled: true })
+            entries.push({ action: "update", label: qsTr("Update"),           enabled: true })
+        }
+        if (removable)
+            entries.push({ action: "uninstall", label: qsTr("Uninstall"), enabled: installed })
+        else
+            entries.push({ action: "uninstall", label: qsTr("Uninstall  ·  system app"),
+                           enabled: false })
+        return entries
+    }
+
+    // The keyboard route to a tile's menu, anchored to the focused tile so the
+    // panel lands in the same place it would have from a click.
     function openTileMenu() {
         var entry = currentEntry()
         if (!entry || !appsGrid.currentItem) return
-        tileMenu.openFor(appsGrid.currentItem, entry.appId, entry.title,
-                         entry.removable, entry.playable)
+        menuPanel.openFor(appsGrid.currentItem, entry.title,
+                          appMenuEntries(entry.removable, entry.playable),
+                          "app", entry.appId)
+    }
+
+    function openPowerMenu() {
+        menuPanel.openFor(powerButton, qsTr("OMNIOS"), [
+            { action: "suspend",  label: qsTr("Sleep"),     enabled: true },
+            { action: "reboot",   label: qsTr("Restart"),   enabled: true },
+            { action: "poweroff", label: qsTr("Shut down"), enabled: true }
+        ], "power")
     }
 
     function runTileAction(action) {
-        var id = tileMenu.appId
+        var id = menuPanel.subject
         if (action === "open")           Launcher.launchApp(id)
         else if (action === "check")     Launcher.checkForUpdate(id)
         else if (action === "update")    Launcher.updateApp(id)

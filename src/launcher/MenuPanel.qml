@@ -1,36 +1,46 @@
-// The overflow menu behind a tile's three dots.
+// The panel behind a tile's three dots, and behind the logo.
 //
 // A plain Item rather than a Popup: Qt Quick Controls is not linked in, and the
-// menu only ever needs to be one panel anchored to a tile. It is opened by the
-// grid, not by the tile, so it draws above every other tile instead of being
-// clipped by the cell it belongs to — a menu that appears half-cut behind its
-// neighbours is worse than no menu.
+// menu only ever needs to be one panel anchored to something. It is owned by
+// the window rather than by the tile that opens it, so it draws above every
+// other tile instead of being clipped by the cell it belongs to — a menu that
+// appears half-cut behind its neighbours is worse than no menu.
+//
+// It knows nothing about apps or power. The caller passes the entries and gets
+// back the action that was chosen, which is what lets the same component serve
+// a tile's menu and the system menu without either of them growing a special
+// case in here.
 import QtQuick
 import omnios
 
 Item {
     id: menu
 
-    // Set together by open().
-    property string appId: ""
-    property string appTitle: ""
-    property bool   removable: false
-    property bool   installed: true
+    // Set together by openFor().
+    property string heading: ""
+    // [{ action: "open", label: "Open", enabled: true }, …]
+    property var entries: []
+    // Free tag so the caller can tell which menu answered.
+    property string context: ""
+    // Whatever the caller wants to remember for the duration, such as the id of
+    // the tile the menu belongs to.
+    property var subject: null
 
-    signal requested(string action)
+    signal chosen(string action, string context)
+    signal closed()
 
     visible: false
     z: 100
 
-    function openFor(item, id, title, canRemove, isInstalled) {
-        appId = id
-        appTitle = title
-        removable = canRemove
-        installed = isInstalled
+    function openFor(item, menuHeading, menuEntries, menuContext, menuSubject) {
+        heading = menuHeading
+        entries = menuEntries
+        context = menuContext
+        subject = menuSubject === undefined ? null : menuSubject
 
-        // Anchor to the tile's bottom-right, then pull back inside the window.
-        // Tiles on the last column would otherwise open a panel that runs off
-        // the screen edge.
+        // Anchor under the item's bottom-right, then pull back inside the
+        // window: an item near an edge would otherwise open a panel that runs
+        // off the screen.
         var origin = item.mapToItem(menu, item.width, item.height)
         panel.x = Math.max(8, Math.min(origin.x - panel.width, menu.width - panel.width - 8))
         panel.y = Math.max(8, Math.min(origin.y - 4, menu.height - panel.height - 8))
@@ -47,10 +57,8 @@ Item {
         closed()
     }
 
-    signal closed()
-
-    // Catches the click that dismisses the menu, and stops it reaching the tile
-    // underneath — otherwise dismissing the menu would also launch an app.
+    // Catches the click that dismisses the menu, and stops it reaching whatever
+    // is underneath — otherwise dismissing the menu would also launch an app.
     MouseArea {
         anchors.fill: parent
         onClicked: menu.close()
@@ -70,7 +78,7 @@ Item {
             anchors { left: parent.left; right: parent.right; top: parent.top }
             anchors.margins: 12
             height: implicitHeight + 8
-            text: menu.appTitle
+            text: menu.heading
             color: Theme.textSecondary
             font.pixelSize: 11
             font.letterSpacing: 1.5
@@ -84,36 +92,14 @@ Item {
                 top: header.bottom; topMargin: 2
             }
             height: contentHeight
-            // Not flickable: the menu is five fixed rows and a stray drag
-            // scrolling them under the cursor would be nothing but a bug.
+            model: menu.entries
+            // Not flickable: the menu is a handful of fixed rows and a stray
+            // drag scrolling them under the cursor would be nothing but a bug.
             interactive: false
             // Arrow keys are handled below, one entry at a time, skipping the
             // disabled ones. ListView's own key navigation is off anyway —
             // keyNavigationEnabled is bound to interactive by default, which is
             // exactly why Down did nothing here at first.
-
-            // An entry that does not apply is left out rather than greyed. A
-            // disabled "Install" on something already installed is noise: it
-            // describes a state you can see from the tile.
-            //
-            // The one exception is uninstalling a system app, which stays
-            // visible and disabled with its reason. That is a rule, not a
-            // state — dropping it silently would leave someone wondering
-            // whether the tile was special or the menu was broken.
-            model: {
-                var entries = []
-                if (menu.installed) {
-                    entries.push({ action: "open",   label: qsTr("Open"),             enabled: true })
-                    entries.push({ action: "check",  label: qsTr("Check for update"), enabled: true })
-                    entries.push({ action: "update", label: qsTr("Update"),           enabled: true })
-                }
-                if (menu.removable)
-                    entries.push({ action: "uninstall", label: qsTr("Uninstall"), enabled: menu.installed })
-                else
-                    entries.push({ action: "uninstall", label: qsTr("Uninstall  ·  system app"),
-                                   enabled: false })
-                return entries
-            }
 
             delegate: Item {
                 width: list.width
@@ -157,13 +143,13 @@ Item {
     }
 
     // First selectable entry at or after `from`, walking in `dir` and wrapping.
-    // Returns -1 when every entry is disabled, which cannot happen today — the
-    // update check is always available — but the callers do not assume it.
+    // Returns -1 when every entry is disabled, which no caller produces today
+    // but which the callers do not assume.
     function firstEnabled(from, dir) {
-        var entries = list.model
-        for (var i = 0; i < entries.length; ++i) {
-            var index = (((from + dir * i) % entries.length) + entries.length) % entries.length
-            if (entries[index].enabled) return index
+        var items = menu.entries
+        for (var i = 0; i < items.length; ++i) {
+            var index = (((from + dir * i) % items.length) + items.length) % items.length
+            if (items[index].enabled) return index
         }
         return -1
     }
@@ -174,10 +160,12 @@ Item {
     }
 
     function choose(index) {
-        var entry = list.model[index]
+        var entry = menu.entries[index]
         if (!entry || !entry.enabled) return
+        var action = entry.action
+        var tag = menu.context
         close()
-        requested(entry.action)
+        chosen(action, tag)
     }
 
     Keys.onEscapePressed: close()

@@ -1,6 +1,7 @@
 #include "Apps.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 
 #include "Paths.h"
@@ -110,26 +111,57 @@ std::string iconPathFor(std::string_view icon) {
 
     namespace fs = std::filesystem;
     const std::string name(icon);
+    std::error_code ec;
+
+    // A desktop entry is allowed to give an absolute path instead of a themed
+    // name, and several do. Nothing else here would find those.
+    if (!name.empty() && name.front() == '/') {
+        return fs::exists(fs::path(name), ec) ? name : std::string();
+    }
+
+    // Icon theme roots, in the order a lookup should prefer them.
+    //
+    // The Flatpak exports come first and are the reason this list exists at
+    // all: a Flathub app installs its icon under /var/lib/flatpak/exports, and
+    // a search that only knew about /usr/share found nothing, so every app
+    // installed from the store drew as a plain colour wash while the built-in
+    // tiles had real logos.
+    std::vector<fs::path> roots;
+    const char* home = std::getenv("HOME");
+    if (home != nullptr && *home != '\0') {
+        roots.emplace_back(fs::path(home) / ".local/share/flatpak/exports/share/icons");
+        roots.emplace_back(fs::path(home) / ".local/share/icons");
+    }
+    roots.emplace_back("/var/lib/flatpak/exports/share/icons");
+    roots.emplace_back("/usr/local/share/icons");
+    roots.emplace_back("/usr/share/icons");
 
     // Largest first: these are drawn at tile size, and upscaling a 48px icon
     // looks worse than downscaling a 256px one.
-    static const char* const kDirs[] = {
-        "/usr/share/icons/hicolor/256x256/apps/",
-        "/usr/share/icons/hicolor/128x128/apps/",
-        "/usr/share/icons/hicolor/64x64/apps/",
-        "/usr/share/icons/hicolor/48x48/apps/",
-        "/usr/share/pixmaps/",
+    static const char* const kSizes[] = {
+        "512x512", "256x256", "192x192", "128x128", "96x96", "64x64", "48x48",
     };
 
-    std::error_code ec;
-    for (const char* dir : kDirs) {
+    for (const fs::path& root : roots) {
+        for (const char* size : kSizes) {
+            const fs::path png = root / "hicolor" / size / "apps" / (name + ".png");
+            if (fs::exists(png, ec)) return png.generic_string();
+        }
+    }
+
+    // Loose icons, which is where a package with no theme integration puts one.
+    for (const char* dir : {"/usr/share/pixmaps/", "/usr/local/share/pixmaps/"}) {
         const fs::path png = fs::path(dir) / (name + ".png");
         if (fs::exists(png, ec)) return png.generic_string();
     }
 
     // SVG last: qt6-svg can render it, but a themed PNG is cheaper to draw
     // under software rendering.
-    for (const char* dir : {"/usr/share/icons/hicolor/scalable/apps/", "/usr/share/pixmaps/"}) {
+    for (const fs::path& root : roots) {
+        const fs::path svg = root / "hicolor/scalable/apps" / (name + ".svg");
+        if (fs::exists(svg, ec)) return svg.generic_string();
+    }
+    for (const char* dir : {"/usr/share/pixmaps/", "/usr/local/share/pixmaps/"}) {
         const fs::path svg = fs::path(dir) / (name + ".svg");
         if (fs::exists(svg, ec)) return svg.generic_string();
     }

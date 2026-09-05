@@ -52,12 +52,19 @@ param(
     # QEMU holds the shell for as long as the machine runs.
     [switch]$Detach,
 
-    # Stop any QEMU already running, and shut WSL down first.
+    # Stop any QEMU already running, and clear the hypervisor first.
     #
     # WHPX is shared with WSL2, and a running WSL backend can leave it in a
-    # state where QEMU dies mid-boot with "failed to get xsave state". This is
-    # the fix, and the cost is that Docker Desktop stops too — so a build has to
-    # start it again afterwards.
+    # state where QEMU either dies mid-boot with "failed to get xsave state" or
+    # hangs at the ISOLINUX banner with QEMU itself no longer servicing its
+    # monitor — a screendump that returns nothing is how the two are told
+    # apart, because a merely panicked guest still screenshots.
+    #
+    # "wsl --shutdown" alone was not enough: Docker Desktop's own processes go
+    # on holding the hypervisor after the WSL backend is down, and three boots
+    # in a row wedged until they were stopped too. So this stops them, and a
+    # build afterwards has to start Docker Desktop again and wait for
+    # "docker info" to answer.
     [switch]$Fresh,
 
     # CPU model handed to the accelerator.
@@ -84,9 +91,13 @@ param(
 # which is what happened the first time this ran in the other order.
 if ($Fresh) {
     Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue | Stop-Process -Force
-    Write-Host "==> stopping WSL to free the hypervisor (this also stops Docker Desktop)"
+    Write-Host "==> clearing the hypervisor (this stops Docker Desktop as well)"
+    Get-Process 'Docker Desktop', 'com.docker.backend', 'com.docker.build' `
+        -ErrorAction SilentlyContinue | Stop-Process -Force
     & wsl --shutdown
-    Start-Sleep -Seconds 6
+    # Long enough for the WSL utility VM to actually be gone. Six seconds was
+    # not, and the boot that followed hung at ISOLINUX.
+    Start-Sleep -Seconds 20
 }
 
 $ErrorActionPreference = 'Stop'

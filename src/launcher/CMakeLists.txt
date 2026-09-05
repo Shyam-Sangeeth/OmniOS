@@ -23,7 +23,8 @@ qt_add_qml_module(omni-launcher
         Main.qml
         Theme.qml
         GameTile.qml
-        TileMenu.qml
+        MenuPanel.qml
+        OmniLogo.qml
         GameDetail.qml
     SOURCES
         GameListModel.h

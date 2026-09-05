@@ -27,9 +27,9 @@ ISO only contains the source as of when the build started.
 ```
 
 - `-Detach` returns instead of blocking, and prints the pid.
-- `-Fresh` kills any running QEMU and runs `wsl --shutdown` first. **This stops
-  Docker Desktop**, so start it again before the next build and wait for
-  `docker info` to answer.
+- `-Fresh` kills any running QEMU and clears the hypervisor. **This stops Docker
+  Desktop**, so start it again before the next build and wait for `docker info`
+  to answer.
 
 Then wait for the session rather than guessing at a delay. The login script
 prints a diagnostic block ending in `END =====` once the compositor is up:
@@ -87,8 +87,15 @@ failed build while the container carries on happily. Check `docker ps` before
 believing it. The same trap makes `run-qemu.ps1 | Select-Object -First 20` look
 like QEMU refusing to start.
 
-**A wedged VM is usually a guest panic, not a hypervisor problem.** Screenshot
-it before theorising — the text is on screen. `-cpu max` is the other one: it
+**Hung at the ISOLINUX banner, ~7 CPU-seconds, and `screendump` writes
+nothing?** That is the hypervisor, not the guest: a panicked guest still
+screenshots. `wsl --shutdown` on its own does not clear it — Docker Desktop's
+processes keep holding it after the WSL backend is down, which is why `-Fresh`
+stops those too and then waits 20 seconds. Three boots in a row wedged before
+that was understood.
+
+**A wedged VM that *does* screenshot is a guest panic.** Look at it before
+theorising — the text is on screen. `-cpu max` is the other one: it
 dies with `failed to get xsave state` *after* ISOLINUX has drawn, which reads
 like a broken image. `run-qemu.ps1` defaults to `Skylake-Client` for that
 reason.

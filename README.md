@@ -101,6 +101,24 @@ second pass over the built tree — and the launcher hides those. A missing list
 means no filtering, which is the safe direction: a developer build shows
 everything rather than nothing.
 
+### The mark, and turning the machine off
+
+The top-left corner holds the OmniOS mark rather than the word "OmniOS", which
+only told you what you were already looking at. Clicking it — or pressing
+**F10**, because a console has to work with no pointer — opens Sleep, Restart
+and Shut down.
+
+The mark is drawn in [OmniLogo.qml](src/launcher/OmniLogo.qml) rather than
+loaded from a file, and drawn to match the boot splash's mark rather than being
+a second logo that happens to sit in the same product. The splash renders it at
+760px; this one has to read at 28, so it is the same orbit ring and play
+triangle with the wordmark and tagline dropped.
+
+`powerAction()` takes the action through a fixed table rather than interpolating
+the string it was handed, and goes through `systemctl` rather than sudo, so
+logind still gets to run the inhibitors and anything holding a shutdown off is
+respected.
+
 ### The tile menu
 
 Every app tile carries three dots in its bottom-right corner (or press **M**):

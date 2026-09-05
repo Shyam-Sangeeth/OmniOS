@@ -20,5 +20,18 @@ polkit.addRule(function (action, subject) {
         action.id.indexOf("org.freedesktop.packagekit.") === 0) {
         return polkit.Result.YES;
     }
+    // Sleep, restart and shut down, from the mark in the corner of the shell.
+    // logind already allows these for an active local session; saying so here
+    // as well keeps them working when the session is not the one logind counts
+    // as active — which on a console that never logs out is the difference
+    // between a Shut down that works and one that silently does nothing.
+    if (action.id === "org.freedesktop.login1.power-off" ||
+        action.id === "org.freedesktop.login1.reboot" ||
+        action.id === "org.freedesktop.login1.suspend" ||
+        action.id.indexOf("org.freedesktop.login1.power-off-") === 0 ||
+        action.id.indexOf("org.freedesktop.login1.reboot-") === 0 ||
+        action.id.indexOf("org.freedesktop.login1.suspend-") === 0) {
+        return polkit.Result.YES;
+    }
     return polkit.Result.NOT_HANDLED;
 });

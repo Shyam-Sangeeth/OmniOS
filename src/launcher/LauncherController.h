@@ -84,6 +84,11 @@ public:
     // Upgrades one app in place.
     Q_INVOKABLE void updateApp(const QString& appId);
 
+    // ---- power --------------------------------------------------------------
+    // "suspend", "reboot" or "poweroff". Anything else is refused rather than
+    // handed to systemctl, because the argument comes from a QML string.
+    Q_INVOKABLE void powerAction(const QString& action);
+
 
 signals:
     void scanningChanged();

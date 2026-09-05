@@ -35,6 +35,16 @@ const std::vector<App> kApps = {
      "Install apps from Flathub",
      "#8B5CF6", true},
 
+    // Steam ships with the image, so the baseline filter hides its desktop
+    // entry from the Apps tab — which is right for RetroArch and Dolphin, whose
+    // job is to be launched by a game tile, and wrong for this one. Steam is a
+    // library you open and browse, so it needs a tile of its own.
+    //
+    // Not a system app: nothing about the console stops working without it.
+    {"steam", "Steam", "steam", "", "steam", "steam",
+     "Your Steam library, and the store",
+     "#1B2838", false},
+
     // Both --vo and --gpu-context are pinned, and the second one is the one
     // that matters. Without hardware GL, mpv crashes here:
     //

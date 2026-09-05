@@ -93,6 +93,17 @@ pacman, by hand — becomes a tile with nothing added to a table in this
 repository. Flatpak exports an entry per app into a directory already on the
 search path, so a Flathub install needs no special case at all.
 
+Flatpak's `Exec` needs one thing beyond the spec. Every exported entry looks
+like this:
+
+    /usr/bin/flatpak run ... --file-forwarding org.videolan.VLC @@u %U @@
+
+The `@@u … @@` pair brackets the arguments that are file paths, for a launcher
+that has files to hand in. Dropping `%U` and keeping the brackets leaves
+`flatpak run … @@u @@`, and flatpak takes those as the files it was promised —
+which is why an app installed from the store appeared as a tile, started, and
+immediately went away again. The markers go with the field codes.
+
 The cost of that is everything the image itself drags in would become a tile
 too: settings dialogs from the file manager's dependencies, `avahi-discover`,
 `bssh`, `cmake-gui`. So `build-iso.sh` records the desktop entries that ship

@@ -76,10 +76,22 @@ std::vector<std::string> parseExec(const std::string& exec) {
     }
     if (have) argv.push_back(current);
 
-    // A field code on its own leaves an empty argument behind.
-    argv.erase(std::remove_if(argv.begin(), argv.end(),
-                              [](const std::string& arg) { return arg.empty(); }),
-               argv.end());
+    // A field code on its own leaves an empty argument behind, and Flatpak's
+    // file-forwarding markers have to go with them.
+    //
+    // Every Flatpak exports an Exec line shaped like this:
+    //
+    //   /usr/bin/flatpak run ... --file-forwarding org.videolan.VLC @@u %U @@
+    //
+    // The @@u ... @@ pair brackets the arguments that are file paths, for a
+    // launcher that has files to hand in. Dropping %U and keeping the brackets
+    // leaves "flatpak run ... @@u @@", and flatpak takes those as the files it
+    // was promised. That is why an app installed from the store appeared as a
+    // tile, started, and immediately went away again.
+    const auto isNoise = [](const std::string& arg) {
+        return arg.empty() || arg == "@@" || arg == "@@u";
+    };
+    argv.erase(std::remove_if(argv.begin(), argv.end(), isNoise), argv.end());
     return argv;
 }
 

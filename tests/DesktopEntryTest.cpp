@@ -138,3 +138,32 @@ TEST("desktop: the search path puts the user ahead of the system") {
     CHECK(flatpak != dirs.end());
     CHECK(flatpak < system);
 }
+
+TEST("desktop: a Flatpak's file-forwarding markers are removed") {
+    // The real thing, copied from what flatpak exports for org.videolan.VLC.
+    // Leaving @@u and @@ in place hands flatpak two arguments it believes are
+    // files, and the app starts and immediately exits — which is exactly how
+    // "apps installed from the store will not open" showed up.
+    const fs::path file =
+        writeEntry("org.videolan.VLC",
+                   "[Desktop Entry]\n"
+                   "Type=Application\n"
+                   "Name=VLC media player\n"
+                   "Icon=org.videolan.VLC\n"
+                   "Exec=sh run --branch=stable --arch=x86_64 "
+                   "--command=/app/bin/vlc --file-forwarding org.videolan.VLC "
+                   "--started-from-file @@u %U @@\n");
+    DesktopApp app;
+    CHECK(parseDesktopEntry(file, app));
+
+    for (const std::string& arg : app.argv) {
+        CHECK(arg != "@@");
+        CHECK(arg != "@@u");
+        CHECK(arg != "%U");
+    }
+    // The application id has to survive: it is what flatpak runs, and it is
+    // also how the app is uninstalled again.
+    CHECK(std::find(app.argv.begin(), app.argv.end(), "org.videolan.VLC") != app.argv.end());
+    CHECK_EQ(app.argv.back(), "--started-from-file");
+}
+

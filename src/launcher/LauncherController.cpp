@@ -6,6 +6,9 @@
 #include <QMap>
 #include <QProcessEnvironment>
 
+#include <filesystem>
+#include <system_error>
+
 #include "omnios/Apps.h"
 #include "omnios/GameScanner.h"
 #include "omnios/Paths.h"
@@ -112,6 +115,7 @@ void LauncherController::refresh() {
 
     model_.setLibrary(std::move(library));
     apps_.refresh();
+    emit storageChanged();
 
     if (model_.rowCount() == 0) {
         setStatus(tr("No games in %1").arg(gamesPath()));
@@ -266,9 +270,18 @@ bool LauncherController::startApp(const QString& title, const QString& program,
                 focusLauncherWindow();
                 // An app that closes within a couple of seconds did not
                 // "close", it failed. Say so, and say where to look.
-                setStatus(startedAt.elapsed() < 2500
-                              ? tr("%1 closed immediately  -  see %2").arg(runningTitle_).arg(kAppLog)
-                              : tr("%1 closed").arg(runningTitle_));
+                if (startedAt.elapsed() >= 2500) {
+                    setStatus(tr("%1 closed").arg(runningTitle_));
+                } else if (storageCritical()) {
+                    // The most likely reason by a distance, and the one the log
+                    // is least likely to spell out: a program that cannot write
+                    // anything usually dies without saying why.
+                    setStatus(tr("%1 could not start — the disk is full").arg(runningTitle_));
+                } else {
+                    setStatus(tr("%1 closed immediately  -  see %2")
+                                  .arg(runningTitle_).arg(kAppLog));
+                }
+                emit storageChanged();
                 running_ = nullptr;
                 runningTitle_.clear();
                 process->deleteLater();
@@ -290,6 +303,52 @@ bool LauncherController::startApp(const QString& title, const QString& program,
     setStatus(tr("Opening %1 ...").arg(runningTitle_));
     emit gameRunningChanged();
     return true;
+}
+
+namespace {
+
+// Below this, installing anything is hopeless and most apps will not even
+// start. Chosen because a Flatpak runtime alone is larger than this, and
+// because Steam downloads its own client on first run.
+constexpr qint64 kLowSpaceBytes = 700LL * 1024 * 1024;
+
+QString humanSize(qint64 bytes) {
+    if (bytes >= 1024LL * 1024 * 1024)
+        return QStringLiteral("%1 GB").arg(double(bytes) / (1024.0 * 1024 * 1024), 0, 'f', 1);
+    return QStringLiteral("%1 MB").arg(bytes / (1024 * 1024));
+}
+
+}  // namespace
+
+qint64 LauncherController::freeBytes() const {
+    std::error_code ec;
+    const std::filesystem::space_info space =
+        std::filesystem::space(omnios::gamesDir(), ec);
+    if (ec) return -1;
+    return static_cast<qint64>(space.available);
+}
+
+bool LauncherController::storageCritical() const {
+    const qint64 free = freeBytes();
+    return free >= 0 && free < kLowSpaceBytes;
+}
+
+QString LauncherController::storageNotice() const {
+    const qint64 free = freeBytes();
+    if (free < 0) return {};
+
+    // The live-image warning and the space warning are the same sentence,
+    // because they are the same subject and two stacked notices on a console
+    // read as clutter rather than as emphasis.
+    if (free < kLowSpaceBytes) {
+        return tr("Only %1 left — apps will fail to start until something is removed")
+            .arg(humanSize(free));
+    }
+    if (ephemeral()) {
+        return tr("Live image — %1 free, and anything installed here is gone at the next boot")
+            .arg(humanSize(free));
+    }
+    return {};
 }
 
 bool LauncherController::ephemeral() const {
@@ -362,6 +421,7 @@ void LauncherController::runPackageCommand(const QString& script, const QString&
                 // An app can have appeared or vanished, so the grid is rebuilt
                 // from what is on disk rather than patched.
                 apps_.refresh();
+                emit storageChanged();
                 emit packageBusyChanged();
             });
     connect(process, &QProcess::errorOccurred, this,

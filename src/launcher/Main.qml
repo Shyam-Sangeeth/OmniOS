@@ -281,15 +281,21 @@ Window {
             }
         }
 
-        // On a live image nothing installed survives a reboot. Said on the tab
-        // that has the Store tile on it, where it changes what someone is about
-        // to expect, rather than buried in documentation they read afterwards.
+        // What someone is about to need to know, on the tab that has the Store
+        // tile on it, rather than buried in documentation they read afterwards:
+        // that nothing here survives a reboot, and how much room is left.
+        //
+        // The second half is not decoration. A full overlay is what makes apps
+        // stop starting, and with no notice the console simply appears broken.
         Text {
             anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter }
-            visible: window.currentTab === 1 && Launcher.ephemeral
-            text: qsTr("Live image — anything installed here is gone at the next boot")
-            color: Theme.textSecondary
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            visible: window.currentTab === 1 && Launcher.storageNotice !== ""
+            text: Launcher.storageNotice
+            color: Launcher.storageCritical ? "#E4000F" : Theme.textSecondary
             font.pixelSize: 12
+            elide: Text.ElideRight
         }
     }
 

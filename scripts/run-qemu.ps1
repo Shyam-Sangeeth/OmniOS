@@ -80,6 +80,11 @@ param(
     # it away.
     [switch]$Headless,
 
+    # Guest RAM. Half of it becomes the live session's writable overlay, so
+    # this is also how much room there is to install anything: at 4G the
+    # overlay was 2G, and opening Steam once filled it completely.
+    [string]$Memory = '8G',
+
     # CPU model handed to the accelerator.
     #
     # Not "max". WHPX asks the host for every feature it advertises, and on some
@@ -165,7 +170,7 @@ $qemuArgs = @(
     # "system_wakeup".
     '-global', 'ICH9-LPC.disable_s3=0'
     '-cpu', $Cpu
-    '-m', '4G'
+    '-m', $Memory
     '-smp', "$cpus"
     # See the -Vga parameter. There is no GPU acceleration in this VM either
     # way; Mesa falls back to llvmpipe regardless.

@@ -185,9 +185,18 @@ It compares against a throwaway database instead of running `pacman -Sy`, which
 on Arch would leave the system one partial upgrade away from a mismatched libc.
 
 On a live image the root filesystem is a RAM overlay, so anything installed is
-gone at the next boot. The Apps tab says so rather than letting you find out by
-rebooting; `Launcher.ephemeral` detects it, so the notice disappears by itself
-once OmniOS is installed to a disk.
+gone at the next boot — and there is only so much of it. The Apps tab says both,
+in one sentence: how much room is left, and that it will not survive. When the
+space runs low the same line turns red, because a full overlay is exactly what
+makes apps stop starting, and with no notice the console simply looks broken.
+
+That is not hypothetical. Opening Steam once fills a 2 GB overlay by itself, on
+its first run, downloading its own client — after which nothing else starts and
+nothing says why. `cow_spacesize` is now a percentage of RAM rather than a
+fixed number, because the right size depends entirely on the machine, and an
+app that dies within a couple of seconds while the disk is full is reported as
+"could not start — the disk is full" rather than sent to a log that will not
+mention it.
 
 ### Routing
 

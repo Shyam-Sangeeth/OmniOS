@@ -29,6 +29,11 @@ class LauncherController : public QObject {
     // lives in a RAM overlay and is gone at the next boot. The store says so
     // rather than letting a user find out by rebooting.
     Q_PROPERTY(bool ephemeral READ ephemeral CONSTANT)
+    // Free space where apps install and write, as a sentence to put on screen.
+    // Empty when there is plenty.
+    Q_PROPERTY(QString storageNotice READ storageNotice NOTIFY storageChanged)
+    // True when there is so little left that things will start failing.
+    Q_PROPERTY(bool storageCritical READ storageCritical NOTIFY storageChanged)
 
 public:
     explicit LauncherController(QObject* parent = nullptr);
@@ -44,6 +49,13 @@ public:
     bool    packageBusy() const { return package_ != nullptr; }
     QString packageStatus() const { return packageStatus_; }
     bool    ephemeral() const;
+    QString storageNotice() const;
+    bool    storageCritical() const;
+
+    // Bytes free on the filesystem holding the home directory. Negative when it
+    // cannot be determined, which is treated as "do not warn" rather than as
+    // an emergency.
+    Q_INVOKABLE qint64 freeBytes() const;
 
     // Rescans ~/Games and rewrites the cache. Safe to call repeatedly.
     Q_INVOKABLE void refresh();
@@ -96,6 +108,7 @@ signals:
     void gameRunningChanged();
     void packageBusyChanged();
     void packageStatusChanged();
+    void storageChanged();
 
 private:
     void setStatus(const QString& text);

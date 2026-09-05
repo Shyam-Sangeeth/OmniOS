@@ -43,6 +43,15 @@ void switchWorkspace(const char* workspace) {
                        QString::fromLatin1(workspace)});
 }
 
+// Switching workspace does not focus anything when the pointer has not moved,
+// and an unfocused launcher receives no keys at all. Ask for it explicitly
+// whenever the library comes back.
+void focusLauncherWindow() {
+    QProcess::execute(QStringLiteral("hyprctl"),
+                      {QStringLiteral("dispatch"), QStringLiteral("focuswindow"),
+                       QStringLiteral("class:omni-launcher")});
+}
+
 }  // namespace
 
 LauncherController::LauncherController(QObject* parent) : QObject(parent) {
@@ -152,6 +161,7 @@ bool LauncherController::launch(const QString& gameId) {
     connect(process, &QProcess::finished, this,
             [this, process](int code, QProcess::ExitStatus) {
                 switchWorkspace(kLauncherWorkspace);
+                focusLauncherWindow();
                 setStatus(code == 0
                               ? tr("%1 exited").arg(runningTitle_)
                               : tr("%1 exited with code %2  —  see %3")
@@ -208,6 +218,7 @@ bool LauncherController::launchApp(const QString& appId) {
     connect(process, &QProcess::finished, this,
             [this, process, startedAt](int, QProcess::ExitStatus) {
                 switchWorkspace(kLauncherWorkspace);
+                focusLauncherWindow();
                 // An app that closes within a couple of seconds did not
                 // "close", it failed. Say so, and say where to look.
                 setStatus(startedAt.elapsed() < 2500
@@ -259,7 +270,10 @@ void LauncherController::stopRunning(bool returnHome) {
     }
     process->deleteLater();
 
-    if (returnHome) switchWorkspace(kLauncherWorkspace);
+    if (returnHome) {
+        switchWorkspace(kLauncherWorkspace);
+        focusLauncherWindow();
+    }
     if (!previous.isEmpty()) setStatus(tr("%1 closed").arg(previous));
     emit gameRunningChanged();
 }

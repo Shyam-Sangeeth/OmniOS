@@ -330,5 +330,10 @@ Window {
         detailLoader.active = true
     }
 
+    // Re-assert focus whenever the window becomes active. Returning from an
+    // app leaves Qt's focus item unset, and without this the grid is visible
+    // but deaf until something is clicked.
+    onActiveChanged: if (active) activeGrid.forceActiveFocus()
+
     Component.onCompleted: gamesGrid.forceActiveFocus()
 }

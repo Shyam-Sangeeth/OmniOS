@@ -31,6 +31,7 @@ int main(int argc, char* argv[]) {
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("Launcher"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("GameLibrary"), controller.games());
+    engine.rootContext()->setContextProperty(QStringLiteral("AppLibrary"), controller.apps());
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      []() { QCoreApplication::exit(1); }, Qt::QueuedConnection);

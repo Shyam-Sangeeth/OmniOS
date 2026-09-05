@@ -10,11 +10,13 @@
 #include <QProcess>
 #include <QString>
 
+#include "AppListModel.h"
 #include "GameListModel.h"
 
 class LauncherController : public QObject {
     Q_OBJECT
     Q_PROPERTY(GameListModel* games READ games CONSTANT)
+    Q_PROPERTY(AppListModel* apps READ apps CONSTANT)
     Q_PROPERTY(QString gamesPath READ gamesPath CONSTANT)
     Q_PROPERTY(QString version READ version CONSTANT)
     Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
@@ -26,6 +28,7 @@ public:
     explicit LauncherController(QObject* parent = nullptr);
 
     GameListModel* games() { return &model_; }
+    AppListModel*  apps() { return &apps_; }
     QString gamesPath() const;
     QString version() const;
     bool    scanning() const { return scanning_; }
@@ -40,6 +43,10 @@ public:
     // a missing emulator must say which one and how to install it, not fail
     // silently.
     Q_INVOKABLE bool launch(const QString& gameId);
+
+    // Starts a built-in app (video player, file manager). Same contract as
+    // launch(): false plus a status message when it cannot run.
+    Q_INVOKABLE bool launchApp(const QString& appId);
 
     // What pressing Play would run, for the detail screen.
     Q_INVOKABLE QString launchCommand(const QString& gameId) const;
@@ -58,6 +65,7 @@ private:
     void setStatus(const QString& text);
 
     GameListModel model_;
+    AppListModel  apps_;
     QProcess*     running_ = nullptr;
     QString       runningTitle_;
     QString       status_;

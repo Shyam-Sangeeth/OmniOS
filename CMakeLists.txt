@@ -17,6 +17,7 @@ endif()
 # The compatibility engine, library model and package format. No UI toolkit
 # dependency, so it builds and is testable anywhere the launcher is developed.
 add_library(omnios_core STATIC
+    src/omnios/Apps.cpp
     src/omnios/Detector.cpp
     src/omnios/GameLibrary.cpp
     src/omnios/GameScanner.cpp

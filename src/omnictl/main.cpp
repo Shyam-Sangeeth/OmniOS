@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "omnios/Apps.h"
 #include "omnios/Detector.h"
 #include "omnios/GameLibrary.h"
 #include "omnios/GameScanner.h"
@@ -34,6 +35,7 @@ usage:
   omnictl launch <game-id> [--run] [--engine <id>] [--mangohud] [--no-gamemode]
   omnictl platforms               list known platforms
   omnictl engines                 list execution layers and whether they are installed
+  omnictl apps                    list built-in apps and whether they are installed
   omnictl verify <manifest.json>  validate an .opkg manifest
 
 paths come from OMNIOS_GAMES_DIR and OMNIOS_DATA_DIR when those are set.
@@ -310,6 +312,21 @@ int cmdEngines() {
     return 0;
 }
 
+int cmdApps() {
+    for (const App& app : allApps()) {
+        const bool installed = appAvailable(app);
+        std::cout << "  " << (installed ? "[installed]    " : "[not installed]") << " "
+                  << app.name << "\n      " << app.description << "\n";
+        if (!installed)
+            std::cout << "      install: pacman -S " << app.package << "\n";
+        const std::vector<std::string> argv = appArgv(app);
+        std::cout << "      command:";
+        for (const std::string& part : argv) std::cout << ' ' << part;
+        std::cout << "\n";
+    }
+    return 0;
+}
+
 int cmdVerify(const Args& args) {
     if (args.positional.empty()) {
         std::cerr << "error: verify needs a path to a manifest.json\n";
@@ -358,6 +375,7 @@ int main(int argc, char** argv) {
     if (args.command == "launch")    return cmdLaunch(args);
     if (args.command == "platforms") return cmdPlatforms();
     if (args.command == "engines")   return cmdEngines();
+    if (args.command == "apps")      return cmdApps();
     if (args.command == "verify")    return cmdVerify(args);
 
     std::cerr << "error: unknown command \"" << args.command << "\"\n\n" << kUsage;

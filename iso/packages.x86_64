@@ -121,6 +121,18 @@ cmake
 ninja
 gcc
 
+## Built-in apps — the non-game tiles (OmniOS.md §17, §18).
+## Existing, proven programs rather than ones written here.
+## mpv plays video and music; thunar browses drives. thunar-volman and gvfs
+## are what make removable media actually work in Thunar, which is the whole
+## reason it is here. Comments stay on their own lines: the rest of this file
+## does the same, and it avoids depending on how mkarchiso strips trailing ones.
+mpv
+thunar
+thunar-volman
+gvfs
+ffmpegthumbnailer
+
 ## Branding — Phase 11
 plymouth
 ttf-dejavu

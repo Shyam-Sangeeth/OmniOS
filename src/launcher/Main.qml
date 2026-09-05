@@ -107,10 +107,61 @@ Window {
         }
     }
 
+    // ---- apps -------------------------------------------------------------
+    // A console still has to play a video and open a USB stick (OmniOS.md §17,
+    // §18). They are tiles like anything else, drawn by the same component.
+    Text {
+        id: appsLabel
+        anchors { top: hero.bottom; left: parent.left; leftMargin: Theme.gutter }
+        text: qsTr("APPS")
+        color: Theme.textSecondary
+        font.pixelSize: 12
+        font.letterSpacing: 3
+    }
+
+    ListView {
+        id: appRow
+        anchors {
+            top: appsLabel.bottom; topMargin: 12
+            left: parent.left; leftMargin: Theme.gutter
+            right: parent.right; rightMargin: Theme.gutter
+        }
+        height: Theme.gridHeight + 16
+        orientation: ListView.Horizontal
+        spacing: 18
+        clip: true
+        model: AppLibrary
+        focus: true
+        keyNavigationWraps: false
+
+        delegate: GameTile {
+            title: model.title
+            platformName: qsTr("APP")
+            badgeColor: model.badgeColor
+            cover: ""
+            playable: model.playable
+            selected: appRow.activeFocus && ListView.isCurrentItem
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: { appRow.currentIndex = index; Launcher.launchApp(model.appId) }
+            }
+        }
+
+        Keys.onReturnPressed: window.openCurrentApp()
+        Keys.onEnterPressed: window.openCurrentApp()
+        Keys.onDownPressed: {
+            if (GameLibrary.count > 0) grid.forceActiveFocus()
+        }
+        Keys.onPressed: function (event) {
+            if (event.key === Qt.Key_F5) { Launcher.refresh(); event.accepted = true }
+        }
+    }
+
     // ---- all games --------------------------------------------------------
     Text {
         id: sectionLabel
-        anchors { top: hero.bottom; left: parent.left; leftMargin: Theme.gutter }
+        anchors { top: appRow.bottom; topMargin: 18; left: parent.left; leftMargin: Theme.gutter }
         text: qsTr("ALL GAMES")
         color: Theme.textSecondary
         font.pixelSize: 12
@@ -127,7 +178,6 @@ Window {
             bottom: footer.top; bottomMargin: 10
         }
         clip: true
-        focus: true
         cellWidth: Theme.gridWidth + 18
         cellHeight: Theme.gridHeight + 18
         model: GameLibrary
@@ -144,7 +194,7 @@ Window {
             badgeColor: model.badgeColor
             cover: model.cover
             playable: model.playable
-            selected: GridView.isCurrentItem && !detailLoader.active
+            selected: grid.activeFocus && GridView.isCurrentItem && !detailLoader.active
 
             MouseArea {
                 anchors.fill: parent
@@ -154,6 +204,11 @@ Window {
 
         Keys.onReturnPressed: window.openDetail()
         Keys.onEnterPressed: window.openDetail()
+        Keys.onUpPressed: function (event) {
+            // Leaving the top row goes to the apps rather than doing nothing.
+            if (currentIndex < Math.floor(width / cellWidth)) appRow.forceActiveFocus()
+            else currentIndex -= Math.floor(width / cellWidth)
+        }
         Keys.onPressed: function (event) {
             if (event.key === Qt.Key_F5) { Launcher.refresh(); event.accepted = true }
         }
@@ -163,6 +218,8 @@ Window {
     Column {
         anchors.centerIn: parent
         spacing: 12
+        // Only covers the games area; the apps row above stays usable, which
+        // matters because a fresh install has no games but does have apps.
         visible: GameLibrary.count === 0 && !Launcher.scanning
 
         Text {
@@ -217,6 +274,11 @@ Window {
             }
         }
         onLoaded: item.forceActiveFocus()
+    }
+
+    function openCurrentApp() {
+        if (AppLibrary.count === 0) return
+        Launcher.launchApp(AppLibrary.get(appRow.currentIndex).appId)
     }
 
     function openDetail() {

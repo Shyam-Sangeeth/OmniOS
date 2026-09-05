@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QProcessEnvironment>
 
+#include "omnios/Apps.h"
 #include "omnios/GameScanner.h"
 #include "omnios/Paths.h"
 #include "omnios/Router.h"
@@ -46,6 +47,7 @@ void LauncherController::refresh() {
     library.save(omnios::libraryCacheFile(), error);
 
     model_.setLibrary(std::move(library));
+    apps_.refresh();
 
     if (model_.rowCount() == 0) {
         setStatus(tr("No games in %1").arg(gamesPath()));
@@ -139,6 +141,56 @@ bool LauncherController::launch(const QString& gameId) {
     process->start(QString::fromStdString(plan.argv.front()), args);
     running_ = process;
     setStatus(tr("Starting %1 …").arg(runningTitle_));
+    emit gameRunningChanged();
+    return true;
+}
+
+bool LauncherController::launchApp(const QString& appId) {
+    if (running_ != nullptr) {
+        setStatus(tr("Something is already running"));
+        return false;
+    }
+
+    const omnios::App* app = omnios::findApp(appId.toStdString());
+    if (app == nullptr) {
+        setStatus(tr("No app with id %1").arg(appId));
+        return false;
+    }
+    if (!omnios::appAvailable(*app)) {
+        // Same courtesy the router gives a missing emulator: name the package.
+        setStatus(tr("%1 is not installed  —  install with: pacman -S %2")
+                      .arg(QString::fromUtf8(app->name.data(), int(app->name.size())),
+                           QString::fromUtf8(app->package.data(), int(app->package.size()))));
+        return false;
+    }
+
+    const std::vector<std::string> argv = omnios::appArgv(*app);
+    QStringList args;
+    for (std::size_t i = 1; i < argv.size(); ++i) args << QString::fromStdString(argv[i]);
+
+    auto* process = new QProcess(this);
+    runningTitle_ = QString::fromUtf8(app->name.data(), int(app->name.size()));
+
+    connect(process, &QProcess::finished, this,
+            [this, process](int, QProcess::ExitStatus) {
+                setStatus(tr("%1 closed").arg(runningTitle_));
+                running_ = nullptr;
+                runningTitle_.clear();
+                process->deleteLater();
+                emit gameRunningChanged();
+            });
+    connect(process, &QProcess::errorOccurred, this,
+            [this, process](QProcess::ProcessError) {
+                setStatus(tr("%1 could not start: %2").arg(runningTitle_, process->errorString()));
+                running_ = nullptr;
+                runningTitle_.clear();
+                process->deleteLater();
+                emit gameRunningChanged();
+            });
+
+    process->start(QString::fromStdString(argv.front()), args);
+    running_ = process;
+    setStatus(tr("Opening %1 …").arg(runningTitle_));
     emit gameRunningChanged();
     return true;
 }

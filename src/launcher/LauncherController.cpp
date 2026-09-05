@@ -498,7 +498,29 @@ void LauncherController::powerAction(const QString& action) {
     // so anything holding a shutdown off is respected.
     setStatus(action == QStringLiteral("suspend") ? tr("Suspending …")
                                                   : tr("Shutting down …"));
-    QProcess::startDetached(QStringLiteral("systemctl"), {*it});
+
+    // Not startDetached. A machine that refuses to suspend — no S3 firmware, an
+    // inhibitor holding it off — would otherwise leave "Suspending …" on screen
+    // for ever with nothing to say why, which is the worst of both: it looks
+    // like the console froze rather than like the request was declined.
+    auto* process = new QProcess(this);
+    process->setProcessChannelMode(QProcess::MergedChannels);
+    connect(process, &QProcess::finished, this,
+            [this, process](int code, QProcess::ExitStatus) {
+                if (code != 0) {
+                    const QString output = QString::fromUtf8(process->readAll()).trimmed();
+                    setStatus(output.isEmpty()
+                                  ? tr("That did not work — the system refused")
+                                  : output.section(QLatin1Char('\n'), -1).trimmed());
+                }
+                process->deleteLater();
+            });
+    connect(process, &QProcess::errorOccurred, this,
+            [this, process](QProcess::ProcessError) {
+                setStatus(tr("Could not run systemctl: %1").arg(process->errorString()));
+                process->deleteLater();
+            });
+    process->start(QStringLiteral("systemctl"), {*it});
 }
 
 void LauncherController::quitRunningGame() { stopRunning(true); }

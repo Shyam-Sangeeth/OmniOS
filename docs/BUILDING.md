@@ -153,6 +153,30 @@ renderer, no matching devices found" and nothing renders at all; it is useful
 only for capturing the splash, because QEMU's `screendump` can read its scanout
 at every stage of boot where virtio's cannot.
 
+## The Windows build does not compile the launcher
+
+The root CMakeLists only adds `src/launcher` when it finds Qt6, and a Windows
+checkout normally has none. So `cmake --build build` on Windows builds
+`omnios_core`, `omnictl` and the tests — and skips every line of
+`LauncherController.cpp`, `main.cpp` and the QML.
+
+A green local build therefore says nothing at all about the shell. A missing
+terminating quote in `LauncherController.cpp` passed on Windows, tests and all,
+and only surfaced inside the ISO build several minutes later.
+
+Compile-check launcher changes in a container before building an image:
+
+```bash
+docker run --rm -v "//c/path/to/OmniOS:/src:ro" archlinux:latest bash -c '
+  pacman -Sy --noconfirm --needed cmake ninja gcc qt6-base qt6-declarative >/dev/null 2>&1
+  cp -r /src /work && cd /work && rm -rf build
+  cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null 2>&1
+  cmake --build build 2>&1 | grep -Ev "^\[" | head -30'
+```
+
+It takes about a minute against a warm image and it is the only thing that
+proves the shell still compiles.
+
 ## Two ways a build "fails" without failing
 
 Both of these cost real time before they were understood, and neither is a

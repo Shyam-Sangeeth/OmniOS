@@ -1,0 +1,17 @@
+# Let a controller wake the console.
+#
+# "Sleep" is only half a feature. Linux arms almost nothing as a wakeup source
+# by default — every USB device comes up with power/wakeup set to "disabled" —
+# so a suspended machine ignores the gamepad and the keyboard entirely, and the
+# only thing that brings it back is the power button. On a console that sits
+# under a television, with the box out of reach, that is close to useless.
+#
+# Both halves are needed. A USB device armed behind a host controller that is
+# not armed still cannot wake anything: the device raises the resume signal and
+# the controller is not listening for it.
+#
+# TEST== first, because not every device exposes power/wakeup and writing to a
+# file that is not there logs a udev error on every boot for no benefit.
+ACTION=="add", SUBSYSTEM=="usb", TEST=="power/wakeup", ATTR{power/wakeup}="enabled"
+ACTION=="add", SUBSYSTEM=="pci", DRIVERS=="xhci_hcd", TEST=="power/wakeup", ATTR{power/wakeup}="enabled"
+ACTION=="add", SUBSYSTEM=="pci", DRIVERS=="ehci-pci", TEST=="power/wakeup", ATTR{power/wakeup}="enabled"

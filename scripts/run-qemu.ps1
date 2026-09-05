@@ -159,6 +159,11 @@ $qemuArgs = @(
     # kernel-irqchip=off is not an alternative: without it the VM never leaves
     # SeaBIOS.
     '-machine', 'q35,accel=whpx:tcg,kernel-irqchip=off,hpet=off'
+    # Let the guest reach S3, so Sleep can be tested at all. Without it
+    # "systemctl suspend" is refused by the firmware and the shell can only be
+    # checked as far as "it asked". Wake it again from the monitor with
+    # "system_wakeup".
+    '-global', 'ICH9-LPC.disable_s3=0'
     '-cpu', $Cpu
     '-m', '4G'
     '-smp', "$cpus"

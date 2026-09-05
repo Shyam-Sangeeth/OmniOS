@@ -119,6 +119,29 @@ the string it was handed, and goes through `systemctl` rather than sudo, so
 logind still gets to run the inhibitors and anything holding a shutdown off is
 respected.
 
+### Sleep, and getting back
+
+Sleep is only half a feature without a way back. Linux arms almost nothing as a
+wakeup source — every USB device comes up with `power/wakeup` disabled — so a
+suspended machine ignores the gamepad and the keyboard, and only the power
+button brings it round. On a console under a television, with the box out of
+reach, that is close to useless.
+
+`99-omnios-wakeup.rules` arms USB devices *and* their host controllers. Both
+halves are needed: a device armed behind a controller that is not armed still
+cannot wake anything, because nothing is listening for the resume signal.
+
+The power button behaves the way a console's does rather than the way a
+server's does — a tap sleeps, a long press powers off — which also makes the
+same button the way back.
+
+`zz-omnios-resume` is what makes the shell reappear. Waking came back to a
+stuck splash: Plymouth ships no sleep hook of its own, this profile masks
+`plymouth-quit.service` because the boot handoff needs it, so on resume nothing
+had the job of taking the splash down and `plymouthd` sat holding DRM master
+with Hyprland unable to draw behind it. The hook takes it down and asks Hyprland
+to switch its outputs back on.
+
 ### The tile menu
 
 Every app tile carries three dots in its bottom-right corner (or press **M**):

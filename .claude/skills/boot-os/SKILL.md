@@ -20,6 +20,11 @@ Nothing there, or older than your changes? Build first — see
 `docs/BUILDING.md`. The build compiles the launcher **before** mkarchiso, so an
 ISO only contains the source as of when the build started.
 
+If you changed the launcher, compile it in a container first. `cmake --build
+build` on Windows does **not** build `src/launcher` — the root CMakeLists skips
+it without Qt6 — so a green local build and passing tests say nothing about
+whether the shell still compiles. `docs/BUILDING.md` has the one-liner.
+
 ## 2. Boot it
 
 ```powershell

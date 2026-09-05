@@ -30,7 +30,12 @@ param(
     # Seconds to wait after the script before capturing. Anything that redraws —
     # a menu opening, an app starting — needs longer than it feels like it
     # should under software rendering.
-    [int]$SettleSeconds = 2
+    [int]$SettleSeconds = 2,
+
+    # Milliseconds between keystrokes. A login prompt is the one place that
+    # drops characters at the default — "root" arrived as "ot" — so raise this
+    # when typing into one.
+    [int]$KeyDelayMs = 70
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,7 +75,7 @@ function Send-Text {
         $Writer.WriteLine("sendkey $key")
         # The guest reads the virtual keyboard at its own pace; without a gap
         # between keys a login prompt drops characters.
-        Start-Sleep -Milliseconds 45
+        Start-Sleep -Milliseconds $KeyDelayMs
     }
 }
 

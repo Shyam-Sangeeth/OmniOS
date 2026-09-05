@@ -36,6 +36,7 @@ usage:
   omnictl platforms               list known platforms
   omnictl engines                 list execution layers and whether they are installed
   omnictl apps                    list built-in apps and whether they are installed
+  omnictl store                   list installable apps and whether they are installed
   omnictl verify <manifest.json>  validate an .opkg manifest
 
 paths come from OMNIOS_GAMES_DIR and OMNIOS_DATA_DIR when those are set.
@@ -319,11 +320,27 @@ int cmdApps() {
                   << app.name << "\n      " << app.description << "\n";
         if (!installed)
             std::cout << "      install: pacman -S " << app.package << "\n";
+        if (app.system)
+            std::cout << "      system app: " << app.package << " cannot be removed\n";
         const std::vector<std::string> argv = appArgv(app);
         std::cout << "      command:";
         for (const std::string& part : argv) std::cout << ' ' << part;
         std::cout << "\n";
     }
+    return 0;
+}
+
+int cmdStore() {
+    for (const StoreApp& app : appCatalog()) {
+        const bool installed = storeAppInstalled(app);
+        std::cout << "  " << (installed ? "[installed]    " : "[not installed]") << " " << app.name
+                  << "  (" << app.category << ")\n      " << app.description << "\n";
+        std::cout << "      " << (installed ? "remove:  sudo pacman -Rns " : "install: sudo pacman -S ")
+                  << app.package << "\n";
+    }
+    // The launcher runs these itself; omnictl only reports, so that a headless
+    // session can see the same state without a second way to change it.
+    std::cout << "\n  the Store tab in the launcher installs and removes these\n";
     return 0;
 }
 
@@ -376,6 +393,7 @@ int main(int argc, char** argv) {
     if (args.command == "platforms") return cmdPlatforms();
     if (args.command == "engines")   return cmdEngines();
     if (args.command == "apps")      return cmdApps();
+    if (args.command == "store")     return cmdStore();
     if (args.command == "verify")    return cmdVerify(args);
 
     std::cerr << "error: unknown command \"" << args.command << "\"\n\n" << kUsage;

@@ -141,3 +141,57 @@ TEST("apps: an app with no arguments yields just its command") {
         for (const std::string& arg : appArgv(app)) CHECK(!arg.empty());
     }
 }
+
+// ---- the store ------------------------------------------------------------
+
+TEST("store: every catalogue row is complete") {
+    for (const StoreApp& app : appCatalog()) {
+        CHECK(!app.id.empty());
+        CHECK(!app.name.empty());
+        // The package is what gets installed and the command is what proves it
+        // arrived. Neither can be inferred from the other — transmission-gtk
+        // and obs-studio both ship a binary named nothing like their package.
+        CHECK(!app.package.empty());
+        CHECK(!app.command.empty());
+        CHECK(!app.description.empty());
+        CHECK(!app.category.empty());
+        CHECK(!app.badgeColor.empty());
+        CHECK(app.badgeColor.front() == '#');
+        CHECK(findStoreApp(app.id) != nullptr);
+    }
+    CHECK(findStoreApp("nope") == nullptr);
+}
+
+TEST("store: ids do not collide with the built-in apps") {
+    // The launcher resolves a tile by id across both registries, built-ins
+    // first. A duplicate id would make a catalogue app unreachable — and
+    // unremovable, because the built-in it shadowed is protected.
+    for (const StoreApp& app : appCatalog()) CHECK(findApp(app.id) == nullptr);
+}
+
+TEST("apps: the ones a console needs are marked system") {
+    CHECK(findApp("video")->system);
+    CHECK(findApp("files")->system);
+}
+
+TEST("apps: a system app's package cannot be removed") {
+    for (const App& app : allApps()) {
+        if (app.system) CHECK(packageIsProtected(app.package));
+    }
+    // The browser and the YouTube tile are two rows sharing one package, so
+    // protection has to be a property of the package rather than of the tile:
+    // removing chromium from either tile would break both.
+    CHECK(packageIsProtected("chromium"));
+}
+
+TEST("store: nothing in the catalogue is protected") {
+    // Otherwise the store would offer an install it could never undo.
+    for (const StoreApp& app : appCatalog()) CHECK(!packageIsProtected(app.package));
+}
+
+TEST("apps: an empty package name is refused rather than passed to pacman") {
+    // Every caller gets the name from a registry row, so an empty one means a
+    // lookup failed. Refusing is the safe reading: "pacman -Rns" with no
+    // argument is not a no-op worth finding out about the hard way.
+    CHECK(packageIsProtected(""));
+}

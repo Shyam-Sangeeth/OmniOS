@@ -1,0 +1,20 @@
+[Unit]
+Description=Initialise the pacman keyring
+# Without this the keyring is empty, every package fails signature
+# verification, and pacman reports it as "required key missing from keyring"
+# rather than as a missing keyring.
+#
+# time-sync matters: GPG rejects keys whose validity period has not started, and
+# a VM that boots with a wrong clock fails here for a reason nothing else
+# explains.
+Requires=etc-pacman.d-gnupg.mount
+After=etc-pacman.d-gnupg.mount time-sync.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/pacman-key --init
+ExecStart=/usr/bin/pacman-key --populate archlinux
+
+[Install]
+WantedBy=multi-user.target

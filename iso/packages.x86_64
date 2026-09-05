@@ -134,6 +134,12 @@ thunar-volman
 gvfs
 ffmpegthumbnailer
 
+## App store — installing and removing extras from the tile menu.
+## checkupdates (pacman-contrib) is what makes "check for update" safe: it
+## compares against a throwaway database instead of running pacman -Sy, which
+## on Arch leaves the system one partial upgrade away from a broken libc.
+pacman-contrib
+
 ## Branding — Phase 11
 plymouth
 ttf-dejavu

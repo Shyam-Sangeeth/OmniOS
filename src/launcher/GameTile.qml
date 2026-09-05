@@ -19,6 +19,12 @@ Item {
     property string iconSource: ""
     property bool   selected: false
     property bool   playable: true
+    // Shows the overflow button. Games have nothing to put in a menu yet, so
+    // they leave it off rather than opening an empty one.
+    property bool   hasMenu: false
+    // Emitted with the button itself, so the menu can anchor to it.
+    signal menuRequested(var anchorItem)
+
     property int    baseWidth: Theme.gridWidth
     property int    baseHeight: Theme.gridHeight
 
@@ -142,6 +148,46 @@ Item {
             anchors.fill: parent
             visible: !tile.playable
             color: "#990A0A12"
+        }
+
+        // ---- overflow button -----------------------------------------------
+        // Bottom-right of the card, over the label strip. The badge is
+        // left-aligned, so the two never meet. Inside the clipping card on
+        // purpose: it should ride the tile's corner radius, not float past it.
+        Rectangle {
+            id: menuButton
+            anchors { right: parent.right; bottom: parent.bottom; margins: 6 }
+            width: 24
+            height: 24
+            radius: 4
+            visible: tile.hasMenu
+            // White tint rather than a solid fill: the tile underneath still
+            // reads through it, which keeps it from looking bolted on.
+            color: menuHover.containsMouse ? "#3DFFFFFF" : "#1FFFFFFF"
+            border.width: 1
+            border.color: "#26FFFFFF"
+            Behavior on color { ColorAnimation { duration: Theme.focusDuration } }
+
+            Column {
+                anchors.centerIn: parent
+                spacing: 3
+                Repeater {
+                    model: 3
+                    Rectangle {
+                        width: 3
+                        height: 3
+                        radius: 1.5
+                        color: Theme.textPrimary
+                    }
+                }
+            }
+
+            MouseArea {
+                id: menuHover
+                anchors.fill: parent
+                hoverEnabled: true
+                onClicked: tile.menuRequested(menuButton)
+            }
         }
     }
 

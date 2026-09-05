@@ -36,6 +36,8 @@ export OMNIOS_DATA_DIR=/tmp/demo/.omnios
 ./build/omnictl detect some-file.pkg    # identify one file
 ./build/omnictl verify manifest.json    # validate an .opkg manifest
 ./build/omnictl engines                 # which layers are installed
+./build/omnictl apps                    # built-in app tiles
+./build/omnictl store                   # installable extras
 ```
 
 `launch` is a dry run unless you pass `--run`, so the routing is inspectable on
@@ -52,6 +54,7 @@ a machine with no emulators installed.
 | [GameScanner.cpp](src/omnios/GameScanner.cpp) | 7 | Walks `~/Games/`, identifies titles, builds the library. |
 | [GameLibrary.cpp](src/omnios/GameLibrary.cpp) | 7.5 | The tile model plus its `~/.omnios/library.json` cache. |
 | [Router.cpp](src/omnios/Router.cpp) | 9.2–9.5 | Platform → engine → argv, with install hints when a layer is missing. |
+| [Apps.cpp](src/omnios/Apps.cpp) | 10 | Built-in app tiles and the installable catalogue behind the Store tab. |
 
 ### Detection
 
@@ -69,6 +72,39 @@ Two cases the design doc's table doesn't separate, and this does:
 
 `~/Games/pc/` is shared by Linux and Windows, so it supplies no folder hint —
 those two are always separated by their headers.
+
+### Apps and the store
+
+Two registries, both tables like every other one here.
+
+`allApps()` is what ships: a video player, a file manager, a browser and a
+YouTube tile. `appCatalog()` is what can be added — VLC, Firefox, Kodi and the
+rest, all from the official repositories so nothing has to be compiled on a
+console at first boot. Installing one from the Store tab makes it a tile on the
+Apps tab; there is no separate list to keep in sync.
+
+Every app tile carries a three-dot menu: open, check for update, update,
+install, uninstall. Uninstall is the one that needs a guard, and the guard is a
+property of the *package*, not of the tile:
+
+```cpp
+bool packageIsProtected(std::string_view package);
+```
+
+The browser tile and the YouTube tile are two rows sharing one `chromium`
+package, so "is this tile a system app?" is the wrong question — removing
+chromium from either tile would break both. `removeApp()` asks the right one and
+refuses, and the menu shows the entry greyed out with the reason rather than
+hiding it, so a protected tile still looks like it has a menu.
+
+`checkupdates` from `pacman-contrib` backs the update check. It compares against
+a throwaway database instead of running `pacman -Sy`, which on Arch would leave
+the system one partial upgrade away from a mismatched libc.
+
+On a live image the root filesystem is a RAM overlay, so anything installed is
+gone at the next boot. The Store tab says so rather than letting a user find out
+by rebooting; `Launcher.ephemeral` detects it from the mount type, so the notice
+disappears by itself once OmniOS is installed to a disk.
 
 ### Routing
 

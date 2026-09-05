@@ -44,7 +44,25 @@ param(
     [string]$SerialLog,
     # Expose QEMU's monitor on this TCP port, so the boot can be screenshotted
     # with "screendump" without anyone having to watch the window.
-    [int]$MonitorPort = 0
+    [int]$MonitorPort = 0,
+
+    # CPU model handed to the accelerator.
+    #
+    # Not "max". WHPX asks the host for every feature it advertises, and on some
+    # hosts reading the xsave state of the resulting vCPU fails outright:
+    #
+    #   qemu-system-x86_64.exe: failed to get xsave state: No error
+    #
+    # It dies mid-boot, after ISOLINUX has already drawn, so it reads like a
+    # broken image rather than a hypervisor limit. A named model asks for a
+    # fixed, older feature set and sidesteps it. Pass -Cpu max,-hypervisor to
+    # get the old behaviour back on a host where it works.
+    #
+    # -tsc-deadline because WHPX does not offer that timer; leaving it in only
+    # produces a warning, but the warning is written to stderr and PowerShell
+    # turns native stderr into a terminating NativeCommandError when this
+    # script is called from a pipeline.
+    [string]$Cpu = 'Skylake-Client,-hypervisor,-tsc-deadline'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -93,7 +111,7 @@ $qemuArgs = @(
     # kernel-irqchip=off is not an alternative: without it the VM never leaves
     # SeaBIOS.
     '-machine', 'q35,accel=whpx:tcg,kernel-irqchip=off,hpet=off'
-    '-cpu', 'max,-hypervisor'
+    '-cpu', $Cpu
     '-m', '4G'
     '-smp', "$cpus"
     # See the -Vga parameter. There is no GPU acceleration in this VM either

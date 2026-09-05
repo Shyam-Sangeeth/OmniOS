@@ -37,11 +37,11 @@ const std::vector<App> kApps = {
      "--vo=gpu,wlshm --gpu-context=wayland",
      "mpv", "mpv",
      "Play video and music from a drive or USB stick",
-     "#6C63FF"},
+     "#6C63FF", true},
 
     {"files", "Files", "thunar", "%GAMES%", "thunar", "org.xfce.thunar",
      "Browse drives, copy games, open a USB stick",
-     "#3A8FFF"},
+     "#3A8FFF", true},
 
     // Chromium, not Chrome: Chrome is AUR-only, chromium is the same engine in
     // the official repos and needs no build step on first boot.
@@ -58,7 +58,7 @@ const std::vector<App> kApps = {
      "--start-maximized",
      "chromium", "chromium",
      "Browse the web",
-     "#3A8FFF"},
+     "#3A8FFF", true},
 
     // YouTube is a web app, so it is Chromium in app mode: no tabs, no
     // address bar, just the site. The icon is Chromium's own, which is honest
@@ -68,12 +68,48 @@ const std::vector<App> kApps = {
      "--app=https://www.youtube.com --start-fullscreen",
      "chromium", "chromium",
      "Watch YouTube",
-     "#E4000F"},
+     "#E4000F", true},
+};
+
+// Installable extras, all from the official repositories so nothing has to be
+// built on first boot. Package names were checked against the repos; the icon
+// names are best effort, and a miss falls back to the tile's colour wash
+// rather than showing a broken image.
+const std::vector<StoreApp> kCatalog = {
+    {"vlc", "VLC", "vlc", "vlc", "vlc",
+     "Plays practically any video or audio file", "Media", "#E85D04"},
+    {"firefox", "Firefox", "firefox", "firefox", "firefox",
+     "An alternative browser", "Web", "#FF7139"},
+    {"kodi", "Kodi", "kodi", "kodi", "kodi",
+     "Media centre for a TV, with a remote-friendly interface", "Media", "#17B2E7"},
+    {"strawberry", "Strawberry", "strawberry", "strawberry", "strawberry",
+     "Music player for a local collection", "Media", "#E4000F"},
+    {"transmission", "Transmission", "transmission-gtk", "transmission-gtk",
+     "transmission", "Download client", "Utilities", "#C62828"},
+    {"obs", "OBS Studio", "obs-studio", "obs", "com.obsproject.Studio",
+     "Record and stream gameplay", "Utilities", "#302E31"},
 };
 
 }  // namespace
 
 const std::vector<App>& allApps() { return kApps; }
+
+const std::vector<StoreApp>& appCatalog() { return kCatalog; }
+
+const StoreApp* findStoreApp(std::string_view id) {
+    const auto it = std::find_if(kCatalog.begin(), kCatalog.end(),
+                                 [id](const StoreApp& app) { return app.id == id; });
+    return it == kCatalog.end() ? nullptr : &*it;
+}
+
+bool storeAppInstalled(const StoreApp& app) { return commandExists(app.command); }
+
+bool packageIsProtected(std::string_view package) {
+    if (package.empty()) return true;  // unknown provenance: refuse
+    return std::any_of(kApps.begin(), kApps.end(), [package](const App& app) {
+        return app.system && app.package == package;
+    });
+}
 
 const App* findApp(std::string_view id) {
     const auto it = std::find_if(kApps.begin(), kApps.end(),
@@ -83,11 +119,11 @@ const App* findApp(std::string_view id) {
 
 bool appAvailable(const App& app) { return commandExists(app.command); }
 
-std::string appIconPath(const App& app) {
-    if (app.icon.empty()) return {};
+std::string iconPathFor(std::string_view icon) {
+    if (icon.empty()) return {};
 
     namespace fs = std::filesystem;
-    const std::string name(app.icon);
+    const std::string name(icon);
 
     // Largest first: these are drawn at tile size, and upscaling a 48px icon
     // looks worse than downscaling a 256px one.
@@ -113,6 +149,10 @@ std::string appIconPath(const App& app) {
     }
     return {};
 }
+
+std::string appIconPath(const App& app) { return iconPathFor(app.icon); }
+
+std::string storeIconPath(const StoreApp& app) { return iconPathFor(app.icon); }
 
 std::vector<std::string> appArgv(const App& app) {
     std::vector<std::string> argv{std::string(app.command)};

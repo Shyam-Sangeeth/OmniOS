@@ -56,6 +56,7 @@ file_permissions=(
   ["/usr/local/bin/omnictl"]="0:0:755"
   ["/usr/local/bin/omni-launcher-qml"]="0:0:755"
   ["/usr/local/bin/omni-session"]="0:0:755"
+  ["/usr/local/bin/omni-mirrorlist"]="0:0:755"
   # sudo ignores any sudoers file that is group- or world-writable.
   ["/etc/sudoers.d/omnios"]="0:0:440"
 )

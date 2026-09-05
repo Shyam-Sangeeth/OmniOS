@@ -14,3 +14,6 @@ seatd.service               multi-user.target
 sshd.service                multi-user.target
 omnios-live-credentials.service  multi-user.target
 omnios-splash-guard.service      multi-user.target
+omnios-mirrorlist.service        multi-user.target
+etc-pacman.d-gnupg.mount         multi-user.target
+omnios-pacman-init.service       multi-user.target

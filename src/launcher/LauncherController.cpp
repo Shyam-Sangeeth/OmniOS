@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QProcessEnvironment>
 
 #include "omnios/Apps.h"
@@ -24,6 +25,10 @@ constexpr const char* kAppWorkspace      = "2";
 // back, and there is nothing to read. That is the single most expensive kind
 // of failure to diagnose.
 const QString kAppLog = QStringLiteral("/tmp/omnios-app.log");
+
+// Package operations get their own log. Mixing them into kAppLog would mean a
+// failed install erased the record of the crash the user was investigating.
+const QString kPackageLog = QStringLiteral("/tmp/omnios-pkg.log");
 
 void captureOutput(QProcess* process) {
     process->setProcessChannelMode(QProcess::MergedChannels);
@@ -50,6 +55,26 @@ void focusLauncherWindow() {
     QProcess::execute(QStringLiteral("hyprctl"),
                       {QStringLiteral("dispatch"), QStringLiteral("focuswindow"),
                        QStringLiteral("class:omni-launcher")});
+}
+
+// Everything here runs through one shell so pacman output can be tee'd to the
+// log while the exit status still comes from pacman rather than from tee.
+// pipefail is why: without it a failed install would report success.
+// The first line pacman marked as an error, with the prefix stripped. Empty
+// when there is none.
+QString firstErrorLine(const QString& output) {
+    const QStringList lines = output.split(QLatin1Char('\n'));
+    for (const QString& line : lines) {
+        const QString trimmed = line.trimmed();
+        if (trimmed.startsWith(QLatin1String("error:"), Qt::CaseInsensitive))
+            return trimmed.mid(6).trimmed();
+    }
+    return {};
+}
+
+QString shellWrap(const QString& body) {
+    return QStringLiteral("set -o pipefail; { %1 ; } 2>&1 | tee -a %2")
+        .arg(body, kPackageLog);
 }
 
 }  // namespace
@@ -192,6 +217,11 @@ bool LauncherController::launch(const QString& gameId) {
 bool LauncherController::launchApp(const QString& appId) {
     const omnios::App* app = omnios::findApp(appId.toStdString());
     if (app == nullptr) {
+        // An app installed from the store is a tile on the same tab and has to
+        // open the same way. It has no argument list of its own — nothing about
+        // VLC needs tuning the way mpv did — so it is started bare.
+        if (const omnios::StoreApp* extra = omnios::findStoreApp(appId.toStdString()))
+            return launchExtra(*extra);
         setStatus(tr("No app with id %1").arg(appId));
         return false;
     }
@@ -207,13 +237,29 @@ bool LauncherController::launchApp(const QString& appId) {
     QStringList args;
     for (std::size_t i = 1; i < argv.size(); ++i) args << QString::fromStdString(argv[i]);
 
+    return startApp(QString::fromUtf8(app->name.data(), int(app->name.size())),
+                    QString::fromStdString(argv.front()), args);
+}
+
+bool LauncherController::launchExtra(const omnios::StoreApp& app) {
+    const QString command = QString::fromUtf8(app.command.data(), int(app.command.size()));
+    const QString name    = QString::fromUtf8(app.name.data(), int(app.name.size()));
+    if (!omnios::storeAppInstalled(app)) {
+        setStatus(tr("%1 is not installed").arg(name));
+        return false;
+    }
+    return startApp(name, command, {});
+}
+
+bool LauncherController::startApp(const QString& title, const QString& program,
+                                  const QStringList& args) {
     stopRunning(false);
 
     auto* process = new QProcess(this);
     captureOutput(process);
     QElapsedTimer startedAt;
     startedAt.start();
-    runningTitle_ = QString::fromUtf8(app->name.data(), int(app->name.size()));
+    runningTitle_ = title;
 
     connect(process, &QProcess::finished, this,
             [this, process, startedAt](int, QProcess::ExitStatus) {
@@ -222,7 +268,7 @@ bool LauncherController::launchApp(const QString& appId) {
                 // An app that closes within a couple of seconds did not
                 // "close", it failed. Say so, and say where to look.
                 setStatus(startedAt.elapsed() < 2500
-                              ? tr("%1 closed immediately  —  see %2").arg(runningTitle_).arg(kAppLog)
+                              ? tr("%1 closed immediately  -  see %2").arg(runningTitle_).arg(kAppLog)
                               : tr("%1 closed").arg(runningTitle_));
                 running_ = nullptr;
                 runningTitle_.clear();
@@ -240,11 +286,173 @@ bool LauncherController::launchApp(const QString& appId) {
             });
 
     switchWorkspace(kAppWorkspace);
-    process->start(QString::fromStdString(argv.front()), args);
+    process->start(program, args);
     running_ = process;
-    setStatus(tr("Opening %1 …").arg(runningTitle_));
+    setStatus(tr("Opening %1 ...").arg(runningTitle_));
     emit gameRunningChanged();
     return true;
+}
+
+bool LauncherController::ephemeral() const {
+    // archiso creates this and nothing else does, so it is the direct answer.
+    // It is checked first because the mount test below turned out not to fire
+    // on the live image it was written for.
+    if (QFile::exists(QStringLiteral("/run/archiso"))) return true;
+
+    // Falls back to the mount type, which catches any other live image that
+    // runs the root from a RAM overlay, and stays false once OmniOS is
+    // installed to a disk.
+    QFile mounts(QStringLiteral("/proc/mounts"));
+    if (!mounts.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
+    while (!mounts.atEnd()) {
+        const QList<QByteArray> fields = mounts.readLine().split(' ');
+        if (fields.size() > 2 && fields[1] == "/" && fields[2] == "overlay") return true;
+    }
+    return false;
+}
+
+void LauncherController::setPackageStatus(const QString& text) {
+    if (packageStatus_ == text) return;
+    packageStatus_ = text;
+    emit packageStatusChanged();
+}
+
+LauncherController::PackageRef LauncherController::packageFor(const QString& appId) const {
+    const std::string id = appId.toStdString();
+    if (const omnios::App* app = omnios::findApp(id)) {
+        return {QString::fromUtf8(app->package.data(), int(app->package.size())),
+                QString::fromUtf8(app->name.data(), int(app->name.size()))};
+    }
+    if (const omnios::StoreApp* app = omnios::findStoreApp(id)) {
+        return {QString::fromUtf8(app->package.data(), int(app->package.size())),
+                QString::fromUtf8(app->name.data(), int(app->name.size()))};
+    }
+    return {};
+}
+
+void LauncherController::runPackageCommand(const QString& script, const QString& verb,
+                                           const QString& pastTense) {
+    auto* process = new QProcess(this);
+    process->setProcessChannelMode(QProcess::MergedChannels);
+
+    // Output is read back rather than only written to the log: a user should not
+    // have to open a log to find out that a mirror was unreachable.
+    connect(process, &QProcess::finished, this,
+            [this, process, pastTense](int code, QProcess::ExitStatus) {
+                const QString output = QString::fromUtf8(process->readAll()).trimmed();
+                const QString lastLine = output.section(QLatin1Char('\n'), -1).trimmed();
+                if (code != 0) {
+                    // pacman's *last* line is its summary — "Errors occurred, no
+                    // packages were upgraded" — which says nothing about what
+                    // went wrong. The first "error:" line is the root cause and
+                    // the ones after it are the cascade. Reporting the summary
+                    // instead cost a rebuild and a login on tty2 to discover
+                    // that the keyring was not writable.
+                    const QString cause = firstErrorLine(output);
+                    setPackageStatus(cause.isEmpty()
+                                         ? (lastLine.isEmpty()
+                                                ? tr("Failed  -  see %1").arg(kPackageLog)
+                                                : lastLine)
+                                         : tr("%1  -  see %2").arg(cause, kPackageLog));
+                } else {
+                    // An empty pastTense means the command reports its own
+                    // result, as the update check does.
+                    setPackageStatus(pastTense.isEmpty() ? lastLine : pastTense);
+                }
+                package_ = nullptr;
+                process->deleteLater();
+                // Both tabs change: an install adds an Apps tile and flips a
+                // store tile to installed.
+                apps_.refresh();
+                store_.refresh();
+                emit packageBusyChanged();
+            });
+    connect(process, &QProcess::errorOccurred, this,
+            [this, process](QProcess::ProcessError) {
+                setPackageStatus(tr("Could not run pacman: %1").arg(process->errorString()));
+                package_ = nullptr;
+                process->deleteLater();
+                emit packageBusyChanged();
+            });
+
+    process->start(QStringLiteral("sh"), {QStringLiteral("-c"), shellWrap(script)});
+    package_ = process;
+    setPackageStatus(verb);
+    emit packageBusyChanged();
+}
+
+void LauncherController::installApp(const QString& appId) {
+    if (packageBusy()) return;
+
+    // Both registries, not just the catalogue: a built-in whose package the
+    // image was built without is exactly the case where installing it from its
+    // own tile is the obvious repair, and refusing there would leave a dead
+    // menu entry on a tile that already says it cannot run.
+    const PackageRef ref = packageFor(appId);
+    if (ref.package.isEmpty()) {
+        setPackageStatus(tr("Nothing known as %1").arg(appId));
+        return;
+    }
+
+    // -Sy before the install, not -Syu. A live image ships no sync databases,
+    // so without the refresh pacman cannot find the package at all; a full
+    // upgrade is the safer Arch habit but would pull the whole system into a
+    // RAM overlay sized for one package.
+    runPackageCommand(
+        QStringLiteral("sudo pacman -Sy --noconfirm --needed %1").arg(ref.package),
+        tr("Installing %1 ...").arg(ref.title), tr("%1 installed").arg(ref.title));
+}
+
+void LauncherController::removeApp(const QString& appId) {
+    if (packageBusy()) return;
+
+    const PackageRef ref = packageFor(appId);
+    if (ref.package.isEmpty()) {
+        setPackageStatus(tr("Nothing known as %1").arg(appId));
+        return;
+    }
+    if (omnios::packageIsProtected(ref.package.toStdString())) {
+        setPackageStatus(tr("%1 is part of OmniOS and cannot be removed").arg(ref.title));
+        return;
+    }
+
+    // -Rns takes the dependencies the package brought in with it and its
+    // configuration. Leaving them behind is how a console accumulates a
+    // gigabyte of things nothing uses.
+    runPackageCommand(QStringLiteral("sudo pacman -Rns --noconfirm %1").arg(ref.package),
+                      tr("Removing %1 ...").arg(ref.title), tr("%1 removed").arg(ref.title));
+}
+
+void LauncherController::checkForUpdate(const QString& appId) {
+    if (packageBusy()) return;
+
+    const PackageRef ref = packageFor(appId);
+    if (ref.package.isEmpty()) {
+        setPackageStatus(tr("Nothing known as %1").arg(appId));
+        return;
+    }
+
+    // checkupdates exits 2 with no output when everything is current, which is
+    // not a failure. awk decides the message and the exit code, so "up to date"
+    // and "no such package" cannot be confused with a mirror being down.
+    const QString script =
+        QStringLiteral("checkupdates 2>/dev/null | awk -v p=%1 "
+                       "'$1==p {print \"Update available: \" $2 \" -> \" $4; f=1} "
+                       "END {if (!f) print p \" is up to date\"}'")
+            .arg(ref.package);
+    runPackageCommand(script, tr("Checking %1 for updates ...").arg(ref.title), QString());
+}
+
+void LauncherController::updateApp(const QString& appId) {
+    if (packageBusy()) return;
+
+    const PackageRef ref = packageFor(appId);
+    if (ref.package.isEmpty()) {
+        setPackageStatus(tr("Nothing known as %1").arg(appId));
+        return;
+    }
+    runPackageCommand(QStringLiteral("sudo pacman -Sy --noconfirm %1").arg(ref.package),
+                      tr("Updating %1 ...").arg(ref.title), tr("%1 is up to date").arg(ref.title));
 }
 
 void LauncherController::quitRunningGame() { stopRunning(true); }

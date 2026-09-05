@@ -1,0 +1,15 @@
+[Unit]
+Description=Writable pacman keyring for the live session
+# The image ships an empty /etc/pacman.d/gnupg, and pacman cannot create the
+# keyring inside it. That surfaces as "error: keyring is not writable" followed
+# by "required key missing from keyring" the first time anything is installed —
+# which, in OmniOS, is the first time anyone uses the Store tab.
+#
+# A tmpfs here is what upstream archiso does, and it is the right shape: the
+# keyring is rebuilt at every boot and is gone with the rest of the RAM overlay.
+
+[Mount]
+What=tmpfs
+Where=/etc/pacman.d/gnupg
+Type=tmpfs
+Options=mode=0755

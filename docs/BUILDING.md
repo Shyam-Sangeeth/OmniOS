@@ -153,6 +153,24 @@ renderer, no matching devices found" and nothing renders at all; it is useful
 only for capturing the splash, because QEMU's `screendump` can read its scanout
 at every stage of boot where virtio's cannot.
 
+## Two ways a build "fails" without failing
+
+Both of these cost real time before they were understood, and neither is a
+problem with the profile.
+
+- **`docker.exe : error: command failed to execute correctly`, while the
+  container is still running.** PowerShell turns anything a native command
+  writes to stderr into a terminating `NativeCommandError` when the command is
+  in a pipeline. `pacman-key` writes `There is no secret key available to sign
+  with` during the keyring refresh, which is harmless. So
+  `.\scripts\build-iso-docker.ps1 | Out-File log.txt` reports a failed build
+  while `mkarchiso` carries on quite happily in the container. Run the script
+  without a pipeline, or check `docker ps` before believing the error.
+- **The Docker daemon is gone after you booted a VM.** `wsl --shutdown` is the
+  fix for a wedged WHPX (below) and it also stops Docker Desktop's backend, so
+  the next build fails at the daemon check. Start Docker Desktop again and wait
+  for `docker info` to answer.
+
 ## Running the VM on Windows
 
 `run-qemu.ps1` passes `kernel-irqchip=off,hpet=off`. Both are required and they
@@ -169,6 +187,22 @@ fix different things:
   look like a flaky hypervisor rather than a guest that died on the first
   screenful, especially since the serial log then holds only the ISOLINUX
   banner and `screendump` appears to do nothing.
+
+`-cpu max` is not usable here either. It asks WHPX for every feature the host
+advertises, and reading the resulting vCPU's xsave state then fails outright:
+
+    qemu-system-x86_64.exe: failed to get xsave state: No error
+
+It dies *after* ISOLINUX has drawn, so it reads like a broken image rather than
+a hypervisor limit. `run-qemu.ps1` defaults to `Skylake-Client` for that reason;
+`-Cpu max,-hypervisor` restores the old behaviour on a host where it works. If
+it fails anyway, `wsl --shutdown` frees the hypervisor — a running WSL2 backend
+can wedge WHPX on its own.
+
+Keyboard input over the monitor works (`sendkey tab`, `sendkey m`, `sendkey
+ret`). `mouse_move` does **not** reach the guest with `usb-tablet` attached,
+though `mouse_button` clicks wherever the pointer already sits — so a monitor
+"click" lands in a place you did not choose. Drive the UI with the keyboard.
 
 If a VM looks stuck, screendump it before theorising: `(Get-Process
 qemu-system-x86_64).CPU` frozen near five seconds almost always means the guest

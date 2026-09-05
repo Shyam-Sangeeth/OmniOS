@@ -32,7 +32,41 @@ struct App {
     std::string_view description;
     // Tile badge colour, from the UI palette (OmniOS.md §12).
     std::string_view badgeColor;
+    // Part of OmniOS itself. A console without a file manager or a video
+    // player is broken, so these cannot be uninstalled from the UI — the
+    // option is shown disabled rather than hidden, so it is clear the tile
+    // has a menu like any other and why this entry is unavailable.
+    bool system;
 };
+
+// An app that can be installed from the official repositories. Kept separate
+// from App: these are optional extras, and until one is installed it has no
+// command to run and no icon on disk to show.
+struct StoreApp {
+    std::string_view id;
+    std::string_view name;
+    std::string_view package;
+    // Binary the package provides, used to tell installed from not.
+    std::string_view command;
+    std::string_view icon;
+    std::string_view description;
+    std::string_view category;
+    std::string_view badgeColor;
+};
+
+const std::vector<StoreApp>& appCatalog();
+const StoreApp* findStoreApp(std::string_view id);
+
+// True when the package's binary is on PATH. Cheaper than querying pacman and
+// answers the question the UI actually asks: can this be launched?
+bool storeAppInstalled(const StoreApp& app);
+
+// True when removing this package would break OmniOS itself, because a system
+// app depends on it. Enforced here rather than in the UI: the browser and the
+// YouTube tile are two rows sharing one package, so "is this tile a system
+// app?" is the wrong question — "does any system app need this package?" is
+// the right one, and only this table can answer it.
+bool packageIsProtected(std::string_view package);
 
 const std::vector<App>& allApps();
 
@@ -49,5 +83,10 @@ std::vector<std::string> appArgv(const App& app);
 // at call time rather than cached: the icon appears when the package is
 // installed, which on a live image can happen after the launcher has started.
 std::string appIconPath(const App& app);
+std::string storeIconPath(const StoreApp& app);
+
+// Shared lookup behind both, exposed so a caller with only an icon name (a
+// pacman query result, say) can use the same search order.
+std::string iconPathFor(std::string_view icon);
 
 }  // namespace omnios

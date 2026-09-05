@@ -7,6 +7,7 @@ qt_add_executable(omni-launcher
     main.cpp
     GameListModel.cpp
     AppListModel.cpp
+    StoreListModel.cpp
     LauncherController.cpp)
 
 # The QML forms a module named "omnios". The files sit beside this file rather
@@ -23,10 +24,12 @@ qt_add_qml_module(omni-launcher
         Main.qml
         Theme.qml
         GameTile.qml
+        TileMenu.qml
         GameDetail.qml
     SOURCES
         GameListModel.h
         AppListModel.h
+        StoreListModel.h
         LauncherController.h)
 
 target_link_libraries(omni-launcher PRIVATE

@@ -1,6 +1,5 @@
 #include "AppListModel.h"
 
-#include <QString>
 #include <QUrl>
 
 #include "omnios/Apps.h"
@@ -11,41 +10,37 @@ QString view(std::string_view text) {
     return QString::fromUtf8(text.data(), static_cast<int>(text.size()));
 }
 
+QString iconUrl(const std::string& path) {
+    // Empty when the theme has no icon; the tile then falls back to its colour
+    // wash rather than showing a broken image.
+    return path.empty() ? QString()
+                        : QUrl::fromLocalFile(QString::fromStdString(path)).toString();
+}
+
 }  // namespace
 
-AppListModel::AppListModel(QObject* parent) : QAbstractListModel(parent) {}
+AppListModel::AppListModel(QObject* parent) : QAbstractListModel(parent) { refresh(); }
 
 int AppListModel::rowCount(const QModelIndex& parent) const {
     if (parent.isValid()) return 0;
-    return static_cast<int>(omnios::allApps().size());
+    return rows_.size();
 }
 
 QVariant AppListModel::data(const QModelIndex& index, int role) const {
-    if (!index.isValid() || index.row() < 0 || index.row() >= rowCount()) return {};
+    if (!index.isValid() || index.row() < 0 || index.row() >= rows_.size()) return {};
 
-    const omnios::App& app = omnios::allApps()[static_cast<std::size_t>(index.row())];
-
+    const Row& row = rows_.at(index.row());
     switch (role) {
-        case IdRole:          return view(app.id);
-        case NameRole:        return view(app.name);
-        case DescriptionRole: return view(app.description);
-        case BadgeColorRole:  return view(app.badgeColor);
-        case PackageRole:     return view(app.package);
-        case AvailableRole:   return omnios::appAvailable(app);
-        case IconRole: {
-            // Empty when the theme has no icon; the tile then falls back to
-            // its colour wash rather than showing a broken image.
-            const std::string path = omnios::appIconPath(app);
-            return path.empty() ? QString()
-                                : QUrl::fromLocalFile(QString::fromStdString(path)).toString();
-        }
-        case CommandRole: {
-            const std::vector<std::string> argv = omnios::appArgv(app);
-            QStringList parts;
-            for (const std::string& part : argv) parts << QString::fromStdString(part);
-            return parts.join(QLatin1Char(' '));
-        }
-        default: return {};
+        case IdRole:          return row.id;
+        case NameRole:        return row.title;
+        case DescriptionRole: return row.description;
+        case BadgeColorRole:  return row.badgeColor;
+        case PackageRole:     return row.package;
+        case CommandRole:     return row.command;
+        case IconRole:        return row.icon;
+        case AvailableRole:   return row.available;
+        case RemovableRole:   return row.removable;
+        default:              return {};
     }
 }
 
@@ -61,12 +56,13 @@ QHash<int, QByteArray> AppListModel::roleNames() const {
         {PackageRole, "package"},
         {CommandRole, "commandLine"},
         {IconRole, "iconSource"},
+        {RemovableRole, "removable"},
     };
 }
 
 QVariantMap AppListModel::get(int row) const {
     QVariantMap out;
-    if (row < 0 || row >= rowCount()) return out;
+    if (row < 0 || row >= rows_.size()) return out;
     const QModelIndex idx = index(row, 0);
     const QHash<int, QByteArray> names = roleNames();
     for (auto it = names.constBegin(); it != names.constEnd(); ++it)
@@ -75,9 +71,45 @@ QVariantMap AppListModel::get(int row) const {
 }
 
 void AppListModel::refresh() {
-    // The rows never change, but availability does. A full reset is cheap for
-    // a handful of entries and avoids a stale "not installed" tile.
     beginResetModel();
+    rows_.clear();
+
+    for (const omnios::App& app : omnios::allApps()) {
+        Row row;
+        row.id          = view(app.id);
+        row.title       = view(app.name);
+        row.description = view(app.description);
+        row.badgeColor  = view(app.badgeColor);
+        row.package     = view(app.package);
+        row.icon        = iconUrl(omnios::appIconPath(app));
+        row.available   = omnios::appAvailable(app);
+        row.removable   = !omnios::packageIsProtected(app.package);
+
+        QStringList parts;
+        for (const std::string& part : omnios::appArgv(app)) parts << QString::fromStdString(part);
+        row.command = parts.join(QLatin1Char(' '));
+
+        rows_.push_back(row);
+    }
+
+    // Catalogue apps appear here only once they exist. An uninstalled one has
+    // no command to run and would be a tile that does nothing; it lives on the
+    // store tab until then.
+    for (const omnios::StoreApp& app : omnios::appCatalog()) {
+        if (!omnios::storeAppInstalled(app)) continue;
+        Row row;
+        row.id          = view(app.id);
+        row.title       = view(app.name);
+        row.description = view(app.description);
+        row.badgeColor  = view(app.badgeColor);
+        row.package     = view(app.package);
+        row.command     = view(app.command);
+        row.icon        = iconUrl(omnios::storeIconPath(app));
+        row.available   = true;
+        row.removable   = !omnios::packageIsProtected(app.package);
+        rows_.push_back(row);
+    }
+
     endResetModel();
     emit countChanged();
 }

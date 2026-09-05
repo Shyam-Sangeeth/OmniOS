@@ -1,0 +1,15 @@
+[Unit]
+Description=Give OmniOS a usable pacman mirror
+Documentation=https://wiki.archlinux.org/title/Mirrors
+# The reasoning lives in omni-mirrorlist itself. It is a script rather than an
+# inline ExecStart because systemd expands $repo and $arch in a command line,
+# and the mirror URLs are made of exactly those two words.
+ConditionPathExists=/usr/local/bin/omni-mirrorlist
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/omni-mirrorlist
+
+[Install]
+WantedBy=multi-user.target

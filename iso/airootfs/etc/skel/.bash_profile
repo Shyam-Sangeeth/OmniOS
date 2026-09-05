@@ -93,6 +93,8 @@ if [ -e /dev/ttyS0 ]; then
         cat "$OMNI_LOG" 2>/dev/null
         echo "===== PROCESSES ON TTY1 ====="
         ps -t tty1 -o pid,stat,cmd --no-headers 2>/dev/null
+        echo "===== LAST APP OUTPUT ====="
+        tail -n 25 /tmp/omnios-app.log 2>/dev/null || echo "  (nothing launched yet)"
         echo "===== DISPLAY HOLDERS ====="
         echo "plymouthd: $(pgrep -a plymouthd 2>/dev/null || echo none)"
         echo "card0 held by:"

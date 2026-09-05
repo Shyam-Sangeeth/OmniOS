@@ -1,6 +1,7 @@
 #include "LauncherController.h"
 
 #include <QCoreApplication>
+#include <QElapsedTimer>
 #include <QProcessEnvironment>
 
 #include "omnios/Apps.h"
@@ -17,6 +18,17 @@ const omnios::Game* findGame(const omnios::GameLibrary& library, const QString& 
 // Workspace 1 holds the launcher; anything it starts belongs on 2.
 constexpr const char* kLauncherWorkspace = "1";
 constexpr const char* kAppWorkspace      = "2";
+
+// Everything the launcher starts writes here. Without it a program that dies
+// on startup leaves no trace at all: the tile flashes, the launcher comes
+// back, and there is nothing to read. That is the single most expensive kind
+// of failure to diagnose.
+const QString kAppLog = QStringLiteral("/tmp/omnios-app.log");
+
+void captureOutput(QProcess* process) {
+    process->setProcessChannelMode(QProcess::MergedChannels);
+    process->setStandardOutputFile(kAppLog, QIODevice::Truncate);
+}
 
 // Hyprland places a new window on the active workspace, so switching before
 // spawning puts the app on its own workspace without needing a window rule —
@@ -121,6 +133,7 @@ bool LauncherController::launch(const QString& gameId) {
     stopRunning(false);
 
     auto* process = new QProcess(this);
+    captureOutput(process);
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     for (const auto& variable : plan.environment) {
         env.insert(QString::fromStdString(variable.first),
@@ -139,8 +152,10 @@ bool LauncherController::launch(const QString& gameId) {
     connect(process, &QProcess::finished, this,
             [this, process](int code, QProcess::ExitStatus) {
                 switchWorkspace(kLauncherWorkspace);
-                setStatus(code == 0 ? tr("%1 exited").arg(runningTitle_)
-                                    : tr("%1 exited with code %2").arg(runningTitle_).arg(code));
+                setStatus(code == 0
+                              ? tr("%1 exited").arg(runningTitle_)
+                              : tr("%1 exited with code %2  —  see %3")
+                                    .arg(runningTitle_).arg(code).arg(kAppLog));
                 running_ = nullptr;
                 runningTitle_.clear();
                 process->deleteLater();
@@ -185,12 +200,19 @@ bool LauncherController::launchApp(const QString& appId) {
     stopRunning(false);
 
     auto* process = new QProcess(this);
+    captureOutput(process);
+    QElapsedTimer startedAt;
+    startedAt.start();
     runningTitle_ = QString::fromUtf8(app->name.data(), int(app->name.size()));
 
     connect(process, &QProcess::finished, this,
-            [this, process](int, QProcess::ExitStatus) {
+            [this, process, startedAt](int, QProcess::ExitStatus) {
                 switchWorkspace(kLauncherWorkspace);
-                setStatus(tr("%1 closed").arg(runningTitle_));
+                // An app that closes within a couple of seconds did not
+                // "close", it failed. Say so, and say where to look.
+                setStatus(startedAt.elapsed() < 2500
+                              ? tr("%1 closed immediately  —  see %2").arg(runningTitle_).arg(kAppLog)
+                              : tr("%1 closed").arg(runningTitle_));
                 running_ = nullptr;
                 runningTitle_.clear();
                 process->deleteLater();

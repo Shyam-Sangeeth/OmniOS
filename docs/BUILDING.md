@@ -199,6 +199,12 @@ a hypervisor limit. `run-qemu.ps1` defaults to `Skylake-Client` for that reason;
 it fails anyway, `wsl --shutdown` frees the hypervisor — a running WSL2 backend
 can wedge WHPX on its own.
 
+Boot with `-Headless` for anything you intend to check. The SDL window feeds the
+host's pointer and keyboard straight into the guest, so a VM that has one can
+come up on the wrong tab, with an app already open, or having chosen something
+out of a menu — the guest cursor sitting anywhere other than dead centre is the
+tell.
+
 Keyboard input over the monitor works (`sendkey tab`, `sendkey m`, `sendkey
 ret`). `mouse_move` does **not** reach the guest with `usb-tablet` attached,
 though `mouse_button` clicks wherever the pointer already sits — so a monitor

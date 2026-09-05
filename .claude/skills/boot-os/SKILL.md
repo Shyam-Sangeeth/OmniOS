@@ -27,6 +27,8 @@ ISO only contains the source as of when the build started.
 ```
 
 - `-Detach` returns instead of blocking, and prints the pid.
+- `-Headless` gives no window. **Use it whenever you are verifying rather than
+  watching** — see below.
 - `-Fresh` kills any running QEMU and clears the hypervisor. **This stops Docker
   Desktop**, so start it again before the next build and wait for `docker info`
   to answer.
@@ -65,6 +67,16 @@ error would appear), `/tmp/omnios-app.log` (whatever the launcher last
 started), `/tmp/omnios-pkg.log` (package operations).
 
 ## What will waste your time if you do not know it
+
+**The SDL window is a live input device wired to the host, so use `-Headless`
+to verify anything.** It takes the host pointer position the moment it opens,
+and stray clicks and keys land in the guest as though someone had typed them.
+That produced a launcher which had opened Files by itself, one sitting on the
+wrong tab, and one that had picked Sleep out of the power menu — none of which
+the shell can do unaided, and each of which looked like a real bug for as long
+as it took to notice the guest cursor was somewhere it had never been put. The
+giveaway is the cursor: with no input it sits dead centre. `screendump` works
+perfectly well with no window, so nothing is lost.
 
 **The monitor accepts one connection for the life of the VM.** It leaves the
 socket in CloseWait afterwards, so a second connect is refused. Put everything

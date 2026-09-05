@@ -67,6 +67,19 @@ param(
     # "docker info" to answer.
     [switch]$Fresh,
 
+    # No window at all. screendump over the monitor still works, so the VM can
+    # be driven and photographed exactly as before.
+    #
+    # Use it whenever the point is to verify something rather than to watch.
+    # The SDL window is a live input device wired to the host: it takes the
+    # host pointer position the moment it opens, and stray clicks and keys land
+    # in the guest as if someone had typed them. That produced a launcher that
+    # had opened Files by itself, one sitting on the wrong tab, and one that had
+    # picked Sleep out of the power menu — none of which the shell can do on its
+    # own, and all of which look like real bugs until the cursor position gives
+    # it away.
+    [switch]$Headless,
+
     # CPU model handed to the accelerator.
     #
     # Not "max". WHPX asks the host for every feature it advertises, and on some
@@ -152,7 +165,7 @@ $qemuArgs = @(
     # See the -Vga parameter. There is no GPU acceleration in this VM either
     # way; Mesa falls back to llvmpipe regardless.
     '-device', $(if ($Vga -eq 'virtio') { 'virtio-vga' } else { 'VGA,vgamem_mb=64' })
-    '-display', 'sdl'
+    '-display', $(if ($Headless) { 'none' } else { 'sdl' })
     '-device', 'qemu-xhci'
     '-device', 'usb-tablet'
     '-netdev', 'user,id=net0'

@@ -129,7 +129,10 @@ Window {
         GridView {
             id: gamesGrid
             anchors.fill: parent
-            visible: window.currentTab === 0 && GameLibrary.count > 0
+            // Visible even when empty: an invisible item cannot hold focus,
+            // and with no games that left the whole launcher unfocused and
+            // deaf to every key. The empty-state message draws over it.
+            visible: window.currentTab === 0
             clip: true
             cellWidth: Theme.gridWidth + 18
             cellHeight: Theme.gridHeight + 18
@@ -152,6 +155,8 @@ Window {
 
             Keys.onReturnPressed: window.openDetail()
             Keys.onEnterPressed: window.openDetail()
+            Keys.onTabPressed: window.selectTab(1)
+            Keys.onBacktabPressed: window.selectTab(1)
         }
 
         // Only covers the games tab; the apps tab is useful with no games.
@@ -208,6 +213,8 @@ Window {
 
             Keys.onReturnPressed: window.openCurrentApp()
             Keys.onEnterPressed: window.openCurrentApp()
+            Keys.onTabPressed: window.selectTab(0)
+            Keys.onBacktabPressed: window.selectTab(0)
         }
     }
 
@@ -277,15 +284,12 @@ Window {
     }
 
     // ---- keys -------------------------------------------------------------
-    // Shortcuts, not a key handler on an Item. An Item with focus:true would
-    // take focus away from the grids and the arrow keys would stop working;
-    // a Shortcut fires whatever currently holds focus, which is what a global
-    // binding needs to do. Tab is also grabbed away from focus traversal here,
-    // which is deliberate — in a console it switches tabs.
-    Shortcut {
-        sequences: ["Tab", "Backtab"]
-        onActivated: window.selectTab(window.currentTab === 0 ? 1 : 0)
-    }
+    // Tab is handled on the grids themselves, not here. Qt Quick's focus
+    // traversal consumes Tab before a Shortcut ever sees it, so a Shortcut
+    // bound to it simply never fires — which is what happened.
+    //
+    // F5 is not a navigation key, so a Shortcut works and covers the case
+    // where focus has gone somewhere unexpected.
     Shortcut {
         sequence: "F5"
         onActivated: Launcher.refresh()

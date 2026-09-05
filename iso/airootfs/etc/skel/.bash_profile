@@ -87,6 +87,13 @@ if [ -e /dev/ttyS0 ]; then
     else
         omni_serial() { sudo -n tee /dev/ttyS0 >/dev/null; }
     fi
+    # Stream whatever the launcher starts to the serial port as it happens.
+    # The one-shot dump below fires thirty seconds in, long before anyone has
+    # opened an app, so it can never catch a program that dies on launch —
+    # which is exactly the failure worth seeing.
+    : >/tmp/omnios-app.log 2>/dev/null || true
+    ( tail -n +1 -F /tmp/omnios-app.log 2>/dev/null | sed -u 's/^/[app] /' ) | omni_serial &
+
     (
         sleep 30
         echo "===== OMNIOS SESSION LOG ====="

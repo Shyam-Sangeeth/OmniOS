@@ -69,7 +69,10 @@ Window {
         anchors { top: topBar.bottom; left: parent.left; right: parent.right }
         anchors.leftMargin: Theme.gutter
         anchors.rightMargin: Theme.gutter
-        height: 168
+        // Collapse rather than just hide: an invisible anchored item still
+        // reserves its height, which left a large empty band above APPS on a
+        // fresh install.
+        height: GameLibrary.count > 0 ? 168 : 12
         visible: GameLibrary.count > 0
 
         Column {
@@ -166,7 +169,6 @@ Window {
         color: Theme.textSecondary
         font.pixelSize: 12
         font.letterSpacing: 3
-        visible: GameLibrary.count > 0
     }
 
     GridView {
@@ -216,7 +218,11 @@ Window {
 
     // ---- empty state ------------------------------------------------------
     Column {
-        anchors.centerIn: parent
+        // Centred on the games region rather than the window: centred on the
+        // window it sat level with the app tiles and read as one row with them.
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: sectionLabel.bottom
+        anchors.topMargin: Math.max(24, (footer.top - sectionLabel.bottom) / 3)
         spacing: 12
         // Only covers the games area; the apps row above stays usable, which
         // matters because a fresh install has no games but does have apps.

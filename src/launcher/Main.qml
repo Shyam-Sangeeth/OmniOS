@@ -217,30 +217,39 @@ Window {
     }
 
     // ---- empty state ------------------------------------------------------
-    Column {
-        // Centred on the games region rather than the window: centred on the
-        // window it sat level with the app tiles and read as one row with them.
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: sectionLabel.bottom
-        anchors.topMargin: Math.max(24, (footer.top - sectionLabel.bottom) / 3)
-        spacing: 12
+    // An Item spanning the games region, with the message centred inside it.
+    // Anchor lines are not numbers: computing a margin from
+    // "footer.top - sectionLabel.bottom" yields NaN and drops the item at y=0,
+    // which is exactly where the first attempt at this put it.
+    Item {
+        id: emptyState
+        anchors {
+            top: sectionLabel.bottom; topMargin: 14
+            left: parent.left; right: parent.right
+            bottom: footer.top
+        }
         // Only covers the games area; the apps row above stays usable, which
         // matters because a fresh install has no games but does have apps.
         visible: GameLibrary.count === 0 && !Launcher.scanning
 
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: qsTr("No games yet")
-            color: Theme.textPrimary
-            font.pixelSize: 30
-        }
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            // Tell the user exactly where to put files rather than leaving an
-            // empty screen with no next action.
-            text: qsTr("Copy games into %1 and press F5").arg(Launcher.gamesPath)
-            color: Theme.textSecondary
-            font.pixelSize: 14
+        Column {
+            anchors.centerIn: parent
+            spacing: 12
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: qsTr("No games yet")
+                color: Theme.textPrimary
+                font.pixelSize: 30
+            }
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                // Tell the user exactly where to put files rather than leaving
+                // an empty screen with no next action.
+                text: qsTr("Copy games into %1 and press F5").arg(Launcher.gamesPath)
+                color: Theme.textSecondary
+                font.pixelSize: 14
+            }
         }
     }
 

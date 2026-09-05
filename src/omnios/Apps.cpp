@@ -1,6 +1,7 @@
 #include "Apps.h"
 
 #include <algorithm>
+#include <filesystem>
 
 #include "Paths.h"
 #include "Router.h"
@@ -34,13 +35,34 @@ const std::vector<App> kApps = {
     {"video", "Video Player", "mpv",
      "--player-operation-mode=pseudo-gui --force-window=yes --idle=yes "
      "--vo=gpu,wlshm --gpu-context=wayland",
-     "mpv",
+     "mpv", "mpv",
      "Play video and music from a drive or USB stick",
      "#6C63FF"},
 
-    {"files", "Files", "thunar", "%GAMES%", "thunar",
+    {"files", "Files", "thunar", "%GAMES%", "thunar", "org.xfce.thunar",
      "Browse drives, copy games, open a USB stick",
      "#3A8FFF"},
+
+    // Chromium, not Chrome: Chrome is AUR-only, chromium is the same engine in
+    // the official repos and needs no build step on first boot.
+    //
+    // --ozone-platform=wayland for the same reason mpv pins its context —
+    // letting a browser fall back to XWayland on a machine with no GPU is how
+    // the mpv crash happened.
+    {"browser", "Browser", "chromium",
+     "--ozone-platform=wayland --start-maximized",
+     "chromium", "chromium",
+     "Browse the web",
+     "#3A8FFF"},
+
+    // YouTube is a web app, so it is Chromium in app mode: no tabs, no
+    // address bar, just the site. The icon is Chromium's own, which is honest
+    // about what is actually running.
+    {"youtube", "YouTube", "chromium",
+     "--ozone-platform=wayland --app=https://www.youtube.com --start-fullscreen",
+     "chromium", "chromium",
+     "Watch YouTube",
+     "#E4000F"},
 };
 
 }  // namespace
@@ -54,6 +76,37 @@ const App* findApp(std::string_view id) {
 }
 
 bool appAvailable(const App& app) { return commandExists(app.command); }
+
+std::string appIconPath(const App& app) {
+    if (app.icon.empty()) return {};
+
+    namespace fs = std::filesystem;
+    const std::string name(app.icon);
+
+    // Largest first: these are drawn at tile size, and upscaling a 48px icon
+    // looks worse than downscaling a 256px one.
+    static const char* const kDirs[] = {
+        "/usr/share/icons/hicolor/256x256/apps/",
+        "/usr/share/icons/hicolor/128x128/apps/",
+        "/usr/share/icons/hicolor/64x64/apps/",
+        "/usr/share/icons/hicolor/48x48/apps/",
+        "/usr/share/pixmaps/",
+    };
+
+    std::error_code ec;
+    for (const char* dir : kDirs) {
+        const fs::path png = fs::path(dir) / (name + ".png");
+        if (fs::exists(png, ec)) return png.generic_string();
+    }
+
+    // SVG last: qt6-svg can render it, but a themed PNG is cheaper to draw
+    // under software rendering.
+    for (const char* dir : {"/usr/share/icons/hicolor/scalable/apps/", "/usr/share/pixmaps/"}) {
+        const fs::path svg = fs::path(dir) / (name + ".svg");
+        if (fs::exists(svg, ec)) return svg.generic_string();
+    }
+    return {};
+}
 
 std::vector<std::string> appArgv(const App& app) {
     std::vector<std::string> argv{std::string(app.command)};

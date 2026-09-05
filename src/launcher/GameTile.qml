@@ -11,6 +11,9 @@ Item {
     property string platformName: ""
     property color  badgeColor: Theme.textSecondary
     property string cover: ""
+    // App icon from the system theme. Used only when there is no cover art —
+    // a game with artwork should show the artwork.
+    property string iconSource: ""
     property bool   selected: false
     property bool   playable: true
     property int    baseWidth: Theme.gridWidth
@@ -51,6 +54,25 @@ Item {
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: true
+        }
+
+        // The app's own icon, centred in the upper part of the tile so it does
+        // not collide with the title and badge along the bottom.
+        Image {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: (parent.height * 0.5) - (height / 2)
+            width: 64
+            height: 64
+            source: tile.iconSource
+            visible: tile.cover === "" && tile.iconSource !== ""
+            fillMode: Image.PreserveAspectFit
+            asynchronous: true
+            // Ask for the icon at the size it is drawn: scaling a 256px PNG
+            // down every frame is wasted work under software rendering.
+            sourceSize.width: 128
+            sourceSize.height: 128
+            smooth: true
         }
 
         // Legibility scrim so the title survives a bright cover.

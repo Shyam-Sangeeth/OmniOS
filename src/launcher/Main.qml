@@ -142,6 +142,7 @@ Window {
             platformName: qsTr("APP")
             badgeColor: model.badgeColor
             cover: ""
+            iconSource: model.iconSource
             playable: model.playable
             selected: appRow.activeFocus && ListView.isCurrentItem
 

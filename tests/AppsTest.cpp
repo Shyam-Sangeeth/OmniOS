@@ -71,6 +71,39 @@ TEST("apps: argv starts with the command") {
     CHECK(pinsContext);
 }
 
+TEST("apps: the browser and YouTube tiles run chromium") {
+    for (const char* id : {"browser", "youtube"}) {
+        const App* app = findApp(id);
+        CHECK(app != nullptr);
+        if (app == nullptr) continue;
+
+        CHECK_EQ(std::string(app->command), std::string("chromium"));
+        // Chrome proper is AUR-only; the image must not name a package pacman
+        // cannot install.
+        CHECK_EQ(std::string(app->package), std::string("chromium"));
+
+        // Same lesson as mpv: a browser left to choose its own backend can
+        // fall back to XWayland, and OmniOS is a Wayland system.
+        CHECK(std::string(app->args).find("--ozone-platform=wayland") != std::string::npos);
+    }
+
+    const App* youtube = findApp("youtube");
+    CHECK(youtube != nullptr);
+    // App mode is what makes it a YouTube tile rather than a browser window
+    // that happens to start on YouTube.
+    if (youtube != nullptr)
+        CHECK(std::string(youtube->args).find("--app=") != std::string::npos);
+}
+
+TEST("apps: every app names an icon") {
+    for (const App& app : allApps()) {
+        // A wrong or missing icon name shows as a blank tile with no error,
+        // so the name being present is worth asserting even though the file
+        // only exists on the installed system.
+        CHECK(!app.icon.empty());
+    }
+}
+
 TEST("apps: %GAMES% expands to the real games directory") {
 #ifdef _WIN32
     _putenv_s("OMNIOS_GAMES_DIR", "C:/tmp/omni-games");

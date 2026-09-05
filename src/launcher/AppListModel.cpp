@@ -1,6 +1,7 @@
 #include "AppListModel.h"
 
 #include <QString>
+#include <QUrl>
 
 #include "omnios/Apps.h"
 
@@ -31,6 +32,13 @@ QVariant AppListModel::data(const QModelIndex& index, int role) const {
         case BadgeColorRole:  return view(app.badgeColor);
         case PackageRole:     return view(app.package);
         case AvailableRole:   return omnios::appAvailable(app);
+        case IconRole: {
+            // Empty when the theme has no icon; the tile then falls back to
+            // its colour wash rather than showing a broken image.
+            const std::string path = omnios::appIconPath(app);
+            return path.empty() ? QString()
+                                : QUrl::fromLocalFile(QString::fromStdString(path)).toString();
+        }
         case CommandRole: {
             const std::vector<std::string> argv = omnios::appArgv(app);
             QStringList parts;
@@ -52,6 +60,7 @@ QHash<int, QByteArray> AppListModel::roleNames() const {
         {AvailableRole, "playable"},
         {PackageRole, "package"},
         {CommandRole, "commandLine"},
+        {IconRole, "iconSource"},
     };
 }
 

@@ -128,6 +128,7 @@ gcc
 ## reason it is here. Comments stay on their own lines: the rest of this file
 ## does the same, and it avoids depending on how mkarchiso strips trailing ones.
 mpv
+chromium
 thunar
 thunar-volman
 gvfs

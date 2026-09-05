@@ -21,6 +21,7 @@ public:
         AvailableRole,
         PackageRole,
         CommandRole,
+        IconRole,
     };
     Q_ENUM(Role)
 

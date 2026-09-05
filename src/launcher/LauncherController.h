@@ -64,6 +64,14 @@ signals:
 private:
     void setStatus(const QString& text);
 
+    // Ends whatever is running and clears the state. Opening something new
+    // replaces what is on screen — a console runs one thing at a time — so
+    // this is called before every launch rather than refusing.
+    //
+    // returnHome switches back to the launcher's workspace; a launch that is
+    // about to switch to the app workspace itself passes false.
+    void stopRunning(bool returnHome);
+
     GameListModel model_;
     AppListModel  apps_;
     QProcess*     running_ = nullptr;

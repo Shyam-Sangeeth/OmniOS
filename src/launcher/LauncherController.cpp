@@ -98,11 +98,8 @@ QString LauncherController::installHint(const QString& gameId) const {
 }
 
 bool LauncherController::launch(const QString& gameId) {
-    if (running_ != nullptr) {
-        setStatus(tr("A game is already running"));
-        return false;
-    }
-
+    // Opening something new replaces what is running. Done before the router
+    // is consulted so a refused launch does not close what was already there.
     const omnios::Game* game = findGame(model_.library(), gameId);
     if (game == nullptr) {
         setStatus(tr("No game with id %1").arg(gameId));
@@ -120,6 +117,8 @@ bool LauncherController::launch(const QString& gameId) {
                                  QString::fromStdString(plan.installHint)));
         return false;
     }
+
+    stopRunning(false);
 
     auto* process = new QProcess(this);
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
@@ -166,11 +165,6 @@ bool LauncherController::launch(const QString& gameId) {
 }
 
 bool LauncherController::launchApp(const QString& appId) {
-    if (running_ != nullptr) {
-        setStatus(tr("Something is already running"));
-        return false;
-    }
-
     const omnios::App* app = omnios::findApp(appId.toStdString());
     if (app == nullptr) {
         setStatus(tr("No app with id %1").arg(appId));
@@ -187,6 +181,8 @@ bool LauncherController::launchApp(const QString& appId) {
     const std::vector<std::string> argv = omnios::appArgv(*app);
     QStringList args;
     for (std::size_t i = 1; i < argv.size(); ++i) args << QString::fromStdString(argv[i]);
+
+    stopRunning(false);
 
     auto* process = new QProcess(this);
     runningTitle_ = QString::fromUtf8(app->name.data(), int(app->name.size()));
@@ -218,8 +214,30 @@ bool LauncherController::launchApp(const QString& appId) {
     return true;
 }
 
-void LauncherController::quitRunningGame() {
+void LauncherController::quitRunningGame() { stopRunning(true); }
+
+void LauncherController::stopRunning(bool returnHome) {
     if (running_ == nullptr) return;
-    running_->terminate();
-    if (!running_->waitForFinished(3000)) running_->kill();
+
+    QProcess* process = running_;
+
+    // Detach the handlers first. The exit we are about to cause would
+    // otherwise report "X exited" over the status of whatever is starting, and
+    // switch the workspace home again just as the new app arrives there.
+    process->disconnect(this);
+    running_ = nullptr;
+    const QString previous = runningTitle_;
+    runningTitle_.clear();
+
+    process->terminate();
+    if (!process->waitForFinished(2000)) {
+        // Some programs ignore SIGTERM. A console cannot sit waiting on one.
+        process->kill();
+        process->waitForFinished(1000);
+    }
+    process->deleteLater();
+
+    if (returnHome) switchWorkspace(kLauncherWorkspace);
+    if (!previous.isEmpty()) setStatus(tr("%1 closed").arg(previous));
+    emit gameRunningChanged();
 }

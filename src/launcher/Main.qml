@@ -134,22 +134,34 @@ Window {
             // deaf to every key. The empty-state message draws over it.
             visible: window.currentTab === 0
             clip: true
-            cellWidth: Theme.gridWidth + 18
-            cellHeight: Theme.gridHeight + 18
+            cellWidth: Theme.gridWidth + Theme.cellPadding
+            cellHeight: Theme.gridHeight + Theme.cellPadding
             model: GameLibrary
             highlightMoveDuration: Theme.focusDuration
 
-            delegate: GameTile {
-                title: model.title
-                platformName: model.platformName
-                badgeColor: model.badgeColor
-                cover: model.cover
-                playable: model.playable
-                selected: gamesGrid.activeFocus && GridView.isCurrentItem && !detailLoader.active
+            // The delegate is the whole cell with the tile centred inside it.
+            // Placed flush at the cell origin instead, a focused tile's 1.06
+            // scale and its -2px focus ring both overflow the cell's left and
+            // top edges and are cut off by clip: true — the ring then renders
+            // as an L-shaped shadow down the right and bottom only.
+            delegate: Item {
+                width: gamesGrid.cellWidth
+                height: gamesGrid.cellHeight
 
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: { gamesGrid.currentIndex = index; window.openDetail() }
+                GameTile {
+                    anchors.centerIn: parent
+                    title: model.title
+                    platformName: model.platformName
+                    badgeColor: model.badgeColor
+                    cover: model.cover
+                    playable: model.playable
+                    selected: gamesGrid.activeFocus && parent.GridView.isCurrentItem
+                              && !detailLoader.active
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: { gamesGrid.currentIndex = index; window.openDetail() }
+                    }
                 }
             }
 
@@ -191,23 +203,29 @@ Window {
             anchors.fill: parent
             visible: window.currentTab === 1
             clip: true
-            cellWidth: Theme.gridWidth + 18
-            cellHeight: Theme.gridHeight + 18
+            cellWidth: Theme.gridWidth + Theme.cellPadding
+            cellHeight: Theme.gridHeight + Theme.cellPadding
             model: AppLibrary
             highlightMoveDuration: Theme.focusDuration
 
-            delegate: GameTile {
-                title: model.title
-                platformName: qsTr("APP")
-                badgeColor: model.badgeColor
-                cover: ""
-                iconSource: model.iconSource
-                playable: model.playable
-                selected: appsGrid.activeFocus && GridView.isCurrentItem
+            delegate: Item {
+                width: appsGrid.cellWidth
+                height: appsGrid.cellHeight
 
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: { appsGrid.currentIndex = index; window.openCurrentApp() }
+                GameTile {
+                    anchors.centerIn: parent
+                    title: model.title
+                    platformName: qsTr("APP")
+                    badgeColor: model.badgeColor
+                    cover: ""
+                    iconSource: model.iconSource
+                    playable: model.playable
+                    selected: appsGrid.activeFocus && parent.GridView.isCurrentItem
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: { appsGrid.currentIndex = index; window.openCurrentApp() }
+                    }
                 }
             }
 

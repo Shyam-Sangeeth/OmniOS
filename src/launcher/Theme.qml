@@ -26,4 +26,9 @@ QtObject {
     readonly property int backgroundDuration: 400
 
     readonly property int gutter: 28
+
+    // Slack around each tile in its grid cell. A focused tile scales to 1.06
+    // and draws a ring 2px outside itself, so on a 160px tile it needs about
+    // 7px on every side; 26 total leaves 13 each way with the tile centred.
+    readonly property int cellPadding: 26
 }

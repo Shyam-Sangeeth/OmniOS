@@ -45,8 +45,17 @@ if ($LASTEXITCODE -ne 0) {
 # builds a real root filesystem and the Windows 9p/virtiofs layer cannot carry
 # Unix ownership, setuid bits or device nodes. Only the finished ISO is copied
 # back to the repo at the end.
+# One build at a time. Two concurrent runs share the work volume, and the
+# second one's "rm -rf $WORK" deletes the first's tree from under it — which
+# surfaces as a wall of llistxattr errors during squashfs and a failed build
+# that looks like corruption rather than a collision.
+$running = (& docker ps --filter 'name=^omnios-build$' --format '{{.Names}}' 2>$null)
+if ($running) {
+    throw "An OmniOS build is already running (container 'omnios-build'). Wait for it, or stop it with: docker stop omnios-build"
+}
+
 $dockerArgs = @(
-    'run', '--rm', '--privileged',
+    'run', '--rm', '--privileged', '--name', 'omnios-build',
     '-v', "${repo}:/repo",
     '-v', 'omnios-work:/work',
     '-w', '/repo',

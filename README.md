@@ -112,6 +112,27 @@ second pass over the built tree — and the launcher hides those. A missing list
 means no filtering, which is the safe direction: a developer build shows
 everything rather than nothing.
 
+### One thing at a time
+
+The launcher switches to the app workspace before it spawns anything, which
+covers every window it opens itself. It does not cover the ones it does not
+open — a game started from inside Steam, a second window from a running app, a
+dialog. Those land on whatever workspace is current, which is the launcher's,
+and Hyprland tiles them: the grid squeezed into half the screen with a game
+beside it.
+
+[HyprlandEvents.cpp](src/launcher/HyprlandEvents.cpp) listens on Hyprland's
+event socket and the controller moves anything that is not the shell off the
+launcher's workspace, then follows it. No polling and no window rules, which
+matters because this Hyprland rejects the windowrule syntax outright.
+
+Two things that make this fail silently, both of them found the hard way:
+Hyprland reports a window address bare in its events and requires it prefixed
+in its dispatchers, so handing it straight back matches nothing; and it does not
+guarantee its own variables reach an `exec-once` child, so the socket is found
+by searching as well as by `HYPRLAND_INSTANCE_SIGNATURE`. Both now say so in
+the shell log rather than doing nothing quietly.
+
 ### The mark, and turning the machine off
 
 The top-left corner holds the OmniOS mark rather than the word "OmniOS", which

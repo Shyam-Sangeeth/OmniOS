@@ -12,6 +12,7 @@
 
 #include "AppListModel.h"
 #include "GameListModel.h"
+#include "HyprlandEvents.h"
 
 class LauncherController : public QObject {
     Q_OBJECT
@@ -113,6 +114,12 @@ signals:
 private:
     void setStatus(const QString& text);
 
+    // A window appeared that the launcher did not open. Anything on the
+    // launcher's own workspace is moved off it, because a console shows one
+    // thing at a time and the alternative is the shell tiled beside a game.
+    void adoptStrayWindow(const QString& address, const QString& workspace,
+                          const QString& windowClass);
+
     // Ends whatever is running and clears the state. Opening something new
     // replaces what is on screen — a console runs one thing at a time — so
     // this is called before every launch rather than refusing.
@@ -137,6 +144,7 @@ private:
     // What to hand "pacman -Qoq" to find the package behind an app.
     QString packagePathFor(const QString& appId) const;
 
+    HyprlandEvents windows_;
     GameListModel  model_;
     AppListModel   apps_;
     QProcess*      package_ = nullptr;

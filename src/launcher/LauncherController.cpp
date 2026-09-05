@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QDebug>
 #include <QMap>
 #include <QProcessEnvironment>
 
@@ -55,6 +56,22 @@ void switchWorkspace(const char* workspace) {
 // Switching workspace does not focus anything when the pointer has not moved,
 // and an unfocused launcher receives no keys at all. Ask for it explicitly
 // whenever the library comes back.
+// The shell's own window class, as set by QGuiApplication::setDesktopFileName.
+// Everything else that turns up on the launcher's workspace is a stray.
+constexpr const char* kLauncherClass = "omni-launcher";
+
+void moveWindowToWorkspace(const QString& address, const char* workspace) {
+    // Hyprland reports the address bare in its events and requires it prefixed
+    // in its dispatchers. Sending it back the way it arrived matches nothing,
+    // and the dispatcher says so to nobody.
+    const QString target = address.startsWith(QLatin1String("0x"))
+                               ? address
+                               : QStringLiteral("0x") + address;
+    QProcess::execute(QStringLiteral("hyprctl"),
+                      {QStringLiteral("dispatch"), QStringLiteral("movetoworkspacesilent"),
+                       QStringLiteral("%1,address:%2").arg(QString::fromLatin1(workspace), target)});
+}
+
 void focusLauncherWindow() {
     QProcess::execute(QStringLiteral("hyprctl"),
                       {QStringLiteral("dispatch"), QStringLiteral("focuswindow"),
@@ -86,7 +103,32 @@ QString shellWrap(const QString& body) {
 LauncherController::LauncherController(QObject* parent) : QObject(parent) {
     std::string error;
     omnios::ensureDirectories(error);
+
+    // Windows the launcher did not open still have to behave. A game started
+    // from inside Steam is the case that made this necessary: Steam spawns it,
+    // so it lands on whatever workspace is current, and the shell ends up
+    // tiled beside it.
+    connect(&windows_, &HyprlandEvents::windowOpened, this,
+            [this](const QString& address, const QString& workspace,
+                   const QString& windowClass, const QString&) {
+                adoptStrayWindow(address, workspace, windowClass);
+            });
+
     refresh();
+}
+
+void LauncherController::adoptStrayWindow(const QString& address, const QString& workspace,
+                                          const QString& windowClass) {
+    if (workspace != QLatin1String(kLauncherWorkspace)) return;
+    if (windowClass == QLatin1String(kLauncherClass)) return;
+
+    // Silent, then switch: moving it without switching would leave whatever the
+    // user just started running invisibly on another workspace, which is worse
+    // than the tiling it replaces.
+    qWarning("omni-launcher: moving stray window %s (class \"%s\") off workspace %s",
+             qPrintable(address), qPrintable(windowClass), kLauncherWorkspace);
+    moveWindowToWorkspace(address, kAppWorkspace);
+    switchWorkspace(kAppWorkspace);
 }
 
 QString LauncherController::gamesPath() const {

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# omni-flathub — point the store at a catalogue.
+#
+# A fresh Flatpak install has no remotes at all, so GNOME Software opens onto an
+# empty store with nothing to say about why. Adding Flathub is what turns it
+# into the thing a user recognises.
+#
+# --if-not-exists so this is safe on every boot, and safe once OmniOS is
+# installed to disk and someone has added their own remotes.
+set -euo pipefail
+
+command -v flatpak >/dev/null 2>&1 || exit 0
+
+flatpak remote-add --if-not-exists --system \
+    flathub https://dl.flathub.org/repo/flathub.flatpakrepo

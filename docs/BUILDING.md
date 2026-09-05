@@ -213,6 +213,17 @@ CloseWait afterwards, so a second connection is refused for the life of the VM.
 Do all monitor work — every screendump, every sendkey — over one held
 connection.
 
+## The launcher goes deaf after a VT switch
+
+Switching to a text console with Ctrl+Alt+F2 and back with `chvt 1` leaves the
+launcher visible but receiving no keys at all. `hyprctl activewindow` still
+reports `omni-launcher` as focused and `acceptsInput: 1`, and even Hyprland's
+own Super binding does not fire — which points at the input devices not being
+reattached to the seat on the way back rather than at anything in the shell.
+
+It matters for diagnosis, because reading a log on tty2 costs the session its
+keyboard until the VM is rebooted. Grab what you need in one visit.
+
 ## Known gaps in the profile
 
 Honest list of what has not been verified, because it cannot be without a

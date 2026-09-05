@@ -32,7 +32,6 @@ int main(int argc, char* argv[]) {
     engine.rootContext()->setContextProperty(QStringLiteral("Launcher"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("GameLibrary"), controller.games());
     engine.rootContext()->setContextProperty(QStringLiteral("AppLibrary"), controller.apps());
-    engine.rootContext()->setContextProperty(QStringLiteral("AppStore"), controller.store());
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      []() { QCoreApplication::exit(1); }, Qt::QueuedConnection);

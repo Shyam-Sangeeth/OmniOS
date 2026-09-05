@@ -1,0 +1,19 @@
+[Unit]
+Description=Add Flathub to the OmniOS store
+Documentation=https://flathub.org/setup
+# Needs the network: the remote is fetched, not written from a local file.
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/usr/local/bin/omni-flathub
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/omni-flathub
+# A console with no network yet must still boot to its grid. Without this a
+# failed remote-add would leave the unit failed and multi-user.target degraded,
+# for something the next boot fixes by itself.
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=multi-user.target

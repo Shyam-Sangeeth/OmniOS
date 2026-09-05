@@ -1,0 +1,24 @@
+// Let the console install and remove software without a password prompt.
+//
+// The live session already has passwordless sudo (/etc/sudoers.d/omnios) for
+// exactly the same reason: there is no keyboard flow on a console for typing a
+// password into a dialog that may not even have focus. This is the polkit half
+// of that decision, and it covers what GNOME Software and flatpak actually ask
+// for.
+//
+// Without it a Flatpak install fails with no visible error at all — polkit
+// denies it, gnome-software reports "not authorized" in a corner, and the
+// install simply does not happen. That is the expensive kind of failure.
+//
+// Scoped to the wheel group rather than everyone, and to these two action
+// prefixes rather than every action polkit knows about.
+polkit.addRule(function (action, subject) {
+    if (!subject.isInGroup("wheel")) {
+        return polkit.Result.NOT_HANDLED;
+    }
+    if (action.id.indexOf("org.freedesktop.Flatpak.") === 0 ||
+        action.id.indexOf("org.freedesktop.packagekit.") === 0) {
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});

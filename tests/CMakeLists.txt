@@ -1,6 +1,7 @@
 add_executable(omnios_tests
     main.cpp
     AppsTest.cpp
+    DesktopEntryTest.cpp
     DetectorTest.cpp
     JsonTest.cpp
     LibraryTest.cpp

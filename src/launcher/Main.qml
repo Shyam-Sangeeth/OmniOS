@@ -1,9 +1,14 @@
 // The OmniOS shell (OmniOS.md §12).
 //
-// Three tabs — Games, Apps, Store — rather than stacked sections. Stacking
-// meant the games grid started halfway down the screen and shrank as apps were
-// added; tabs give each one the whole screen and make the library the thing
-// you land on.
+// Two tabs, Games and Apps, rather than stacked sections. Stacking meant the
+// games grid started halfway down the screen and shrank as apps were added;
+// tabs give each one the whole screen and make the library the thing you land
+// on.
+//
+// There is no Store tab. Installing things is GNOME Software's job and it is a
+// tile on the Apps tab like anything else — which also means whatever it
+// installs comes back as a tile, because the Apps tab is built from the
+// machine's desktop entries rather than from a list kept here.
 import QtQuick
 import QtQuick.Window
 import omnios
@@ -15,10 +20,10 @@ Window {
     title: "OmniOS"
     color: Theme.background
 
-    // 0 = Games, 1 = Apps, 2 = Store. Games first: this is a console, and the
-    // library is the point of it.
+    // 0 = Games, 1 = Apps. Games first: this is a console, and the library is
+    // the point of it.
     property int currentTab: 0
-    readonly property var tabs: [gamesGrid, appsGrid, storeGrid]
+    readonly property var tabs: [gamesGrid, appsGrid]
     readonly property var activeGrid: tabs[currentTab]
 
     property var currentGame: gamesGrid.currentIndex >= 0 && GameLibrary.count > 0
@@ -29,10 +34,8 @@ Window {
     property color accentOfFocus: {
         if (currentTab === 0)
             return currentGame ? currentGame.badgeColor : Theme.background
-        var model = currentTab === 1 ? AppLibrary : AppStore
-        var grid = activeGrid
-        if (model.count > 0 && grid.currentIndex >= 0)
-            return model.get(grid.currentIndex).badgeColor
+        if (AppLibrary.count > 0 && appsGrid.currentIndex >= 0)
+            return AppLibrary.get(appsGrid.currentIndex).badgeColor
         return Theme.background
     }
 
@@ -80,7 +83,7 @@ Window {
         spacing: 26
 
         Repeater {
-            model: [qsTr("GAMES"), qsTr("APPS"), qsTr("STORE")]
+            model: [qsTr("GAMES"), qsTr("APPS")]
 
             Item {
                 width: tabText.implicitWidth
@@ -175,7 +178,7 @@ Window {
             Keys.onReturnPressed: window.openDetail()
             Keys.onEnterPressed: window.openDetail()
             Keys.onTabPressed: window.selectTab(1)
-            Keys.onBacktabPressed: window.selectTab(2)
+            Keys.onBacktabPressed: window.selectTab(1)
         }
 
         // Only covers the games tab; the other tabs are useful with no games.
@@ -222,7 +225,7 @@ Window {
                 GameTile {
                     anchors.centerIn: parent
                     title: model.title
-                    platformName: qsTr("APP")
+                    platformName: model.kind
                     badgeColor: model.badgeColor
                     cover: ""
                     iconSource: model.iconSource
@@ -232,9 +235,6 @@ Window {
 
                     onMenuRequested: function (anchorItem) {
                         appsGrid.currentIndex = index
-                        // "installed" here is really "can it run" — a built-in
-                        // whose package is missing gets an Install entry
-                        // instead of an Open one that would fail.
                         tileMenu.openFor(anchorItem, model.appId, model.title,
                                          model.removable, model.playable)
                     }
@@ -251,7 +251,7 @@ Window {
 
             Keys.onReturnPressed: window.openCurrentApp()
             Keys.onEnterPressed: window.openCurrentApp()
-            Keys.onTabPressed: window.selectTab(2)
+            Keys.onTabPressed: window.selectTab(0)
             Keys.onBacktabPressed: window.selectTab(0)
             Keys.onMenuPressed: window.openTileMenu()
             Keys.onPressed: function (event) {
@@ -259,70 +259,12 @@ Window {
             }
         }
 
-        // ---- store ---------------------------------------------------------
-        GridView {
-            id: storeGrid
-            anchors.fill: parent
-            visible: window.currentTab === 2
-            clip: true
-            cellWidth: Theme.gridWidth + Theme.cellPadding
-            cellHeight: Theme.gridHeight + Theme.cellPadding
-            model: AppStore
-            highlightMoveDuration: Theme.focusDuration
-
-            delegate: Item {
-                width: storeGrid.cellWidth
-                height: storeGrid.cellHeight
-
-                GameTile {
-                    anchors.centerIn: parent
-                    title: model.title
-                    // The badge carries the one fact that matters here: is it
-                    // on this machine already?
-                    platformName: model.installed ? qsTr("INSTALLED") : model.category
-                    badgeColor: model.badgeColor
-                    cover: ""
-                    iconSource: model.iconSource
-                    hasMenu: true
-                    selected: storeGrid.activeFocus && parent.GridView.isCurrentItem
-
-                    onMenuRequested: function (anchorItem) {
-                        storeGrid.currentIndex = index
-                        // Nothing in the catalogue is protected, so the store
-                        // never has to disable its own uninstall entry.
-                        tileMenu.openFor(anchorItem, model.appId, model.title,
-                                         true, model.installed)
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        z: -1
-                        onClicked: {
-                            storeGrid.currentIndex = index
-                            window.storePrimaryAction()
-                        }
-                    }
-                }
-            }
-
-            // Enter does the obvious thing: install it if it is missing, open
-            // it if it is already here.
-            Keys.onReturnPressed: window.storePrimaryAction()
-            Keys.onEnterPressed: window.storePrimaryAction()
-            Keys.onTabPressed: window.selectTab(0)
-            Keys.onBacktabPressed: window.selectTab(1)
-            Keys.onMenuPressed: window.openTileMenu()
-            Keys.onPressed: function (event) {
-                if (event.key === Qt.Key_M) { window.openTileMenu(); event.accepted = true }
-            }
-        }
-
-        // On a live image nothing installed here survives a reboot. Said on the
-        // store tab, where it changes what a user expects, rather than buried
-        // in documentation they will read afterwards.
+        // On a live image nothing installed survives a reboot. Said on the tab
+        // that has the Store tile on it, where it changes what someone is about
+        // to expect, rather than buried in documentation they read afterwards.
         Text {
             anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter }
-            visible: window.currentTab === 2 && Launcher.ephemeral
+            visible: window.currentTab === 1 && Launcher.ephemeral
             text: qsTr("Live image — anything installed here is gone at the next boot")
             color: Theme.textSecondary
             font.pixelSize: 12
@@ -418,7 +360,6 @@ Window {
         onActivated: {
             Launcher.refresh()
             AppLibrary.refresh()
-            AppStore.refresh()
         }
     }
 
@@ -435,30 +376,18 @@ Window {
     }
 
     function currentEntry() {
-        var model = currentTab === 1 ? AppLibrary : AppStore
-        if (model.count === 0) return null
-        var grid = activeGrid
-        if (grid.currentIndex < 0) return null
-        return model.get(grid.currentIndex)
-    }
-
-    function storePrimaryAction() {
-        var entry = currentEntry()
-        if (!entry) return
-        if (entry.installed) Launcher.launchApp(entry.appId)
-        else Launcher.installApp(entry.appId)
+        if (currentTab !== 1 || AppLibrary.count === 0) return null
+        if (appsGrid.currentIndex < 0) return null
+        return AppLibrary.get(appsGrid.currentIndex)
     }
 
     // The keyboard route to the menu, anchored to the focused tile so the panel
     // lands in the same place it would have from a click.
     function openTileMenu() {
         var entry = currentEntry()
-        if (!entry) return
-        var grid = activeGrid
-        if (!grid.currentItem) return
-        var installed = currentTab === 1 ? entry.playable : entry.installed
-        var removable = currentTab === 1 ? entry.removable : true
-        tileMenu.openFor(grid.currentItem, entry.appId, entry.title, removable, installed)
+        if (!entry || !appsGrid.currentItem) return
+        tileMenu.openFor(appsGrid.currentItem, entry.appId, entry.title,
+                         entry.removable, entry.playable)
     }
 
     function runTileAction(action) {
@@ -466,7 +395,6 @@ Window {
         if (action === "open")           Launcher.launchApp(id)
         else if (action === "check")     Launcher.checkForUpdate(id)
         else if (action === "update")    Launcher.updateApp(id)
-        else if (action === "install")   Launcher.installApp(id)
         else if (action === "uninstall") Launcher.removeApp(id)
     }
 

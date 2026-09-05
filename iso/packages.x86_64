@@ -134,11 +134,32 @@ thunar-volman
 gvfs
 ffmpegthumbnailer
 
-## App store — installing and removing extras from the tile menu.
-## checkupdates (pacman-contrib) is what makes "check for update" safe: it
-## compares against a throwaway database instead of running pacman -Sy, which
-## on Arch leaves the system one partial upgrade away from a broken libc.
+## The store, and what a tile menu needs to manage what it installed.
+##
+## gnome-software is Ubuntu's store — the same program, before Canonical
+## renamed it. Arch builds it without the PackageKit plugin, so its catalogue
+## is Flathub rather than the repositories, which is the right choice here: a
+## Flatpak carries its own libraries, so installing one cannot drag the base
+## system into the partial upgrade that "pacman -Sy something" invites.
+##
+## archlinux-appstream-data is what makes it look like a store rather than a
+## package list — names, summaries and icons for anything shown from the repos.
+## xdg-desktop-portal-gtk is already pulled in by the file manager and is what
+## lets a sandboxed app open a file dialog at all.
+## checkupdates (pacman-contrib) keeps "check for update" safe on native
+## packages: it compares against a throwaway database instead of running
+## pacman -Sy, which on Arch leaves the system one partial upgrade from a
+## mismatched libc.
+gnome-software
+flatpak
+archlinux-appstream-data
 pacman-contrib
+
+## A Flatpak install is a privileged operation and polkit is what authorises it.
+## The rule in /etc/polkit-1/rules.d grants it without a prompt, but an agent is
+## still needed for anything the rule does not cover, and a console with no
+## agent simply fails silently instead of asking.
+hyprpolkitagent
 
 ## Branding — Phase 11
 plymouth

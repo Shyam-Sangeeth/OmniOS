@@ -57,11 +57,8 @@ void focusLauncherWindow() {
                        QStringLiteral("class:omni-launcher")});
 }
 
-// Everything here runs through one shell so pacman output can be tee'd to the
-// log while the exit status still comes from pacman rather than from tee.
-// pipefail is why: without it a failed install would report success.
-// The first line pacman marked as an error, with the prefix stripped. Empty
-// when there is none.
+// The first line the package manager marked as an error, with the prefix
+// stripped. Empty when there is none.
 QString firstErrorLine(const QString& output) {
     const QStringList lines = output.split(QLatin1Char('\n'));
     for (const QString& line : lines) {
@@ -72,6 +69,9 @@ QString firstErrorLine(const QString& output) {
     return {};
 }
 
+// Everything runs through one shell so the output can be tee'd to the log while
+// the exit status still comes from the package manager rather than from tee.
+// pipefail is why: without it a failed removal would report success.
 QString shellWrap(const QString& body) {
     return QStringLiteral("set -o pipefail; { %1 ; } 2>&1 | tee -a %2")
         .arg(body, kPackageLog);
@@ -215,40 +215,38 @@ bool LauncherController::launch(const QString& gameId) {
 }
 
 bool LauncherController::launchApp(const QString& appId) {
-    const omnios::App* app = omnios::findApp(appId.toStdString());
-    if (app == nullptr) {
-        // An app installed from the store is a tile on the same tab and has to
-        // open the same way. It has no argument list of its own — nothing about
-        // VLC needs tuning the way mpv did — so it is started bare.
-        if (const omnios::StoreApp* extra = omnios::findStoreApp(appId.toStdString()))
-            return launchExtra(*extra);
+    // The model is the authority on what a tile runs. A built-in carries the
+    // arguments mpv and chromium needed before they would work here; a
+    // discovered app carries the Exec line from its own desktop entry. Asking
+    // the model for both means an app installed from the store opens exactly
+    // the same way as one that shipped with the image.
+    const QStringList argv = apps_.argvFor(appId);
+    if (argv.isEmpty()) {
         setStatus(tr("No app with id %1").arg(appId));
         return false;
     }
-    if (!omnios::appAvailable(*app)) {
-        // Same courtesy the router gives a missing emulator: name the package.
-        setStatus(tr("%1 is not installed  —  install with: pacman -S %2")
-                      .arg(QString::fromUtf8(app->name.data(), int(app->name.size())),
-                           QString::fromUtf8(app->package.data(), int(app->package.size()))));
-        return false;
+
+    if (const omnios::App* app = omnios::findApp(appId.toStdString())) {
+        if (!omnios::appAvailable(*app)) {
+            // Same courtesy the router gives a missing emulator: name the
+            // package that would provide it.
+            setStatus(tr("%1 is not installed  —  install with: pacman -S %2")
+                          .arg(QString::fromUtf8(app->name.data(), int(app->name.size())),
+                               QString::fromUtf8(app->package.data(), int(app->package.size()))));
+            return false;
+        }
     }
 
-    const std::vector<std::string> argv = omnios::appArgv(*app);
-    QStringList args;
-    for (std::size_t i = 1; i < argv.size(); ++i) args << QString::fromStdString(argv[i]);
-
-    return startApp(QString::fromUtf8(app->name.data(), int(app->name.size())),
-                    QString::fromStdString(argv.front()), args);
-}
-
-bool LauncherController::launchExtra(const omnios::StoreApp& app) {
-    const QString command = QString::fromUtf8(app.command.data(), int(app.command.size()));
-    const QString name    = QString::fromUtf8(app.name.data(), int(app.name.size()));
-    if (!omnios::storeAppInstalled(app)) {
-        setStatus(tr("%1 is not installed").arg(name));
-        return false;
+    QString title = appId;
+    for (int row = 0; row < apps_.rowCount(); ++row) {
+        const QVariantMap entry = apps_.get(row);
+        if (entry.value(QStringLiteral("appId")).toString() == appId) {
+            title = entry.value(QStringLiteral("title")).toString();
+            break;
+        }
     }
-    return startApp(name, command, {});
+
+    return startApp(title, argv.front(), argv.mid(1));
 }
 
 bool LauncherController::startApp(const QString& title, const QString& program,
@@ -311,23 +309,22 @@ bool LauncherController::ephemeral() const {
     return false;
 }
 
+// What to hand pacman -Qoq for this app. A discovered app is identified by its
+// desktop file; a built-in has no desktop file of its own worth trusting, so
+// its registry package name is used directly and "pacman -Qoq" is skipped by
+// naming the package's own binary path instead.
+QString LauncherController::packagePathFor(const QString& appId) const {
+    const QStringList argv = apps_.argvFor(appId);
+    const AppListModel::Removal ref = apps_.removalFor(appId);
+    if (!ref.flatpak && !ref.target.isEmpty()) return ref.target;
+    // Built-in: ask which package owns the executable itself.
+    return argv.isEmpty() ? QString() : QStringLiteral("$(command -v %1)").arg(argv.front());
+}
+
 void LauncherController::setPackageStatus(const QString& text) {
     if (packageStatus_ == text) return;
     packageStatus_ = text;
     emit packageStatusChanged();
-}
-
-LauncherController::PackageRef LauncherController::packageFor(const QString& appId) const {
-    const std::string id = appId.toStdString();
-    if (const omnios::App* app = omnios::findApp(id)) {
-        return {QString::fromUtf8(app->package.data(), int(app->package.size())),
-                QString::fromUtf8(app->name.data(), int(app->name.size()))};
-    }
-    if (const omnios::StoreApp* app = omnios::findStoreApp(id)) {
-        return {QString::fromUtf8(app->package.data(), int(app->package.size())),
-                QString::fromUtf8(app->name.data(), int(app->name.size()))};
-    }
-    return {};
 }
 
 void LauncherController::runPackageCommand(const QString& script, const QString& verb,
@@ -361,15 +358,15 @@ void LauncherController::runPackageCommand(const QString& script, const QString&
                 }
                 package_ = nullptr;
                 process->deleteLater();
-                // Both tabs change: an install adds an Apps tile and flips a
-                // store tile to installed.
+                // An app can have appeared or vanished, so the grid is rebuilt
+                // from what is on disk rather than patched.
                 apps_.refresh();
-                store_.refresh();
                 emit packageBusyChanged();
             });
     connect(process, &QProcess::errorOccurred, this,
             [this, process](QProcess::ProcessError) {
-                setPackageStatus(tr("Could not run pacman: %1").arg(process->errorString()));
+                setPackageStatus(tr("Could not run the package manager: %1")
+                                     .arg(process->errorString()));
                 package_ = nullptr;
                 process->deleteLater();
                 emit packageBusyChanged();
@@ -381,78 +378,97 @@ void LauncherController::runPackageCommand(const QString& script, const QString&
     emit packageBusyChanged();
 }
 
-void LauncherController::installApp(const QString& appId) {
-    if (packageBusy()) return;
-
-    // Both registries, not just the catalogue: a built-in whose package the
-    // image was built without is exactly the case where installing it from its
-    // own tile is the obvious repair, and refusing there would leave a dead
-    // menu entry on a tile that already says it cannot run.
-    const PackageRef ref = packageFor(appId);
-    if (ref.package.isEmpty()) {
-        setPackageStatus(tr("Nothing known as %1").arg(appId));
-        return;
-    }
-
-    // -Sy before the install, not -Syu. A live image ships no sync databases,
-    // so without the refresh pacman cannot find the package at all; a full
-    // upgrade is the safer Arch habit but would pull the whole system into a
-    // RAM overlay sized for one package.
-    runPackageCommand(
-        QStringLiteral("sudo pacman -Sy --noconfirm --needed %1").arg(ref.package),
-        tr("Installing %1 ...").arg(ref.title), tr("%1 installed").arg(ref.title));
-}
-
 void LauncherController::removeApp(const QString& appId) {
     if (packageBusy()) return;
 
-    const PackageRef ref = packageFor(appId);
-    if (ref.package.isEmpty()) {
+    const AppListModel::Removal removal = apps_.removalFor(appId);
+    if (!removal.known) {
         setPackageStatus(tr("Nothing known as %1").arg(appId));
         return;
     }
-    if (omnios::packageIsProtected(ref.package.toStdString())) {
-        setPackageStatus(tr("%1 is part of OmniOS and cannot be removed").arg(ref.title));
+    if (!removal.refusal.isEmpty()) {
+        setPackageStatus(removal.refusal);
         return;
     }
 
-    // -Rns takes the dependencies the package brought in with it and its
-    // configuration. Leaving them behind is how a console accumulates a
-    // gigabyte of things nothing uses.
-    runPackageCommand(QStringLiteral("sudo pacman -Rns --noconfirm %1").arg(ref.package),
-                      tr("Removing %1 ...").arg(ref.title), tr("%1 removed").arg(ref.title));
+    if (removal.flatpak) {
+        // --delete-data as well, because a console that keeps the settings of
+        // an app you removed is just accumulating rubbish you cannot see.
+        runPackageCommand(
+            QStringLiteral("flatpak uninstall --assumeyes --delete-data %1").arg(removal.target),
+            tr("Removing %1 ...").arg(removal.title), tr("%1 removed").arg(removal.title));
+        return;
+    }
+
+    // Only pacman knows which package owns a desktop entry, and asking it is
+    // more reliable than guessing from the name: thunar's entry belongs to
+    // "thunar", but plenty of apps ship an entry from a package named nothing
+    // like the binary. -Rns then takes the dependencies it brought in with it,
+    // which is how a console avoids accumulating a gigabyte nothing uses.
+    const QString script =
+        QStringLiteral("pkg=$(pacman -Qoq %1 2>/dev/null) || { echo \"error: no package owns %1\"; "
+                       "exit 1; }; sudo pacman -Rns --noconfirm \"$pkg\"")
+            .arg(removal.target);
+    runPackageCommand(script, tr("Removing %1 ...").arg(removal.title),
+                      tr("%1 removed").arg(removal.title));
 }
 
 void LauncherController::checkForUpdate(const QString& appId) {
     if (packageBusy()) return;
 
-    const PackageRef ref = packageFor(appId);
-    if (ref.package.isEmpty()) {
+    const AppListModel::Removal ref = apps_.removalFor(appId);
+    if (!ref.known) {
         setPackageStatus(tr("Nothing known as %1").arg(appId));
         return;
     }
 
-    // checkupdates exits 2 with no output when everything is current, which is
-    // not a failure. awk decides the message and the exit code, so "up to date"
-    // and "no such package" cannot be confused with a mirror being down.
+    if (ref.flatpak) {
+        // flatpak has no dry run, so this asks the remote what it has and
+        // compares commits. Nothing is downloaded.
+        runPackageCommand(
+            QStringLiteral("flatpak remote-info --show-commit flathub %1 >/dev/null 2>&1 && "
+                           "echo \"%2: use Update, or the Store\" || echo \"%2: no update info\"")
+                .arg(ref.target, ref.title),
+            tr("Checking %1 ...").arg(ref.title), QString());
+        return;
+    }
+
+    // checkupdates compares against a throwaway database rather than running
+    // "pacman -Sy", which on Arch would leave the system one partial upgrade
+    // away from a mismatched libc. It exits 2 with no output when everything is
+    // current, which is not a failure — awk decides the message and the exit
+    // code, so "up to date" cannot be confused with a mirror being down.
     const QString script =
-        QStringLiteral("checkupdates 2>/dev/null | awk -v p=%1 "
+        QStringLiteral("pkg=$(pacman -Qoq %1 2>/dev/null) || { echo \"error: no package owns %1\"; "
+                       "exit 1; }; checkupdates 2>/dev/null | awk -v p=\"$pkg\" "
                        "'$1==p {print \"Update available: \" $2 \" -> \" $4; f=1} "
                        "END {if (!f) print p \" is up to date\"}'")
-            .arg(ref.package);
+            .arg(packagePathFor(appId));
     runPackageCommand(script, tr("Checking %1 for updates ...").arg(ref.title), QString());
 }
 
 void LauncherController::updateApp(const QString& appId) {
     if (packageBusy()) return;
 
-    const PackageRef ref = packageFor(appId);
-    if (ref.package.isEmpty()) {
+    const AppListModel::Removal ref = apps_.removalFor(appId);
+    if (!ref.known) {
         setPackageStatus(tr("Nothing known as %1").arg(appId));
         return;
     }
-    runPackageCommand(QStringLiteral("sudo pacman -Sy --noconfirm %1").arg(ref.package),
-                      tr("Updating %1 ...").arg(ref.title), tr("%1 is up to date").arg(ref.title));
+
+    if (ref.flatpak) {
+        runPackageCommand(QStringLiteral("flatpak update --assumeyes %1").arg(ref.target),
+                          tr("Updating %1 ...").arg(ref.title),
+                          tr("%1 is up to date").arg(ref.title));
+        return;
+    }
+
+    const QString script =
+        QStringLiteral("pkg=$(pacman -Qoq %1 2>/dev/null) || { echo \"error: no package owns %1\"; "
+                       "exit 1; }; sudo pacman -Sy --noconfirm \"$pkg\"")
+            .arg(packagePathFor(appId));
+    runPackageCommand(script, tr("Updating %1 ...").arg(ref.title),
+                      tr("%1 is up to date").arg(ref.title));
 }
 
 void LauncherController::quitRunningGame() { stopRunning(true); }

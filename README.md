@@ -37,7 +37,7 @@ export OMNIOS_DATA_DIR=/tmp/demo/.omnios
 ./build/omnictl verify manifest.json    # validate an .opkg manifest
 ./build/omnictl engines                 # which layers are installed
 ./build/omnictl apps                    # built-in app tiles
-./build/omnictl store                   # installable extras
+./build/omnictl store                   # apps found on this machine
 ```
 
 `launch` is a dry run unless you pass `--run`, so the routing is inspectable on
@@ -54,7 +54,8 @@ a machine with no emulators installed.
 | [GameScanner.cpp](src/omnios/GameScanner.cpp) | 7 | Walks `~/Games/`, identifies titles, builds the library. |
 | [GameLibrary.cpp](src/omnios/GameLibrary.cpp) | 7.5 | The tile model plus its `~/.omnios/library.json` cache. |
 | [Router.cpp](src/omnios/Router.cpp) | 9.2–9.5 | Platform → engine → argv, with install hints when a layer is missing. |
-| [Apps.cpp](src/omnios/Apps.cpp) | 10 | Built-in app tiles and the installable catalogue behind the Store tab. |
+| [Apps.cpp](src/omnios/Apps.cpp) | 10 | The built-in app tiles, and which packages must not be removed. |
+| [DesktopEntry.cpp](src/omnios/DesktopEntry.cpp) | 10 | Finds installed apps from their freedesktop desktop entries. |
 
 ### Detection
 
@@ -75,17 +76,44 @@ those two are always separated by their headers.
 
 ### Apps and the store
 
-Two registries, both tables like every other one here.
+OmniOS does not have a store of its own. It ships **GNOME Software** — the same
+program Ubuntu ships, before Canonical renamed it — as a tile on the Apps tab.
 
-`allApps()` is what ships: a video player, a file manager, a browser and a
-YouTube tile. `appCatalog()` is what can be added — VLC, Firefox, Kodi and the
-rest, all from the official repositories so nothing has to be compiled on a
-console at first boot. Installing one from the Store tab makes it a tile on the
-Apps tab; there is no separate list to keep in sync.
+Arch builds it without the PackageKit plugin, so its catalogue is **Flathub**
+rather than the repositories, and that is the right way round for a console: a
+Flatpak carries its own libraries, so installing one cannot drag the base system
+into the partial upgrade that `pacman -Sy something` invites. `omnios-flathub`
+adds the remote at boot, because a fresh Flatpak install has no remotes at all
+and the store then opens onto an empty shelf with nothing to say about why.
 
-Every app tile carries a three-dot menu: open, check for update, update,
-install, uninstall. Uninstall is the one that needs a guard, and the guard is a
-property of the *package*, not of the tile:
+The other half is knowing what is *on* the machine, and that is
+[DesktopEntry.cpp](src/omnios/DesktopEntry.cpp): the Apps tab is built from
+freedesktop desktop entries, so anything installed — from the store, from
+pacman, by hand — becomes a tile with nothing added to a table in this
+repository. Flatpak exports an entry per app into a directory already on the
+search path, so a Flathub install needs no special case at all.
+
+The cost of that is everything the image itself drags in would become a tile
+too: settings dialogs from the file manager's dependencies, `avahi-discover`,
+`bssh`, `cmake-gui`. So `build-iso.sh` records the desktop entries that ship
+with the image — computed from the dependency closure of `packages.x86_64`, no
+second pass over the built tree — and the launcher hides those. A missing list
+means no filtering, which is the safe direction: a developer build shows
+everything rather than nothing.
+
+### The tile menu
+
+Every app tile carries three dots in its bottom-right corner (or press **M**):
+open, check for update, update, uninstall. Entries that do not apply are left
+out rather than greyed — a disabled "Install" on something already installed
+only describes a state the tile already shows.
+
+The one exception is uninstalling a system app, which stays visible and
+disabled with the reason. That is a *rule* rather than a state, and dropping it
+silently would leave someone wondering whether the tile was special or the menu
+was broken.
+
+The rule itself is a property of the **package**, not of the tile:
 
 ```cpp
 bool packageIsProtected(std::string_view package);
@@ -93,18 +121,21 @@ bool packageIsProtected(std::string_view package);
 
 The browser tile and the YouTube tile are two rows sharing one `chromium`
 package, so "is this tile a system app?" is the wrong question — removing
-chromium from either tile would break both. `removeApp()` asks the right one and
-refuses, and the menu shows the entry greyed out with the reason rather than
-hiding it, so a protected tile still looks like it has a menu.
+chromium from either would break both.
 
-`checkupdates` from `pacman-contrib` backs the update check. It compares against
-a throwaway database instead of running `pacman -Sy`, which on Arch would leave
-the system one partial upgrade away from a mismatched libc.
+Removal follows wherever the app came from: `flatpak uninstall` for a Flatpak,
+and for a native app `pacman -Qoq` on its desktop file to find the owning
+package first, because plenty of apps ship an entry from a package named
+nothing like the binary.
+
+`checkupdates` from `pacman-contrib` backs the update check on native packages.
+It compares against a throwaway database instead of running `pacman -Sy`, which
+on Arch would leave the system one partial upgrade away from a mismatched libc.
 
 On a live image the root filesystem is a RAM overlay, so anything installed is
-gone at the next boot. The Store tab says so rather than letting a user find out
-by rebooting; `Launcher.ephemeral` detects it from the mount type, so the notice
-disappears by itself once OmniOS is installed to a disk.
+gone at the next boot. The Apps tab says so rather than letting you find out by
+rebooting; `Launcher.ephemeral` detects it, so the notice disappears by itself
+once OmniOS is installed to a disk.
 
 ### Routing
 

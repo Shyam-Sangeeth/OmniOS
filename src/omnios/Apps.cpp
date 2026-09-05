@@ -19,6 +19,21 @@ namespace {
 // reason to open a file manager is almost always to move a game or read a USB
 // stick, and §18's install flow starts from exactly there.
 const std::vector<App> kApps = {
+    // First on the tab on purpose. On a console the store is how the machine
+    // grows, so it should be the thing under the cursor when the tab opens
+    // rather than something to hunt for at the end of a row.
+    //
+    // GNOME Software is Ubuntu's store — the same program, before Canonical
+    // renamed it — and Arch builds it with the Flatpak backend, so it offers
+    // Flathub rather than the repositories. That is the right catalogue for a
+    // console: a Flatpak carries its own libraries, so installing one cannot
+    // drag the base system into a partial upgrade the way "pacman -Sy vlc"
+    // could.
+    {"store", "Store", "gnome-software", "", "gnome-software",
+     "org.gnome.Software",
+     "Install apps from Flathub",
+     "#8B5CF6", true},
+
     // Both --vo and --gpu-context are pinned, and the second one is the one
     // that matters. Without hardware GL, mpv crashes here:
     //
@@ -71,38 +86,9 @@ const std::vector<App> kApps = {
      "#E4000F", true},
 };
 
-// Installable extras, all from the official repositories so nothing has to be
-// built on first boot. Package names were checked against the repos; the icon
-// names are best effort, and a miss falls back to the tile's colour wash
-// rather than showing a broken image.
-const std::vector<StoreApp> kCatalog = {
-    {"vlc", "VLC", "vlc", "vlc", "vlc",
-     "Plays practically any video or audio file", "Media", "#E85D04"},
-    {"firefox", "Firefox", "firefox", "firefox", "firefox",
-     "An alternative browser", "Web", "#FF7139"},
-    {"kodi", "Kodi", "kodi", "kodi", "kodi",
-     "Media centre for a TV, with a remote-friendly interface", "Media", "#17B2E7"},
-    {"strawberry", "Strawberry", "strawberry", "strawberry", "strawberry",
-     "Music player for a local collection", "Media", "#E4000F"},
-    {"transmission", "Transmission", "transmission-gtk", "transmission-gtk",
-     "transmission", "Download client", "Utilities", "#C62828"},
-    {"obs", "OBS Studio", "obs-studio", "obs", "com.obsproject.Studio",
-     "Record and stream gameplay", "Utilities", "#302E31"},
-};
-
 }  // namespace
 
 const std::vector<App>& allApps() { return kApps; }
-
-const std::vector<StoreApp>& appCatalog() { return kCatalog; }
-
-const StoreApp* findStoreApp(std::string_view id) {
-    const auto it = std::find_if(kCatalog.begin(), kCatalog.end(),
-                                 [id](const StoreApp& app) { return app.id == id; });
-    return it == kCatalog.end() ? nullptr : &*it;
-}
-
-bool storeAppInstalled(const StoreApp& app) { return commandExists(app.command); }
 
 bool packageIsProtected(std::string_view package) {
     if (package.empty()) return true;  // unknown provenance: refuse
@@ -151,8 +137,6 @@ std::string iconPathFor(std::string_view icon) {
 }
 
 std::string appIconPath(const App& app) { return iconPathFor(app.icon); }
-
-std::string storeIconPath(const StoreApp& app) { return iconPathFor(app.icon); }
 
 std::vector<std::string> appArgv(const App& app) {
     std::vector<std::string> argv{std::string(app.command)};

@@ -74,7 +74,20 @@ $buildFlags = if ($SkipCore) { '--skip-core' } else { '' }
 $script = @"
 set -euo pipefail
 echo '==> refreshing keyring and installing build tools'
-pacman -Sy --noconfirm archlinux-keyring
+# Not fatal. Upgrading archlinux-keyring runs a post-install hook that signs the
+# new keys, and the archlinux image has no local signing key, so the hook fails:
+#
+#   ==> ERROR: There is no secret key available to sign with.
+#
+# The keyring itself is upgraded regardless, and the image ships it already
+# populated, so this is noise. Under 'set -e' it aborted the whole build, and
+# only on the runs where the keyring package actually changed — which is why it
+# looked intermittent. Generating a master key to silence it is worse: in a
+# container pacman-key --init can sit waiting on entropy.
+#
+# If the keyring were genuinely broken, pacstrap says so a minute later with a
+# signature error naming the package.
+pacman -Sy --noconfirm archlinux-keyring || echo '    (keyring hook failed; continuing)'
 pacman -S --noconfirm --needed archiso cmake ninja gcc git qt6-base qt6-declarative qt6-tools
 echo '==> building'
 ./scripts/build-iso.sh $buildFlags

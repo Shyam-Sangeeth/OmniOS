@@ -18,6 +18,7 @@ endif()
 # dependency, so it builds and is testable anywhere the launcher is developed.
 add_library(omnios_core STATIC
     src/omnios/Apps.cpp
+    src/omnios/DesktopEntry.cpp
     src/omnios/Detector.cpp
     src/omnios/GameLibrary.cpp
     src/omnios/GameScanner.cpp

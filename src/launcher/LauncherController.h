@@ -12,15 +12,11 @@
 
 #include "AppListModel.h"
 #include "GameListModel.h"
-#include "StoreListModel.h"
-
-#include "omnios/Apps.h"
 
 class LauncherController : public QObject {
     Q_OBJECT
     Q_PROPERTY(GameListModel* games READ games CONSTANT)
     Q_PROPERTY(AppListModel* apps READ apps CONSTANT)
-    Q_PROPERTY(StoreListModel* store READ store CONSTANT)
     Q_PROPERTY(QString gamesPath READ gamesPath CONSTANT)
     Q_PROPERTY(QString version READ version CONSTANT)
     Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
@@ -39,7 +35,6 @@ public:
 
     GameListModel* games() { return &model_; }
     AppListModel*  apps() { return &apps_; }
-    StoreListModel* store() { return &store_; }
     QString gamesPath() const;
     QString version() const;
     bool    scanning() const { return scanning_; }
@@ -70,21 +65,20 @@ public:
 
     Q_INVOKABLE void quitRunningGame();
 
-    // ---- store ------------------------------------------------------------
-    // All three take a tile's app id and are no-ops while another package
-    // operation is running: pacman takes a lock, and two of these at once would
-    // simply fail with a database error the user cannot act on.
+    // ---- managing what is installed ---------------------------------------
+    // Installing is GNOME Software's job; OmniOS only launches it. What is left
+    // here is what a tile's own menu should be able to do without leaving the
+    // grid. All of it is a no-op while another operation is running: both
+    // pacman and flatpak take a lock, and two at once fail with an error the
+    // user cannot act on.
 
-    // Installs a catalogue app.
-    Q_INVOKABLE void installApp(const QString& appId);
-
-    // Removes an app, built-in or catalogue. Refused for any package a system
-    // app needs — the check is here and not in the UI, so a removal cannot get
-    // through by some other path.
+    // Removes an app. Refused for anything a system app needs — the check is in
+    // the model and repeated here, so a removal cannot get through by another
+    // path. Flatpaks are removed with flatpak, native apps with pacman, and
+    // which one is decided by where the desktop entry came from.
     Q_INVOKABLE void removeApp(const QString& appId);
 
-    // Reports whether a newer version exists, without touching the installed
-    // system. Uses checkupdates, which compares against a throwaway database.
+    // Reports whether a newer version exists, without changing anything.
     Q_INVOKABLE void checkForUpdate(const QString& appId);
 
     // Upgrades one app in place.
@@ -109,22 +103,11 @@ private:
     // about to switch to the app workspace itself passes false.
     void stopRunning(bool returnHome);
 
-    // A catalogue app installed from the store, launched from the Apps tab.
-    bool launchExtra(const omnios::StoreApp& app);
-
     // The half of launching that is the same for every app: replace whatever is
     // running, put the new window on the app workspace, and come home when it
     // exits. Games do not share it because they carry an environment and a
     // router plan of their own.
     bool startApp(const QString& title, const QString& program, const QStringList& args);
-
-    // Package name behind an app id, from either registry, plus its display
-    // name. Empty package means the id is unknown.
-    struct PackageRef {
-        QString package;
-        QString title;
-    };
-    PackageRef packageFor(const QString& appId) const;
 
     // Runs one pacman operation detached, streaming to the package log, and
     // refreshes both models when it finishes. `verb` is what to say while it
@@ -133,9 +116,11 @@ private:
 
     void setPackageStatus(const QString& text);
 
+    // What to hand "pacman -Qoq" to find the package behind an app.
+    QString packagePathFor(const QString& appId) const;
+
     GameListModel  model_;
     AppListModel   apps_;
-    StoreListModel store_;
     QProcess*      package_ = nullptr;
     QString        packageStatus_;
     QProcess*     running_ = nullptr;

@@ -92,18 +92,28 @@ Item {
             // keyNavigationEnabled is bound to interactive by default, which is
             // exactly why Down did nothing here at first.
 
-            model: [
-                { action: "open",      label: qsTr("Open"),             enabled: menu.installed },
-                { action: "check",     label: qsTr("Check for update"), enabled: true },
-                { action: "update",    label: qsTr("Update"),           enabled: menu.installed },
-                { action: "install",   label: qsTr("Install"),          enabled: !menu.installed },
-                // Shown even when it cannot be used. Hiding it would leave a
-                // user wondering whether the menu was broken; disabled with a
-                // reason says the tile is protected on purpose.
-                { action: "uninstall", label: menu.removable ? qsTr("Uninstall")
-                                                             : qsTr("Uninstall  ·  system app"),
-                  enabled: menu.removable && menu.installed }
-            ]
+            // An entry that does not apply is left out rather than greyed. A
+            // disabled "Install" on something already installed is noise: it
+            // describes a state you can see from the tile.
+            //
+            // The one exception is uninstalling a system app, which stays
+            // visible and disabled with its reason. That is a rule, not a
+            // state — dropping it silently would leave someone wondering
+            // whether the tile was special or the menu was broken.
+            model: {
+                var entries = []
+                if (menu.installed) {
+                    entries.push({ action: "open",   label: qsTr("Open"),             enabled: true })
+                    entries.push({ action: "check",  label: qsTr("Check for update"), enabled: true })
+                    entries.push({ action: "update", label: qsTr("Update"),           enabled: true })
+                }
+                if (menu.removable)
+                    entries.push({ action: "uninstall", label: qsTr("Uninstall"), enabled: menu.installed })
+                else
+                    entries.push({ action: "uninstall", label: qsTr("Uninstall  ·  system app"),
+                                   enabled: false })
+                return entries
+            }
 
             delegate: Item {
                 width: list.width

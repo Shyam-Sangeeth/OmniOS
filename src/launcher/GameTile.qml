@@ -1,6 +1,10 @@
-// One game tile. Cover art when there is any, otherwise a generated card that
-// still reads as a specific game rather than a missing-image placeholder —
-// most titles will have no artwork until Phase 7.4 fetches it.
+// One tile — a game with cover art, or an app with a themed icon.
+//
+// The tile is split into an artwork region and a label strip. Keeping them
+// separate is what stops the two cases interfering: the earlier version drew
+// a legibility scrim over every tile and centred the icon in the whole tile,
+// so an app icon was both dimmed by a gradient meant for photographs and
+// half-hidden behind its own title.
 import QtQuick
 import omnios
 
@@ -11,8 +15,7 @@ Item {
     property string platformName: ""
     property color  badgeColor: Theme.textSecondary
     property string cover: ""
-    // App icon from the system theme. Used only when there is no cover art —
-    // a game with artwork should show the artwork.
+    // App icon from the system theme. Used only when there is no cover art.
     property string iconSource: ""
     property bool   selected: false
     property bool   playable: true
@@ -36,92 +39,105 @@ Item {
         color: Theme.card
         clip: true
 
-        // Fallback art: a wash of the platform's own badge colour. Distinct per
-        // platform, so a grid with no artwork is still readable at a glance.
-        Rectangle {
-            anchors.fill: parent
-            visible: tile.cover === ""
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.darker(tile.badgeColor, 2.4) }
-                GradientStop { position: 1.0; color: Theme.card }
+        // ---- artwork region ------------------------------------------------
+        Item {
+            id: art
+            anchors { left: parent.left; right: parent.right; top: parent.top }
+            anchors.bottom: label.top
+
+            // Colour wash, from the platform or app badge colour. Gives every
+            // tile an identity even with no artwork and no icon.
+            Rectangle {
+                anchors.fill: parent
+                visible: tile.cover === ""
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: Qt.darker(tile.badgeColor, 2.0) }
+                    GradientStop { position: 1.0; color: Qt.darker(tile.badgeColor, 3.6) }
+                }
             }
-        }
 
-        Image {
-            anchors.fill: parent
-            source: tile.cover
-            visible: tile.cover !== ""
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-        }
-
-        // The app's own icon, centred in the upper part of the tile so it does
-        // not collide with the title and badge along the bottom.
-        Image {
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
-            anchors.topMargin: (parent.height * 0.5) - (height / 2)
-            width: 64
-            height: 64
-            source: tile.iconSource
-            visible: tile.cover === "" && tile.iconSource !== ""
-            fillMode: Image.PreserveAspectFit
-            asynchronous: true
-            // Ask for the icon at the size it is drawn: scaling a 256px PNG
-            // down every frame is wasted work under software rendering.
-            sourceSize.width: 128
-            sourceSize.height: 128
-            smooth: true
-        }
-
-        // Legibility scrim so the title survives a bright cover.
-        Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            height: parent.height * 0.52
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: "transparent" }
-                GradientStop { position: 1.0; color: "#E60A0A12" }
+            Image {
+                anchors.fill: parent
+                source: tile.cover
+                visible: tile.cover !== ""
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: true
             }
-        }
 
-        Text {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            anchors.margins: 10
-            anchors.bottomMargin: 26
-            text: tile.title
-            color: Theme.textPrimary
-            font.pixelSize: 14
-            elide: Text.ElideRight
-            maximumLineCount: 2
-            wrapMode: Text.WordWrap
-        }
+            // Scrim only over cover art. A photograph needs it so the title
+            // stays readable; a flat wash does not, and dimming an icon with
+            // it is what made the app tiles look washed out.
+            Rectangle {
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                height: parent.height * 0.45
+                visible: tile.cover !== ""
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "transparent" }
+                    GradientStop { position: 1.0; color: "#CC0A0A12" }
+                }
+            }
 
-        // Platform badge, colour-coded per §12.
-        Rectangle {
-            anchors.left: parent.left
-            anchors.bottom: parent.bottom
-            anchors.margins: 10
-            width: badgeText.implicitWidth + 12
-            height: 16
-            radius: 3
-            color: tile.badgeColor
-            Text {
-                id: badgeText
+            // Centred in the artwork region, which is above the label strip
+            // rather than the middle of the whole tile.
+            Image {
                 anchors.centerIn: parent
-                text: tile.platformName
-                color: "#FFFFFF"
-                font.pixelSize: 10
-                font.bold: true
+                width: Math.min(72, parent.height * 0.62)
+                height: width
+                source: tile.iconSource
+                visible: tile.cover === "" && tile.iconSource !== ""
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                // Request it near the drawn size: rescaling a 256px PNG every
+                // frame is wasted work under software rendering.
+                sourceSize.width: 144
+                sourceSize.height: 144
+                smooth: true
             }
         }
 
-        // A title whose engine is missing is dimmed rather than hidden: it is
-        // installed, it just cannot start yet, and the detail screen says why.
+        // ---- label strip ---------------------------------------------------
+        Item {
+            id: label
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+            height: 46
+
+            Rectangle {
+                anchors.fill: parent
+                color: "#E60A0A12"
+            }
+
+            Text {
+                anchors {
+                    left: parent.left; right: parent.right
+                    top: parent.top; topMargin: 5
+                    leftMargin: 8; rightMargin: 8
+                }
+                text: tile.title
+                color: Theme.textPrimary
+                font.pixelSize: 13
+                elide: Text.ElideRight
+            }
+
+            Rectangle {
+                anchors { left: parent.left; leftMargin: 8; bottom: parent.bottom; bottomMargin: 7 }
+                width: badgeText.implicitWidth + 12
+                height: 15
+                radius: 3
+                color: tile.badgeColor
+                Text {
+                    id: badgeText
+                    anchors.centerIn: parent
+                    text: tile.platformName
+                    color: "#FFFFFF"
+                    font.pixelSize: 9
+                    font.bold: true
+                }
+            }
+        }
+
+        // Installed but unable to start: dimmed rather than hidden, with the
+        // reason on the detail screen.
         Rectangle {
             anchors.fill: parent
             visible: !tile.playable

@@ -1,7 +1,9 @@
 // The OmniOS shell (OmniOS.md §12).
 //
-// Boots straight into tiles. One thing in focus at a time, the background
-// tinted by the focused game, and no desktop anywhere behind it.
+// Two tabs, Games and Apps, rather than two stacked sections. Stacking meant
+// the games grid started halfway down the screen and shrank as apps were
+// added; tabs give each one the whole screen and make the library the thing
+// you land on.
 import QtQuick
 import QtQuick.Window
 import omnios
@@ -13,39 +15,40 @@ Window {
     title: "OmniOS"
     color: Theme.background
 
-    // The focused game drives the hero panel and the background tint.
-    property var current: grid.currentIndex >= 0 && GameLibrary.count > 0
-                          ? GameLibrary.get(grid.currentIndex)
-                          : null
+    // 0 = Games, 1 = Apps. Games first: this is a console, and the library is
+    // the point of it.
+    property int currentTab: 0
+    readonly property var activeGrid: currentTab === 0 ? gamesGrid : appsGrid
 
-    // Background: a wash of the focused game's platform colour (§12 calls for
-    // blurred cover art; a tint costs nothing under software rendering and
-    // still makes the screen respond to what is selected).
-    Rectangle {
-        anchors.fill: parent
-        color: Theme.background
+    property var currentGame: gamesGrid.currentIndex >= 0 && GameLibrary.count > 0
+                              ? GameLibrary.get(gamesGrid.currentIndex)
+                              : null
+
+    // Background tint follows whatever is focused, in either tab.
+    property color accentOfFocus: {
+        if (currentTab === 0)
+            return currentGame ? currentGame.badgeColor : Theme.background
+        if (AppLibrary.count > 0 && appsGrid.currentIndex >= 0)
+            return AppLibrary.get(appsGrid.currentIndex).badgeColor
+        return Theme.background
     }
+
+    Rectangle { anchors.fill: parent; color: Theme.background }
     Rectangle {
-        id: tint
         anchors.fill: parent
         opacity: 0.30
         gradient: Gradient {
-            GradientStop {
-                position: 0.0
-                color: window.current ? Qt.darker(window.current.badgeColor, 3.0) : Theme.background
-            }
+            GradientStop { position: 0.0; color: Qt.darker(window.accentOfFocus, 3.0) }
             GradientStop { position: 0.75; color: Theme.background }
         }
-        Behavior on opacity {
-            NumberAnimation { duration: Theme.backgroundDuration }
-        }
+        Behavior on opacity { NumberAnimation { duration: Theme.backgroundDuration } }
     }
 
     // ---- top bar ----------------------------------------------------------
     Item {
         id: topBar
         anchors { top: parent.top; left: parent.left; right: parent.right }
-        height: 64
+        height: 58
 
         Text {
             anchors { left: parent.left; leftMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
@@ -63,180 +66,99 @@ Window {
         }
     }
 
-    // ---- hero panel: the focused title, large -----------------------------
-    Item {
-        id: hero
-        anchors { top: topBar.bottom; left: parent.left; right: parent.right }
-        anchors.leftMargin: Theme.gutter
-        anchors.rightMargin: Theme.gutter
-        // Collapse rather than just hide: an invisible anchored item still
-        // reserves its height, which left a large empty band above APPS on a
-        // fresh install.
-        height: GameLibrary.count > 0 ? 168 : 12
-        visible: GameLibrary.count > 0
+    // ---- tabs -------------------------------------------------------------
+    Row {
+        id: tabBar
+        anchors { top: topBar.bottom; left: parent.left; leftMargin: Theme.gutter }
+        spacing: 26
 
-        Column {
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 10
+        Repeater {
+            model: [qsTr("GAMES"), qsTr("APPS")]
 
-            Text {
-                text: window.current ? window.current.title : ""
-                color: Theme.textPrimary
-                font.pixelSize: 42
-            }
+            Item {
+                width: tabText.implicitWidth
+                height: 34
 
-            Row {
-                spacing: 10
-                Rectangle {
-                    width: heroBadge.implicitWidth + 16; height: 22; radius: 4
-                    color: window.current ? window.current.badgeColor : Theme.textSecondary
-                    Text {
-                        id: heroBadge
-                        anchors.centerIn: parent
-                        text: window.current ? window.current.platformName : ""
-                        color: "#FFFFFF"; font.pixelSize: 12; font.bold: true
-                    }
-                }
                 Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: window.current
-                          ? window.current.engineName + "  ·  " + window.current.tierName
-                            + (window.current.sizeText !== "" ? "  ·  " + window.current.sizeText : "")
-                          : ""
-                    color: Theme.textSecondary
-                    font.pixelSize: 14
+                    id: tabText
+                    anchors.top: parent.top
+                    text: modelData
+                    color: window.currentTab === index ? Theme.textPrimary : Theme.textSecondary
+                    font.pixelSize: 13
+                    font.letterSpacing: 3
+                    Behavior on color { ColorAnimation { duration: Theme.focusDuration } }
+                }
+
+                // Underline marks the active tab; §12 asks for one thing in
+                // focus at a time and this is the cheapest honest indicator.
+                Rectangle {
+                    anchors { left: parent.left; right: parent.right; bottom: parent.bottom; bottomMargin: 6 }
+                    height: 2
+                    color: Theme.accent
+                    opacity: window.currentTab === index ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: Theme.focusDuration } }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: window.selectTab(index)
                 }
             }
         }
     }
 
-    // ---- apps -------------------------------------------------------------
-    // A console still has to play a video and open a USB stick (OmniOS.md §17,
-    // §18). They are tiles like anything else, drawn by the same component.
-    Text {
-        id: appsLabel
-        anchors { top: hero.bottom; left: parent.left; leftMargin: Theme.gutter }
-        text: qsTr("APPS")
-        color: Theme.textSecondary
-        font.pixelSize: 12
-        font.letterSpacing: 3
+    Rectangle {
+        id: tabRule
+        anchors { top: tabBar.bottom; left: parent.left; right: parent.right }
+        height: 1
+        color: "#1AFFFFFF"
     }
 
-    ListView {
-        id: appRow
+    // ---- content ----------------------------------------------------------
+    Item {
+        id: content
         anchors {
-            top: appsLabel.bottom; topMargin: 12
-            left: parent.left; leftMargin: Theme.gutter
-            right: parent.right; rightMargin: Theme.gutter
-        }
-        height: Theme.gridHeight + 16
-        orientation: ListView.Horizontal
-        spacing: 18
-        clip: true
-        model: AppLibrary
-        focus: true
-        keyNavigationWraps: false
-
-        delegate: GameTile {
-            title: model.title
-            platformName: qsTr("APP")
-            badgeColor: model.badgeColor
-            cover: ""
-            iconSource: model.iconSource
-            playable: model.playable
-            selected: appRow.activeFocus && ListView.isCurrentItem
-
-            MouseArea {
-                anchors.fill: parent
-                onClicked: { appRow.currentIndex = index; Launcher.launchApp(model.appId) }
-            }
-        }
-
-        Keys.onReturnPressed: window.openCurrentApp()
-        Keys.onEnterPressed: window.openCurrentApp()
-        Keys.onDownPressed: {
-            if (GameLibrary.count > 0) grid.forceActiveFocus()
-        }
-        Keys.onPressed: function (event) {
-            if (event.key === Qt.Key_F5) { Launcher.refresh(); event.accepted = true }
-        }
-    }
-
-    // ---- all games --------------------------------------------------------
-    Text {
-        id: sectionLabel
-        anchors { top: appRow.bottom; topMargin: 18; left: parent.left; leftMargin: Theme.gutter }
-        text: qsTr("ALL GAMES")
-        color: Theme.textSecondary
-        font.pixelSize: 12
-        font.letterSpacing: 3
-    }
-
-    GridView {
-        id: grid
-        anchors {
-            top: sectionLabel.bottom; topMargin: 14
+            top: tabRule.bottom; topMargin: 18
             left: parent.left; leftMargin: Theme.gutter
             right: parent.right; rightMargin: Theme.gutter
             bottom: runningBanner.visible ? runningBanner.top : footer.top
             bottomMargin: 10
         }
-        clip: true
-        cellWidth: Theme.gridWidth + 18
-        cellHeight: Theme.gridHeight + 18
-        model: GameLibrary
-        visible: GameLibrary.count > 0
-        // Keep the focused tile comfortably in view rather than snapped to an
-        // edge, so there is always visible context either side.
-        preferredHighlightBegin: 0
-        preferredHighlightEnd: height
-        highlightMoveDuration: Theme.focusDuration
 
-        delegate: GameTile {
-            title: model.title
-            platformName: model.platformName
-            badgeColor: model.badgeColor
-            cover: model.cover
-            playable: model.playable
-            selected: grid.activeFocus && GridView.isCurrentItem && !detailLoader.active
+        // ---- games ---------------------------------------------------------
+        GridView {
+            id: gamesGrid
+            anchors.fill: parent
+            visible: window.currentTab === 0 && GameLibrary.count > 0
+            clip: true
+            cellWidth: Theme.gridWidth + 18
+            cellHeight: Theme.gridHeight + 18
+            model: GameLibrary
+            highlightMoveDuration: Theme.focusDuration
 
-            MouseArea {
-                anchors.fill: parent
-                onClicked: { grid.currentIndex = index; window.openDetail() }
+            delegate: GameTile {
+                title: model.title
+                platformName: model.platformName
+                badgeColor: model.badgeColor
+                cover: model.cover
+                playable: model.playable
+                selected: gamesGrid.activeFocus && GridView.isCurrentItem && !detailLoader.active
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: { gamesGrid.currentIndex = index; window.openDetail() }
+                }
             }
+
+            Keys.onReturnPressed: window.openDetail()
+            Keys.onEnterPressed: window.openDetail()
         }
 
-        Keys.onReturnPressed: window.openDetail()
-        Keys.onEnterPressed: window.openDetail()
-        Keys.onUpPressed: function (event) {
-            // Leaving the top row goes to the apps rather than doing nothing.
-            if (currentIndex < Math.floor(width / cellWidth)) appRow.forceActiveFocus()
-            else currentIndex -= Math.floor(width / cellWidth)
-        }
-        Keys.onPressed: function (event) {
-            if (event.key === Qt.Key_F5) { Launcher.refresh(); event.accepted = true }
-        }
-    }
-
-    // ---- empty state ------------------------------------------------------
-    // An Item spanning the games region, with the message centred inside it.
-    // Anchor lines are not numbers: computing a margin from
-    // "footer.top - sectionLabel.bottom" yields NaN and drops the item at y=0,
-    // which is exactly where the first attempt at this put it.
-    Item {
-        id: emptyState
-        anchors {
-            top: sectionLabel.bottom; topMargin: 14
-            left: parent.left; right: parent.right
-            bottom: runningBanner.visible ? runningBanner.top : footer.top
-        }
-        // Only covers the games area; the apps row above stays usable, which
-        // matters because a fresh install has no games but does have apps.
-        visible: GameLibrary.count === 0 && !Launcher.scanning
-
+        // Only covers the games tab; the apps tab is useful with no games.
         Column {
             anchors.centerIn: parent
             spacing: 12
+            visible: window.currentTab === 0 && GameLibrary.count === 0 && !Launcher.scanning
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -246,16 +168,77 @@ Window {
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                // Tell the user exactly where to put files rather than leaving
-                // an empty screen with no next action.
                 text: qsTr("Copy games into %1 and press F5").arg(Launcher.gamesPath)
                 color: Theme.textSecondary
                 font.pixelSize: 14
             }
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: qsTr("Tab  ·  switch to Apps")
+                color: Theme.accent
+                font.pixelSize: 13
+            }
+        }
+
+        // ---- apps ----------------------------------------------------------
+        GridView {
+            id: appsGrid
+            anchors.fill: parent
+            visible: window.currentTab === 1
+            clip: true
+            cellWidth: Theme.gridWidth + 18
+            cellHeight: Theme.gridHeight + 18
+            model: AppLibrary
+            highlightMoveDuration: Theme.focusDuration
+
+            delegate: GameTile {
+                title: model.title
+                platformName: qsTr("APP")
+                badgeColor: model.badgeColor
+                cover: ""
+                iconSource: model.iconSource
+                playable: model.playable
+                selected: appsGrid.activeFocus && GridView.isCurrentItem
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: { appsGrid.currentIndex = index; window.openCurrentApp() }
+                }
+            }
+
+            Keys.onReturnPressed: window.openCurrentApp()
+            Keys.onEnterPressed: window.openCurrentApp()
         }
     }
 
-    // ---- footer hints -----------------------------------------------------
+    // ---- running strip ----------------------------------------------------
+    Rectangle {
+        id: runningBanner
+        visible: Launcher.gameRunning
+        anchors { left: parent.left; right: parent.right; bottom: footer.top }
+        height: 42
+        color: "#1B1830"
+
+        Rectangle {
+            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+            width: 3
+            color: Theme.accent
+        }
+        Text {
+            anchors { left: parent.left; leftMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
+            text: qsTr("▶  %1 is running").arg(Launcher.runningTitle)
+            color: Theme.textPrimary
+            font.pixelSize: 14
+        }
+        Text {
+            anchors { right: parent.right; rightMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
+            text: qsTr("Super  library    ·    Super+Tab  back to it")
+            color: Theme.textSecondary
+            font.pixelSize: 12
+        }
+    }
+
+    // ---- footer -----------------------------------------------------------
     Item {
         id: footer
         anchors { bottom: parent.bottom; left: parent.left; right: parent.right }
@@ -263,7 +246,7 @@ Window {
 
         Text {
             anchors { left: parent.left; leftMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
-            text: qsTr("↑↓←→ move    Enter open    Esc back    Super home    F5 rescan")
+            text: qsTr("↑↓←→ move    Enter open    Tab switch tab    Super home    F5 rescan")
             color: Theme.textSecondary
             font.pixelSize: 12
         }
@@ -281,21 +264,43 @@ Window {
         anchors.fill: parent
         active: false
         sourceComponent: GameDetail {
-            game: window.current
-            onClosed: { detailLoader.active = false; grid.forceActiveFocus() }
+            game: window.currentGame
+            onClosed: { detailLoader.active = false; gamesGrid.forceActiveFocus() }
             onPlayed: {
-                if (Launcher.launch(window.current.gameId)) {
+                if (Launcher.launch(window.currentGame.gameId)) {
                     detailLoader.active = false
-                    grid.forceActiveFocus()
+                    gamesGrid.forceActiveFocus()
                 }
             }
         }
         onLoaded: item.forceActiveFocus()
     }
 
+    // ---- keys -------------------------------------------------------------
+    // Shortcuts, not a key handler on an Item. An Item with focus:true would
+    // take focus away from the grids and the arrow keys would stop working;
+    // a Shortcut fires whatever currently holds focus, which is what a global
+    // binding needs to do. Tab is also grabbed away from focus traversal here,
+    // which is deliberate — in a console it switches tabs.
+    Shortcut {
+        sequences: ["Tab", "Backtab"]
+        onActivated: window.selectTab(window.currentTab === 0 ? 1 : 0)
+    }
+    Shortcut {
+        sequence: "F5"
+        onActivated: Launcher.refresh()
+    }
+
+    function selectTab(index) {
+        currentTab = index
+        // Focus follows the tab, otherwise the arrow keys keep driving the
+        // grid that is no longer on screen.
+        activeGrid.forceActiveFocus()
+    }
+
     function openCurrentApp() {
         if (AppLibrary.count === 0) return
-        Launcher.launchApp(AppLibrary.get(appRow.currentIndex).appId)
+        Launcher.launchApp(AppLibrary.get(appsGrid.currentIndex).appId)
     }
 
     function openDetail() {
@@ -303,37 +308,5 @@ Window {
         detailLoader.active = true
     }
 
-    // Something is running on workspace 2.
-    //
-    // A strip, not a screen-filling cover. The Windows key returns here while
-    // the app keeps running, so covering the library would hide the very grid
-    // the home button exists to show. The earlier full-screen version made
-    // sense only when running something meant losing the launcher entirely.
-    Rectangle {
-        id: runningBanner
-        visible: Launcher.gameRunning
-        anchors { left: parent.left; right: parent.right; bottom: footer.top }
-        height: 42
-        color: "#1B1830"
-
-        Rectangle {
-            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
-            width: 3
-            color: Theme.accent
-        }
-
-        Text {
-            anchors { left: parent.left; leftMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
-            text: qsTr("▶  %1 is running").arg(Launcher.runningTitle)
-            color: Theme.textPrimary
-            font.pixelSize: 14
-        }
-
-        Text {
-            anchors { right: parent.right; rightMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
-            text: qsTr("Super  library    ·    Super+Tab  back to it")
-            color: Theme.textSecondary
-            font.pixelSize: 12
-        }
-    }
+    Component.onCompleted: gamesGrid.forceActiveFocus()
 }

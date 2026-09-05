@@ -14,6 +14,23 @@ const omnios::Game* findGame(const omnios::GameLibrary& library, const QString& 
     return library.find(id.toStdString());
 }
 
+// Workspace 1 holds the launcher; anything it starts belongs on 2.
+constexpr const char* kLauncherWorkspace = "1";
+constexpr const char* kAppWorkspace      = "2";
+
+// Hyprland places a new window on the active workspace, so switching before
+// spawning puts the app on its own workspace without needing a window rule —
+// which matters because this Hyprland rejects the windowrule syntax outright
+// and its replacement is still migrating to a Lua config.
+//
+// Silent when hyprctl is missing: the launcher must still work under another
+// compositor, or none, just without the workspace switch.
+void switchWorkspace(const char* workspace) {
+    QProcess::execute(QStringLiteral("hyprctl"),
+                      {QStringLiteral("dispatch"), QStringLiteral("workspace"),
+                       QString::fromLatin1(workspace)});
+}
+
 }  // namespace
 
 LauncherController::LauncherController(QObject* parent) : QObject(parent) {
@@ -122,6 +139,7 @@ bool LauncherController::launch(const QString& gameId) {
     // shell would be left staring at whatever the game left on screen.
     connect(process, &QProcess::finished, this,
             [this, process](int code, QProcess::ExitStatus) {
+                switchWorkspace(kLauncherWorkspace);
                 setStatus(code == 0 ? tr("%1 exited").arg(runningTitle_)
                                     : tr("%1 exited with code %2").arg(runningTitle_).arg(code));
                 running_ = nullptr;
@@ -131,6 +149,7 @@ bool LauncherController::launch(const QString& gameId) {
             });
     connect(process, &QProcess::errorOccurred, this,
             [this, process](QProcess::ProcessError) {
+                switchWorkspace(kLauncherWorkspace);
                 setStatus(tr("%1 could not start: %2").arg(runningTitle_, process->errorString()));
                 running_ = nullptr;
                 runningTitle_.clear();
@@ -138,6 +157,7 @@ bool LauncherController::launch(const QString& gameId) {
                 emit gameRunningChanged();
             });
 
+    switchWorkspace(kAppWorkspace);
     process->start(QString::fromStdString(plan.argv.front()), args);
     running_ = process;
     setStatus(tr("Starting %1 …").arg(runningTitle_));
@@ -173,6 +193,7 @@ bool LauncherController::launchApp(const QString& appId) {
 
     connect(process, &QProcess::finished, this,
             [this, process](int, QProcess::ExitStatus) {
+                switchWorkspace(kLauncherWorkspace);
                 setStatus(tr("%1 closed").arg(runningTitle_));
                 running_ = nullptr;
                 runningTitle_.clear();
@@ -181,6 +202,7 @@ bool LauncherController::launchApp(const QString& appId) {
             });
     connect(process, &QProcess::errorOccurred, this,
             [this, process](QProcess::ProcessError) {
+                switchWorkspace(kLauncherWorkspace);
                 setStatus(tr("%1 could not start: %2").arg(runningTitle_, process->errorString()));
                 running_ = nullptr;
                 runningTitle_.clear();
@@ -188,6 +210,7 @@ bool LauncherController::launchApp(const QString& appId) {
                 emit gameRunningChanged();
             });
 
+    switchWorkspace(kAppWorkspace);
     process->start(QString::fromStdString(argv.front()), args);
     running_ = process;
     setStatus(tr("Opening %1 …").arg(runningTitle_));

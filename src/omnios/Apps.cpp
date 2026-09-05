@@ -49,8 +49,13 @@ const std::vector<App> kApps = {
     // --ozone-platform=wayland for the same reason mpv pins its context —
     // letting a browser fall back to XWayland on a machine with no GPU is how
     // the mpv crash happened.
+    // --no-first-run matters more than it looks: without it chromium opens on
+    // a terms-of-service dialog with Cancel/Accept, which is not something a
+    // console should ever put in front of someone. --no-default-browser-check
+    // suppresses the other startup prompt for the same reason.
     {"browser", "Browser", "chromium",
-     "--ozone-platform=wayland --start-maximized",
+     "--ozone-platform=wayland --no-first-run --no-default-browser-check "
+     "--start-maximized",
      "chromium", "chromium",
      "Browse the web",
      "#3A8FFF"},
@@ -59,7 +64,8 @@ const std::vector<App> kApps = {
     // address bar, just the site. The icon is Chromium's own, which is honest
     // about what is actually running.
     {"youtube", "YouTube", "chromium",
-     "--ozone-platform=wayland --app=https://www.youtube.com --start-fullscreen",
+     "--ozone-platform=wayland --no-first-run --no-default-browser-check "
+     "--app=https://www.youtube.com --start-fullscreen",
      "chromium", "chromium",
      "Watch YouTube",
      "#E4000F"},

@@ -85,6 +85,10 @@ TEST("apps: the browser and YouTube tiles run chromium") {
         // Same lesson as mpv: a browser left to choose its own backend can
         // fall back to XWayland, and OmniOS is a Wayland system.
         CHECK(std::string(app->args).find("--ozone-platform=wayland") != std::string::npos);
+
+        // Without this chromium opens on a terms-of-service dialog. A console
+        // must not greet anyone with Cancel/Accept.
+        CHECK(std::string(app->args).find("--no-first-run") != std::string::npos);
     }
 
     const App* youtube = findApp("youtube");

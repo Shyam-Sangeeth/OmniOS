@@ -46,6 +46,20 @@ param(
     # with "screendump" without anyone having to watch the window.
     [int]$MonitorPort = 0,
 
+    # Start QEMU and return, printing its process id, instead of blocking until
+    # the VM exits. Everything after boot is then driven through the monitor
+    # socket, which is the only way an agent can use this at all: a foreground
+    # QEMU holds the shell for as long as the machine runs.
+    [switch]$Detach,
+
+    # Stop any QEMU already running, and shut WSL down first.
+    #
+    # WHPX is shared with WSL2, and a running WSL backend can leave it in a
+    # state where QEMU dies mid-boot with "failed to get xsave state". This is
+    # the fix, and the cost is that Docker Desktop stops too — so a build has to
+    # start it again afterwards.
+    [switch]$Fresh,
+
     # CPU model handed to the accelerator.
     #
     # Not "max". WHPX asks the host for every feature it advertises, and on some
@@ -64,6 +78,16 @@ param(
     # script is called from a pipeline.
     [string]$Cpu = 'Skylake-Client,-hypervisor,-tsc-deadline'
 )
+
+# Before anything else. The VM being replaced still holds the serial log open,
+# so deleting that file while it runs fails with "used by another process" —
+# which is what happened the first time this ran in the other order.
+if ($Fresh) {
+    Get-Process qemu-system-x86_64 -ErrorAction SilentlyContinue | Stop-Process -Force
+    Write-Host "==> stopping WSL to free the hypervisor (this also stops Docker Desktop)"
+    & wsl --shutdown
+    Start-Sleep -Seconds 6
+}
 
 $ErrorActionPreference = 'Stop'
 
@@ -155,4 +179,18 @@ if ($Disk) {
 }
 
 Write-Host "==> booting $(Split-Path -Leaf $Iso)"
+
+if ($Detach) {
+    $process = Start-Process -FilePath $qemu -ArgumentList $qemuArgs -PassThru
+    Start-Sleep -Seconds 6
+    if ($process.HasExited) {
+        throw "QEMU exited immediately with code $($process.ExitCode)"
+    }
+    Write-Host "==> running as pid $($process.Id)"
+    if ($SerialLog) {
+        Write-Host "==> watch $SerialLog for the boot; the session is up once it contains 'END ====='"
+    }
+    exit 0
+}
+
 & $qemu @qemuArgs

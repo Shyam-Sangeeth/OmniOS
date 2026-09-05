@@ -208,6 +208,10 @@ If a VM looks stuck, screendump it before theorising: `(Get-Process
 qemu-system-x86_64).CPU` frozen near five seconds almost always means the guest
 panicked, and the panic text is on screen.
 
+`run-qemu.ps1 -Detach -Fresh` boots without holding the terminal and
+`vm-console.ps1` drives the result; `.claude/skills/boot-os/SKILL.md` is the
+short version of everything below.
+
 The QEMU monitor also serves exactly one client and leaves the socket in
 CloseWait afterwards, so a second connection is refused for the life of the VM.
 Do all monitor work — every screendump, every sendkey — over one held

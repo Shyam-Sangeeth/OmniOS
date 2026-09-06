@@ -28,6 +28,7 @@ DetectionSource detectionSourceFromName(std::string_view name) {
     if (name == "magic")     return DetectionSource::Magic;
     if (name == "extension") return DetectionSource::Extension;
     if (name == "folder")    return DetectionSource::Folder;
+    if (name == "manifest")  return DetectionSource::Manifest;
     return DetectionSource::None;
 }
 
@@ -66,6 +67,7 @@ Json Game::toJson() const {
     out.set("platform", Json(std::string(platformId(platform))));
     out.set("path", Json(path.generic_string()));
     if (!executable.empty())  out.set("executable", Json(executable));
+    if (!launchId.empty())    out.set("launchId", Json(launchId));
     if (!version.empty())     out.set("version", Json(version));
     if (!developer.empty())   out.set("developer", Json(developer));
     if (!publisher.empty())   out.set("publisher", Json(publisher));
@@ -91,6 +93,7 @@ Game Game::fromJson(const Json& value) {
     game.platform    = platformFromId(value["platform"].asString());
     game.path        = fs::path(value["path"].asString());
     game.executable  = value["executable"].asString();
+    game.launchId    = value["launchId"].asString();
     game.version     = value["version"].asString();
     game.developer   = value["developer"].asString();
     game.publisher   = value["publisher"].asString();

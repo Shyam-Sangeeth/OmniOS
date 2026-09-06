@@ -24,6 +24,11 @@ enum class DetectionSource : std::uint8_t {
     Magic,      // format signature in the file header — trustworthy
     Extension,  // filename only
     Folder,     // position under ~/Games/ only — weakest
+    // The platform's own records, which is as good as it gets: Steam knows
+    // what it installed, its app id and its real title, so nothing here had to
+    // be inferred. Last in the list so the stored numbers of the others do not
+    // move under an existing library cache.
+    Manifest,
 };
 
 std::string_view detectionSourceName(DetectionSource source);

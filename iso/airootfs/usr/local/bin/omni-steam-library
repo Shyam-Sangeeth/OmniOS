@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Point Steam at ~/Games/steam.
+#
+# Steam installs into ~/.local/share/Steam/steamapps and nothing about that
+# path says "games" to anyone looking at their own machine. OmniOS keeps every
+# other platform under ~/Games/<platform>, and a console where one library
+# lives somewhere else is a console where that library is invisible — which is
+# exactly what happened: games installed through Steam never appeared on the
+# Games tab.
+#
+# A symlink rather than Steam's own library configuration. libraryfolders.vdf
+# is rewritten by Steam whenever it feels like it, and "which library is the
+# default" is a preference it owns; a symlink is a fact about the filesystem
+# that Steam simply follows, and it works the same for a library that already
+# exists.
+set -uo pipefail
+
+readonly GAMES="${OMNIOS_GAMES_DIR:-$HOME/Games}"
+readonly TARGET="$GAMES/steam"
+readonly STEAM_ROOT="$HOME/.local/share/Steam"
+readonly STEAMAPPS="$STEAM_ROOT/steamapps"
+
+mkdir -p "$TARGET" || exit 0
+
+# Already pointing where it should.
+if [[ -L $STEAMAPPS && "$(readlink -f "$STEAMAPPS")" == "$(readlink -f "$TARGET")" ]]; then
+    exit 0
+fi
+
+# A real directory with games in it is somebody's library, and moving it is not
+# this script's decision to make. The scanner reads Steam's default locations
+# too, so those games still get tiles — they just stay where they are.
+if [[ -d $STEAMAPPS && ! -L $STEAMAPPS ]]; then
+    if [[ -n "$(ls -A "$STEAMAPPS" 2>/dev/null)" ]]; then
+        echo "omni-steam-library: $STEAMAPPS already exists with content; leaving it alone" >&2
+        exit 0
+    fi
+    rmdir "$STEAMAPPS" 2>/dev/null || exit 0
+fi
+
+mkdir -p "$STEAM_ROOT" || exit 0
+ln -sfn "$TARGET" "$STEAMAPPS"

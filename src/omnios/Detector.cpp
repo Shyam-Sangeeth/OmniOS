@@ -212,6 +212,7 @@ std::string_view detectionSourceName(DetectionSource source) {
         case DetectionSource::Magic:     return "magic";
         case DetectionSource::Extension: return "extension";
         case DetectionSource::Folder:    return "folder";
+        case DetectionSource::Manifest:  return "manifest";
     }
     return "none";
 }

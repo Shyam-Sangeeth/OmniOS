@@ -38,6 +38,10 @@ enum class Platform : std::uint8_t {
     GBA,
     Android,
     Retro,
+    // Steam is not a machine, it is a library that knows what it installed. It
+    // gets a platform row because everything downstream — the folder, the tile
+    // badge, the engine — is keyed on one.
+    Steam,
 };
 
 struct PlatformInfo {

@@ -7,7 +7,8 @@ add_executable(omnios_tests
     LibraryTest.cpp
     ManifestTest.cpp
     RouterTest.cpp
-    ScannerTest.cpp)
+    ScannerTest.cpp
+    SteamLibraryTest.cpp)
 
 target_link_libraries(omnios_tests PRIVATE omnios_core)
 target_include_directories(omnios_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

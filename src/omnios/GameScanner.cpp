@@ -1,5 +1,7 @@
 #include "GameScanner.h"
 
+#include "SteamLibrary.h"
+
 #include <algorithm>
 #include <cctype>
 #include <fstream>
@@ -276,7 +278,43 @@ ScanReport GameScanner::scan(GameLibrary& library) const {
     // Everything found this pass; anything cached but absent is uninstalled.
     std::set<std::string> seen;
 
+    // Steam first, and not through identify(). Steam's folder holds its own
+    // records rather than a pile of game files, and reading those is both more
+    // accurate than guessing from directory names and the only way to get the
+    // app id a launch needs.
+    //
+    // The default locations are read too, so a library that already existed
+    // before OmniOS pointed Steam at ~/Games is not invisible.
+    {
+        std::vector<fs::path> steamRoots{root_ / "steam"};
+        for (const fs::path& fallback : defaultSteamLibraries())
+            steamRoots.push_back(fallback);
+
+        for (const fs::path& steamapps : steamRoots) {
+            for (Game& game : readSteamLibrary(steamapps)) {
+                // A library reachable by two paths — ~/Games/steam being a
+                // symlink to the real one is exactly how this is set up — must
+                // not produce the game twice.
+                if (seen.count(game.id) != 0) continue;
+
+                if (const Game* cached = library.find(game.id); cached != nullptr) {
+                    if (game.coverPath.empty()) game.coverPath = cached->coverPath;
+                    if (game.engineOverride.empty()) game.engineOverride = cached->engineOverride;
+                    ++report.updated;
+                } else {
+                    ++report.added;
+                }
+                seen.insert(game.id);
+                library.add(std::move(game));
+            }
+        }
+    }
+
     for (const auto& hint : folderHints()) {
+        // Handled above, and its contents are Steam's business rather than a
+        // tree of game files.
+        if (hint.first == "steam") continue;
+
         const fs::path folder = root_ / hint.first;
         if (!fs::is_directory(folder, ec)) continue;
 

@@ -21,6 +21,9 @@ const std::vector<PlatformInfo> kPlatforms = {
     {Platform::GBA,      "gba",      "gba",      "GBA",       Tier::Emulator, "#E4000F"},
     {Platform::Android,  "android",  "android",  "Android",   Tier::Jit,      "#888888"},
     {Platform::Retro,    "retro",    "retro",    "Retro",     Tier::Emulator, "#888888"},
+    // Native because Steam ships the runtime a game needs; OmniOS only asks it
+    // to start one.
+    {Platform::Steam,    "steam",    "steam",    "Steam",     Tier::Native,   "#1B2838"},
 };
 
 const PlatformInfo kUnknown = {

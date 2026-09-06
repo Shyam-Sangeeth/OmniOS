@@ -9,6 +9,12 @@ set -uo pipefail
 
 readonly LOG=/tmp/omnios-shell.log
 
+# Before the launcher, so its first scan already sees the Steam library. Never
+# fatal: a console that cannot arrange its folders must still boot to its grid.
+if command -v omni-steam-library >/dev/null 2>&1; then
+    omni-steam-library >>"$LOG" 2>&1 || true
+fi
+
 if command -v omni-launcher-qml >/dev/null 2>&1; then
     omni-launcher-qml >>"$LOG" 2>&1
     status=$?

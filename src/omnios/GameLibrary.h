@@ -33,6 +33,11 @@ struct Game {
     // single-file title such as a ROM or a PKG.
     std::string   executable;
 
+    // What the engine is given instead of a path, when a path is not how the
+    // thing is addressed. Steam's app id is the only user today: a Steam game
+    // is started by id, not by handing anyone a file.
+    std::string   launchId;
+
     std::string   version;
     std::string   developer;
     std::string   publisher;

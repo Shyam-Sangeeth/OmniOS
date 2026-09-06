@@ -32,6 +32,13 @@ const std::vector<Engine> kEngines = {
      "PS4 Orbis API layer"},
     {"ryubing", "Ryubing", "Ryujinx", "ryubing", Tier::Jit,
      "Switch ARM64 JIT (maintained Ryujinx fork)"},
+    // Steam starts its own games. OmniOS hands it an app id and gets out of
+    // the way, which is also the only thing that works: a Steam game needs the
+    // client running for its DRM, its overlay and its cloud saves, so running
+    // the executable directly is not an option even when you can find it.
+    {"steam", "Steam", "steam", "steam", Tier::Native,
+     "Steam runs the game itself, with its own runtime."},
+
     {"rpcs3", "RPCS3", "rpcs3", "rpcs3-bin", Tier::Emulator,
      "PS3 Cell/PowerPC recompiler"},
     // PCSX2 was dropped from the official repos, so the install hint has to
@@ -64,6 +71,7 @@ const RouteRow kRoutes[] = {
     {Platform::Windows,  "proton"},
     {Platform::PS5,      "shadps4"},
     {Platform::PS4,      "shadps4"},
+    {Platform::Steam,    "steam"},
     {Platform::PS3,      "rpcs3"},
     {Platform::PS2,      "pcsx2"},
     {Platform::PS1,      "duckstation"},
@@ -200,7 +208,10 @@ LaunchPlan planLaunch(const Game& game, const LaunchOptions& options) {
     if (!game.executable.empty()) target /= game.executable;
     plan.target = target.generic_string();
 
-    if (game.path.empty()) {
+    // A path is only required when a path is how the thing is addressed. A
+    // Steam game is started by app id, and Steam owns the files: refusing for
+    // want of a path would block the one launch that cannot use one.
+    if (game.path.empty() && game.launchId.empty()) {
         plan.error = "\"" + game.title + "\" has no file on disk to launch.";
         return plan;
     }
@@ -215,10 +226,24 @@ LaunchPlan planLaunch(const Game& game, const LaunchOptions& options) {
     }
 
     std::vector<std::string> argv;
-    if (options.gameMode) argv.emplace_back(kGameModeCommand);
-    if (options.mangoHud) argv.emplace_back(kMangoHudCommand);
 
-    if (engine->id == "native") {
+    // Only wrap an engine that runs the game itself. Putting gamemoderun in
+    // front of "steam" governs the client, not the game — Steam starts that as
+    // a child of its own, out of reach — so the wrapper would cost a process
+    // and buy nothing. MANGOHUD stays in the environment below, because that
+    // one children do inherit.
+    const bool enginePlaysTheGame = engine->id != "steam";
+    if (enginePlaysTheGame && options.gameMode) argv.emplace_back(kGameModeCommand);
+    if (enginePlaysTheGame && options.mangoHud) argv.emplace_back(kMangoHudCommand);
+
+    if (engine->id == "steam") {
+        // steam://rungameid is the documented way in, and it is what a desktop
+        // shortcut created by Steam itself uses. It starts the client first
+        // when it is not already running, which a console needs: the tile is
+        // often the first thing touched after a boot.
+        argv.emplace_back(std::string(engine->command));
+        argv.push_back("steam://rungameid/" + game.launchId);
+    } else if (engine->id == "native") {
         argv.push_back(plan.target);
     } else if (engine->id == "proton") {
         // Proton's own CLI: `proton run <exe>` (OmniOS.md §20).

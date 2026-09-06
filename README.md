@@ -219,6 +219,35 @@ app that dies within a couple of seconds while the disk is full is reported as
 "could not start — the disk is full" rather than sent to a log that will not
 mention it.
 
+### Steam
+
+Steam installs into `~/.local/share/Steam/steamapps`, which says "games" to
+nobody, and games installed through it never appeared on the Games tab at all.
+`omni-steam-library` symlinks that directory to `~/Games/steam` at session
+start, so Steam keeps its own layout while living where the rest of the library
+does.
+
+A symlink rather than Steam's own library configuration: `libraryfolders.vdf`
+is rewritten whenever Steam feels like it and "which library is the default" is
+a preference it owns, whereas a symlink is a fact about the filesystem that
+Steam simply follows. It refuses to touch an existing library that has anything
+in it — moving somebody's games is not a script's decision — and the scanner
+reads Steam's default locations too, so those games still get tiles.
+
+[SteamLibrary.cpp](src/omnios/SteamLibrary.cpp) reads Steam's own
+`appmanifest_<appid>.acf` records rather than guessing from directory names.
+That is both more accurate — the real title, the real size — and the only way
+to get the app id, because a Steam game is launched by id and not by path:
+
+    steam steam://rungameid/440
+
+Handing anyone the executable does not work. The client has to be running for
+DRM, the overlay and cloud saves, so the route is through Steam even when the
+binary is easy to find. For the same reason `gamemoderun` is not wrapped around
+it: that would govern the client, while the game runs as a child of its own out
+of reach. This is also the first detection source that is not a guess — the
+platform told us — so it is recorded as `manifest` rather than `folder`.
+
 ### Routing
 
 The engine table in [Router.cpp](src/omnios/Router.cpp) is data, deliberately.

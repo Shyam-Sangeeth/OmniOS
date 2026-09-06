@@ -26,7 +26,8 @@ add_library(omnios_core STATIC
     src/omnios/Manifest.cpp
     src/omnios/Paths.cpp
     src/omnios/Platform.cpp
-    src/omnios/Router.cpp)
+    src/omnios/Router.cpp
+    src/omnios/SteamLibrary.cpp)
 
 target_include_directories(omnios_core PUBLIC src)
 

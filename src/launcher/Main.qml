@@ -477,6 +477,21 @@ Window {
         detailLoader.active = true
     }
 
+    // A controller press is about to arrive. Qt only routes a key to the item
+    // holding active focus, and after an app exits — or after the session has
+    // been away on another virtual terminal — there is no such item, so the
+    // press would land nowhere at all.
+    //
+    // Only when nothing has it: a menu that is open holds focus on purpose, and
+    // stealing it back to the grid would make the controller unable to answer
+    // its own menu.
+    Connections {
+        target: Launcher
+        function onFocusWanted() {
+            if (!window.activeFocusItem) window.activeGrid.forceActiveFocus()
+        }
+    }
+
     // Re-assert focus whenever the window becomes active. Returning from an
     // app leaves Qt's focus item unset, and without this the grid is visible
     // but deaf until something is clicked.

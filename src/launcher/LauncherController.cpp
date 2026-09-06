@@ -4,7 +4,10 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QDebug>
+#include <QGuiApplication>
+#include <QKeyEvent>
 #include <QMap>
+#include <QWindow>
 #include <QProcessEnvironment>
 
 #include <filesystem>
@@ -53,9 +56,6 @@ void switchWorkspace(const char* workspace) {
                        QString::fromLatin1(workspace)});
 }
 
-// Switching workspace does not focus anything when the pointer has not moved,
-// and an unfocused launcher receives no keys at all. Ask for it explicitly
-// whenever the library comes back.
 // The shell's own window class, as set by QGuiApplication::setDesktopFileName.
 // Everything else that turns up on the launcher's workspace is a stray.
 constexpr const char* kLauncherClass = "omni-launcher";
@@ -72,6 +72,9 @@ void moveWindowToWorkspace(const QString& address, const char* workspace) {
                        QStringLiteral("%1,address:%2").arg(QString::fromLatin1(workspace), target)});
 }
 
+// Switching workspace does not focus anything when the pointer has not moved,
+// and an unfocused launcher receives no keys at all. Ask for it explicitly
+// whenever the library comes back.
 void focusLauncherWindow() {
     QProcess::execute(QStringLiteral("hyprctl"),
                       {QStringLiteral("dispatch"), QStringLiteral("focuswindow"),
@@ -114,7 +117,57 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
                 adoptStrayWindow(address, workspace, windowClass);
             });
 
+    connect(&gamepad_, &GamepadInput::keyPressed, this, &LauncherController::deliverKey);
+    connect(&gamepad_, &GamepadInput::homeRequested, this, &LauncherController::goHome);
+
     refresh();
+}
+
+void LauncherController::deliverKey(int key) {
+    // Focus first, but not only focus. SDL reads the controller straight from
+    // the input devices, so a press arrives whether or not the compositor has
+    // given the shell keyboard focus — and there are several ordinary ways to
+    // have none: just after an app exits, or after the session has been away
+    // on another virtual terminal. Dropping the press in those cases is how a
+    // controller ends up looking dead.
+    //
+    // The launcher has exactly one window, so falling back to it is not a
+    // guess.
+    // Posting a key at a window with no focused item inside it drops the key:
+    // QQuickWindow hands key events to its active focus item, and there is none
+    // while the window is inactive. The shell is asked to take focus first, so
+    // a controller press lands whatever state the compositor left things in.
+    emit focusWanted();
+
+    QWindow* window = QGuiApplication::focusWindow();
+    if (window == nullptr) {
+        focusLauncherWindow();
+        const QWindowList windows = QGuiApplication::topLevelWindows();
+        for (QWindow* candidate : windows) {
+            if (candidate != nullptr && candidate->isVisible()) {
+                window = candidate;
+                break;
+            }
+        }
+        if (window == nullptr) {
+            qWarning("omni-launcher: controller key %d had nowhere to go", key);
+            return;
+        }
+    }
+
+    // A press and a release, because Qt's key handling expects both and some
+    // of the shell's handlers are on release.
+    QGuiApplication::postEvent(
+        window, new QKeyEvent(QEvent::KeyPress, key, Qt::NoModifier));
+    QGuiApplication::postEvent(
+        window, new QKeyEvent(QEvent::KeyRelease, key, Qt::NoModifier));
+}
+
+void LauncherController::goHome() {
+    // Whatever is running keeps running; this is the console's "show me the
+    // library" button, not a way to close a game.
+    switchWorkspace(kLauncherWorkspace);
+    focusLauncherWindow();
 }
 
 void LauncherController::adoptStrayWindow(const QString& address, const QString& workspace,
@@ -239,6 +292,7 @@ bool LauncherController::launch(const QString& gameId) {
                               : tr("%1 exited with code %2  —  see %3")
                                     .arg(runningTitle_).arg(code).arg(kAppLog));
                 running_ = nullptr;
+                gamepad_.setAppRunning(false);
                 runningTitle_.clear();
                 process->deleteLater();
                 emit gameRunningChanged();
@@ -248,6 +302,7 @@ bool LauncherController::launch(const QString& gameId) {
                 switchWorkspace(kLauncherWorkspace);
                 setStatus(tr("%1 could not start: %2").arg(runningTitle_, process->errorString()));
                 running_ = nullptr;
+                gamepad_.setAppRunning(false);
                 runningTitle_.clear();
                 process->deleteLater();
                 emit gameRunningChanged();
@@ -256,6 +311,7 @@ bool LauncherController::launch(const QString& gameId) {
     switchWorkspace(kAppWorkspace);
     process->start(QString::fromStdString(plan.argv.front()), args);
     running_ = process;
+    gamepad_.setAppRunning(true);
     setStatus(tr("Starting %1 …").arg(runningTitle_));
     emit gameRunningChanged();
     return true;
@@ -325,6 +381,7 @@ bool LauncherController::startApp(const QString& title, const QString& program,
                 }
                 emit storageChanged();
                 running_ = nullptr;
+                gamepad_.setAppRunning(false);
                 runningTitle_.clear();
                 process->deleteLater();
                 emit gameRunningChanged();
@@ -334,6 +391,7 @@ bool LauncherController::startApp(const QString& title, const QString& program,
                 switchWorkspace(kLauncherWorkspace);
                 setStatus(tr("%1 could not start: %2").arg(runningTitle_, process->errorString()));
                 running_ = nullptr;
+                gamepad_.setAppRunning(false);
                 runningTitle_.clear();
                 process->deleteLater();
                 emit gameRunningChanged();
@@ -342,6 +400,7 @@ bool LauncherController::startApp(const QString& title, const QString& program,
     switchWorkspace(kAppWorkspace);
     process->start(program, args);
     running_ = process;
+    gamepad_.setAppRunning(true);
     setStatus(tr("Opening %1 ...").arg(runningTitle_));
     emit gameRunningChanged();
     return true;
@@ -637,6 +696,7 @@ void LauncherController::stopRunning(bool returnHome) {
     // switch the workspace home again just as the new app arrives there.
     process->disconnect(this);
     running_ = nullptr;
+    gamepad_.setAppRunning(false);
     const QString previous = runningTitle_;
     runningTitle_.clear();
 

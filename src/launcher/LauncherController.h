@@ -12,6 +12,7 @@
 
 #include "AppListModel.h"
 #include "GameListModel.h"
+#include "GamepadInput.h"
 #include "HyprlandEvents.h"
 
 class LauncherController : public QObject {
@@ -110,6 +111,9 @@ signals:
     void packageBusyChanged();
     void packageStatusChanged();
     void storageChanged();
+    // Asks the shell to make sure something inside it holds QML focus, before a
+    // key is delivered to it.
+    void focusWanted();
 
 private:
     void setStatus(const QString& text);
@@ -119,6 +123,15 @@ private:
     // thing at a time and the alternative is the shell tiled beside a game.
     void adoptStrayWindow(const QString& address, const QString& workspace,
                           const QString& windowClass);
+
+    // Turns a controller press into the key the shell already answers to, and
+    // posts it wherever focus is. One mapping, no second copy of the
+    // navigation to drift out of step with the keyboard's.
+    void deliverKey(int key);
+
+    // The Guide button: back to the library from wherever you are, including
+    // from inside a running game.
+    void goHome();
 
     // Ends whatever is running and clears the state. Opening something new
     // replaces what is on screen — a console runs one thing at a time — so
@@ -145,6 +158,7 @@ private:
     QString packagePathFor(const QString& appId) const;
 
     HyprlandEvents windows_;
+    GamepadInput   gamepad_;
     GameListModel  model_;
     AppListModel   apps_;
     QProcess*      package_ = nullptr;

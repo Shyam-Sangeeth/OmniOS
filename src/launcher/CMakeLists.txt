@@ -8,6 +8,7 @@ qt_add_executable(omni-launcher
     GameListModel.cpp
     AppListModel.cpp
     HyprlandEvents.cpp
+    GamepadInput.cpp
     LauncherController.cpp)
 
 # The QML forms a module named "omnios". The files sit beside this file rather
@@ -31,7 +32,21 @@ qt_add_qml_module(omni-launcher
         GameListModel.h
         AppListModel.h
         HyprlandEvents.h
+        GamepadInput.h
         LauncherController.h)
+
+# SDL3 for the controller. Optional on purpose: without it the shell still
+# builds and still works, it is simply keyboard-only. Qt6 has no gamepad module
+# of its own — QtGamepad did not survive the move from Qt5 — so there is no
+# in-tree alternative to fall back on.
+find_package(SDL3 QUIET)
+if(SDL3_FOUND)
+    message(STATUS "SDL3 found - the launcher will accept a controller")
+    target_compile_definitions(omni-launcher PRIVATE OMNIOS_HAS_GAMEPAD)
+    target_link_libraries(omni-launcher PRIVATE SDL3::SDL3)
+else()
+    message(WARNING "SDL3 not found - the launcher will be keyboard-only")
+endif()
 
 target_link_libraries(omni-launcher PRIVATE
     omnios_core

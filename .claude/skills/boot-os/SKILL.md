@@ -34,6 +34,10 @@ whether the shell still compiles. `docs/BUILDING.md` has the one-liner.
 - `-Detach` returns instead of blocking, and prints the pid.
 - `-Headless` gives no window. **Use it whenever you are verifying rather than
   watching** — see below.
+- `-SshPort` forwards a host port to the guest's ssh (default 12222, log in as
+  `omni` / `omnios`). Note 2222 does not work: Windows reserves port ranges for
+  Hyper-V and QEMU then refuses the whole netdev with "Could not set up host
+  forwarding rule", with nothing listening to explain why.
 - `-Fresh` kills any running QEMU and clears the hypervisor. **This stops Docker
   Desktop**, so start it again before the next build and wait for `docker info`
   to answer.

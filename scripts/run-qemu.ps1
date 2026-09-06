@@ -80,6 +80,19 @@ param(
     # it away.
     [switch]$Headless,
 
+    # Host port forwarded to the guest's ssh. The image already runs sshd; with
+    # no forward there was simply no way to reach it, which is why every
+    # diagnosis so far went through the console — and a console visit costs the
+    # session its keyboard until the next reboot.
+    #
+    # Log in as omni, password omnios.
+    #
+    # 12222 rather than the obvious 2222: Windows reserves ranges of ports for
+    # Hyper-V, and QEMU refuses the whole netdev with "Could not set up host
+    # forwarding rule" when it lands in one — with nothing listening on the port
+    # to explain why. Pass -SshPort 0 to turn the forward off.
+    [int]$SshPort = 12222,
+
     # Guest RAM. Half of it becomes the live session's writable overlay, so
     # this is also how much room there is to install anything: at 4G the
     # overlay was 2G, and opening Steam once filled it completely.
@@ -178,7 +191,7 @@ $qemuArgs = @(
     '-display', $(if ($Headless) { 'none' } else { 'sdl' })
     '-device', 'qemu-xhci'
     '-device', 'usb-tablet'
-    '-netdev', 'user,id=net0'
+    '-netdev', $(if ($SshPort -gt 0) { "user,id=net0,hostfwd=tcp::${SshPort}-:22" } else { 'user,id=net0' })
     '-device', 'virtio-net-pci,netdev=net0'
     '-drive', "file=$Iso,media=cdrom,readonly=on"
     '-boot', 'd'

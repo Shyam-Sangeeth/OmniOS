@@ -133,6 +133,42 @@ guarantee its own variables reach an `exec-once` child, so the socket is found
 by searching as well as by `HYPRLAND_INSTANCE_SIGNATURE`. Both now say so in
 the shell log rather than doing nothing quietly.
 
+### The controller
+
+A console you can only drive with a keyboard is not a console. The shell now
+takes a gamepad, and it does it by becoming the keyboard rather than growing a
+second set of navigation: each press is turned into the key the shell already
+answers to and posted to whatever holds focus. One mapping table, and no
+duplicate of the grid logic to drift out of step with the original.
+
+| Button | Does |
+|---|---|
+| D-pad / left stick | move, with hold-to-repeat |
+| A (south) | open |
+| B (east) | back, close a menu |
+| X (west) | that tile's menu |
+| Y (north) | rescan |
+| L1 / R1 | switch tab |
+| Start | sleep, restart, shut down |
+| Guide | back to the library, from anywhere |
+
+SDL3, because Qt6 has no gamepad module — QtGamepad did not survive Qt5 — and
+because SDL carries the mapping database that makes a DualSense and an Xbox pad
+behave the same. It is optional at build time: without SDL3 the shell still
+builds and is simply keyboard-only.
+
+SDL reads the input devices directly rather than through the compositor, which
+is what makes the Guide button work from inside a running game. The same fact
+means everything else has to be ignored while a game is running, or the grid
+would be moving quietly underneath it.
+
+Two things had to be true before a press could land. Qt routes a key only to
+the item holding active focus, and there is none while the window is inactive —
+which is the state after an app exits, or after the session has been away on
+another virtual terminal — so the shell is asked to take focus first. And
+`focusWindow()` is null in exactly those moments, so delivery falls back to the
+launcher's only top-level window rather than dropping the press.
+
 ### The mark, and turning the machine off
 
 The top-left corner holds the OmniOS mark rather than the word "OmniOS", which

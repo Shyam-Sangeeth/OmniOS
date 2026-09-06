@@ -374,7 +374,8 @@ Window {
         id: menuPanel
         anchors.fill: parent
         onChosen: function (action, context) {
-            if (context === "power") Launcher.powerAction(action)
+            if (action === "pair") Launcher.pairController()
+            else if (context === "power") Launcher.powerAction(action)
             else window.runTileAction(action)
         }
         onClosed: window.activeGrid.forceActiveFocus()
@@ -458,6 +459,10 @@ Window {
 
     function openPowerMenu() {
         menuPanel.openFor(powerButton, qsTr("OMNIOS"), [
+            // First, and so the menu opens on it: pairing is the entry someone
+            // reaches for on purpose, while the others are one press from
+            // ending the session by accident.
+            { action: "pair",     label: qsTr("Pair a controller"), enabled: true },
             { action: "suspend",  label: qsTr("Sleep"),     enabled: true },
             { action: "reboot",   label: qsTr("Restart"),   enabled: true },
             { action: "poweroff", label: qsTr("Shut down"), enabled: true }

@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Pair a controller, the way a console does it.
+#
+# Hold the pairing combination on the pad — PS + Create on a DualSense, the
+# small button on the back of an Xbox pad — and this finds it, pairs it, trusts
+# it so it reconnects by itself next time, and connects it. No PIN, no manual
+# device list: a gamepad pairs with Just Works, so there is nothing for anyone
+# to type.
+#
+# Wired needs none of this. A DualSense over USB is already a working gamepad
+# the moment it is plugged in: hid-playstation is in the kernel and the udev
+# rules that let SDL reach its hidraw node arrive with steam-devices.
+set -uo pipefail
+
+readonly SCAN_SECONDS="${1:-25}"
+
+command -v bluetoothctl >/dev/null 2>&1 || {
+    echo "error: bluetoothctl is missing, so nothing can be paired" >&2
+    exit 1
+}
+
+# Names controllers advertise while in pairing mode. A DualSense and a
+# DualShock 4 both call themselves "Wireless Controller", which is unhelpfully
+# generic but is what they send.
+readonly PATTERN='wireless controller|dualsense|dualshock|xbox wireless|8bitdo|pro controller|joy-con|stadia|nintendo'
+
+echo "==> powering on the adapter"
+bluetoothctl power on >/dev/null 2>&1 || {
+    echo "error: no bluetooth adapter, so only a cable will work" >&2
+    exit 1
+}
+
+# Anything already paired is remembered and reconnects on its own; only the
+# devices that are new to this machine are interesting.
+known="$(bluetoothctl devices Paired 2>/dev/null | awk '{print $2}')"
+
+echo "==> hold the pairing button; looking for a controller for ${SCAN_SECONDS}s"
+bluetoothctl --timeout "$SCAN_SECONDS" scan on >/dev/null 2>&1
+
+found=""
+while read -r _ mac name; do
+    [[ -n $mac ]] || continue
+    grep -qx "$mac" <<<"$known" && continue
+    if grep -qiE "$PATTERN" <<<"$name"; then
+        found="$mac"
+        echo "==> found $name"
+        break
+    fi
+done < <(bluetoothctl devices 2>/dev/null)
+
+if [[ -z $found ]]; then
+    echo "error: no controller in pairing mode was found" >&2
+    exit 1
+fi
+
+# Trust before connect, so it comes back on its own after a reboot rather than
+# needing this run again every time.
+bluetoothctl pair "$found"    >/dev/null 2>&1
+bluetoothctl trust "$found"   >/dev/null 2>&1
+
+if bluetoothctl connect "$found" >/dev/null 2>&1; then
+    echo "controller connected"
+    exit 0
+fi
+
+echo "error: found the controller but could not connect to it" >&2
+exit 1

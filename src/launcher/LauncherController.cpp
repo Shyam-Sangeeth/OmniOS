@@ -34,8 +34,9 @@ constexpr const char* kAppWorkspace      = "2";
 // of failure to diagnose.
 const QString kAppLog = QStringLiteral("/tmp/omnios-app.log");
 
-// Package operations get their own log. Mixing them into kAppLog would mean a
-// failed install erased the record of the crash the user was investigating.
+// Everything the shell runs on the system rather than for the user — installs,
+// removals, pairing — writes here. Kept apart from kAppLog so that a failed
+// install does not erase the record of the crash somebody was investigating.
 const QString kPackageLog = QStringLiteral("/tmp/omnios-pkg.log");
 
 void captureOutput(QProcess* process) {
@@ -488,7 +489,7 @@ void LauncherController::setPackageStatus(const QString& text) {
     emit packageStatusChanged();
 }
 
-void LauncherController::runPackageCommand(const QString& script, const QString& verb,
+void LauncherController::runSystemCommand(const QString& script, const QString& verb,
                                            const QString& pastTense) {
     auto* process = new QProcess(this);
     process->setProcessChannelMode(QProcess::MergedChannels);
@@ -556,7 +557,7 @@ void LauncherController::removeApp(const QString& appId) {
     if (removal.flatpak) {
         // --delete-data as well, because a console that keeps the settings of
         // an app you removed is just accumulating rubbish you cannot see.
-        runPackageCommand(
+        runSystemCommand(
             QStringLiteral("flatpak uninstall --assumeyes --delete-data %1").arg(removal.target),
             tr("Removing %1 ...").arg(removal.title), tr("%1 removed").arg(removal.title));
         return;
@@ -571,7 +572,7 @@ void LauncherController::removeApp(const QString& appId) {
         QStringLiteral("pkg=$(pacman -Qoq %1 2>/dev/null) || { echo \"error: no package owns %1\"; "
                        "exit 1; }; sudo pacman -Rns --noconfirm \"$pkg\"")
             .arg(removal.target);
-    runPackageCommand(script, tr("Removing %1 ...").arg(removal.title),
+    runSystemCommand(script, tr("Removing %1 ...").arg(removal.title),
                       tr("%1 removed").arg(removal.title));
 }
 
@@ -587,7 +588,7 @@ void LauncherController::checkForUpdate(const QString& appId) {
     if (ref.flatpak) {
         // flatpak has no dry run, so this asks the remote what it has and
         // compares commits. Nothing is downloaded.
-        runPackageCommand(
+        runSystemCommand(
             QStringLiteral("flatpak remote-info --show-commit flathub %1 >/dev/null 2>&1 && "
                            "echo \"%2: use Update, or the Store\" || echo \"%2: no update info\"")
                 .arg(ref.target, ref.title),
@@ -606,7 +607,7 @@ void LauncherController::checkForUpdate(const QString& appId) {
                        "'$1==p {print \"Update available: \" $2 \" -> \" $4; f=1} "
                        "END {if (!f) print p \" is up to date\"}'")
             .arg(packagePathFor(appId));
-    runPackageCommand(script, tr("Checking %1 for updates ...").arg(ref.title), QString());
+    runSystemCommand(script, tr("Checking %1 for updates ...").arg(ref.title), QString());
 }
 
 void LauncherController::updateApp(const QString& appId) {
@@ -619,7 +620,7 @@ void LauncherController::updateApp(const QString& appId) {
     }
 
     if (ref.flatpak) {
-        runPackageCommand(QStringLiteral("flatpak update --assumeyes %1").arg(ref.target),
+        runSystemCommand(QStringLiteral("flatpak update --assumeyes %1").arg(ref.target),
                           tr("Updating %1 ...").arg(ref.title),
                           tr("%1 is up to date").arg(ref.title));
         return;
@@ -629,8 +630,18 @@ void LauncherController::updateApp(const QString& appId) {
         QStringLiteral("pkg=$(pacman -Qoq %1 2>/dev/null) || { echo \"error: no package owns %1\"; "
                        "exit 1; }; sudo pacman -Sy --noconfirm \"$pkg\"")
             .arg(packagePathFor(appId));
-    runPackageCommand(script, tr("Updating %1 ...").arg(ref.title),
+    runSystemCommand(script, tr("Updating %1 ...").arg(ref.title),
                       tr("%1 is up to date").arg(ref.title));
+}
+
+void LauncherController::pairController() {
+    if (packageBusy()) return;
+
+    // Long by design: the scan has to outlast somebody walking to the console
+    // and holding the pairing button down. The script says what it found, so
+    // there is no pastTense to add on top of it.
+    runSystemCommand(QStringLiteral("omni-pair-controller 25"),
+                     tr("Hold the pairing button on the controller ..."), QString());
 }
 
 void LauncherController::powerAction(const QString& action) {

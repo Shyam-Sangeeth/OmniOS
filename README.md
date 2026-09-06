@@ -157,6 +157,15 @@ because SDL carries the mapping database that makes a DualSense and an Xbox pad
 behave the same. It is optional at build time: without SDL3 the shell still
 builds and is simply keyboard-only.
 
+A DualSense needs nothing added over USB: `hid-playstation` is in the kernel,
+SDL3 carries the mapping, and the udev rules that let SDL reach its hidraw node
+— and with them rumble, the light bar and the touchpad — arrive with
+`steam-devices`, which Steam already pulls in. Wireless is the half that needed
+a stack: without bluez a PS5 pad cannot be paired at all, which is how most
+people use one. "Pair a controller" in the system menu holds a scan open long
+enough to walk to the console, then pairs, trusts and connects the first
+gamepad it sees, so it comes back on its own next time.
+
 SDL reads the input devices directly rather than through the compositor, which
 is what makes the Guide button work from inside a running game. The same fact
 means everything else has to be ignored while a game is running, or the grid

@@ -155,6 +155,16 @@ flatpak
 archlinux-appstream-data
 pacman-contrib
 
+## Bluetooth, which is how a controller actually connects.
+##
+## A DualSense works over USB with nothing added — hid-playstation is in the
+## kernel and steam-devices already carries the udev rules for 054c:0ce6, so
+## SDL gets at the hidraw node and the full feature set with it. Wireless is
+## the half that needs a stack, and without one a PS5 pad simply cannot be
+## paired at all, which is how most people use them.
+bluez
+bluez-utils
+
 ## A Flatpak install is a privileged operation and polkit is what authorises it.
 ## The rule in /etc/polkit-1/rules.d grants it without a prompt, but an agent is
 ## still needed for anything the rule does not cover, and a console with no

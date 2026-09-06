@@ -98,6 +98,12 @@ public:
     // Upgrades one app in place.
     Q_INVOKABLE void updateApp(const QString& appId);
 
+    // Pairs a controller over bluetooth. Wired needs nothing; this is for the
+    // wireless half, and it is in the system menu because holding the pairing
+    // button is the one thing you cannot do from a controller you have not got
+    // working yet.
+    Q_INVOKABLE void pairController();
+
     // ---- power --------------------------------------------------------------
     // "suspend", "reboot" or "poweroff". Anything else is refused rather than
     // handed to systemctl, because the argument comes from a QML string.
@@ -147,10 +153,11 @@ private:
     // router plan of their own.
     bool startApp(const QString& title, const QString& program, const QStringList& args);
 
-    // Runs one pacman operation detached, streaming to the package log, and
-    // refreshes both models when it finishes. `verb` is what to say while it
-    // runs; `pastTense` what to say when it worked.
-    void runPackageCommand(const QString& script, const QString& verb, const QString& pastTense);
+    // Runs one long system command detached, streaming to the system log, and
+    // refreshes the app list when it finishes. `verb` is what to say while it
+    // runs; `pastTense` what to say when it worked, or empty when the command
+    // reports its own result.
+    void runSystemCommand(const QString& script, const QString& verb, const QString& pastTense);
 
     void setPackageStatus(const QString& text);
 

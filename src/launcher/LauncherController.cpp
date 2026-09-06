@@ -118,6 +118,15 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
                 adoptStrayWindow(address, workspace, windowClass);
             });
 
+    // Network and bluetooth actions are long enough to be worth narrating, and
+    // the shell already has one place that narrates a running system command.
+    connect(&system_, &SystemStatus::runRequested, this,
+            [this](const QString& script, const QString& verb) {
+                runSystemCommand(script, verb, QString());
+            });
+    connect(&system_, &SystemStatus::message, this,
+            [this](const QString& text) { setPackageStatus(text); });
+
     connect(&gamepad_, &GamepadInput::keyPressed, this, &LauncherController::deliverKey);
     connect(&gamepad_, &GamepadInput::homeRequested, this, &LauncherController::goHome);
 
@@ -523,6 +532,7 @@ void LauncherController::runSystemCommand(const QString& script, const QString& 
                 // An app can have appeared or vanished, so the grid is rebuilt
                 // from what is on disk rather than patched.
                 apps_.refresh();
+                system_.refresh();
                 emit storageChanged();
                 emit packageBusyChanged();
             });

@@ -26,6 +26,31 @@ Window {
     readonly property var tabs: [gamesGrid, appsGrid]
     readonly property var activeGrid: tabs[currentTab]
 
+    // The last thing worth saying, and only for as long as it is worth saying
+    // it. Cleared on a timer so the corner does not carry a stale sentence for
+    // the rest of the session.
+    property string transientStatus: ""
+
+    Timer {
+        id: statusTimer
+        interval: 7000
+        onTriggered: window.transientStatus = ""
+    }
+
+    function showStatus(text) {
+        if (text === "") return
+        transientStatus = text
+        // A package operation narrates itself and should stay put until it is
+        // finished; everything else is a sentence that has already happened.
+        statusTimer.restart()
+    }
+
+    Connections {
+        target: Launcher
+        function onStatusChanged() { window.showStatus(Launcher.status) }
+        function onPackageStatusChanged() { window.showStatus(Launcher.packageStatus) }
+    }
+
     property var currentGame: gamesGrid.currentIndex >= 0 && GameLibrary.count > 0
                               ? GameLibrary.get(gamesGrid.currentIndex)
                               : null
@@ -84,15 +109,53 @@ Window {
             }
         }
 
-        // A package operation takes minutes and matters more than the scan
-        // count while it runs, so it takes the same slot rather than adding
-        // another line of chrome.
-        Text {
-            anchors { right: parent.right; rightMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
-            text: Launcher.packageStatus !== "" ? Launcher.packageStatus
-                                                : (Launcher.scanning ? qsTr("Scanning …") : Launcher.status)
-            color: Launcher.packageBusy ? Theme.accent : Theme.textSecondary
-            font.pixelSize: 13
+        // ---- the other corner ---------------------------------------------
+        //
+        // What used to sit here was a permanent line of application state —
+        // "No games in /home/omni/Games" — which repeated what the empty grid
+        // below already said and was, the rest of the time, nothing anyone
+        // needed. The corner now answers the two questions a console is
+        // actually asked at a glance: am I online, and is the controller on.
+        //
+        // The state text is not gone, it is transient. Some of it matters very
+        // much — "the disk is full", "Steam could not start" — and it appears
+        // for a few seconds when it changes, then gets out of the way.
+        Row {
+            id: statusRow
+            anchors {
+                right: parent.right; rightMargin: Theme.gutter
+                verticalCenter: parent.verticalCenter
+            }
+            spacing: 6
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.min(implicitWidth, window.width * 0.45)
+                text: window.transientStatus
+                color: Launcher.storageCritical ? "#E4000F" : Theme.textSecondary
+                font.pixelSize: 13
+                elide: Text.ElideRight
+                opacity: window.transientStatus === "" ? 0 : 1
+                Behavior on opacity { NumberAnimation { duration: Theme.focusDuration } }
+                rightPadding: 10
+            }
+
+            StatusButton {
+                id: networkButton
+                glyph: System.networkKind === "ethernet" ? "lan"
+                     : System.networkKind === "wifi" ? "wifi" : "offline"
+                active: System.online
+                highlighted: menuPanel.context === "network"
+                onTriggered: window.openNetworkMenu()
+            }
+
+            StatusButton {
+                id: bluetoothButton
+                glyph: "bluetooth"
+                active: System.bluetoothPowered
+                highlighted: menuPanel.context === "bluetooth"
+                onTriggered: window.openBluetoothMenu()
+            }
         }
     }
 
@@ -374,7 +437,12 @@ Window {
         id: menuPanel
         anchors.fill: parent
         onChosen: function (action, context) {
-            if (action === "pair") Launcher.pairController()
+            // Two of the system menu's entries are doors into another menu
+            // rather than actions of their own.
+            if (context === "power" && action === "network") window.openNetworkMenu()
+            else if (context === "power" && action === "bluetooth") window.openBluetoothMenu()
+            else if (context === "network" || context === "bluetooth") System.act(action)
+            else if (action === "pair") Launcher.pairController()
             else if (context === "power") Launcher.powerAction(action)
             else window.runTileAction(action)
         }
@@ -457,11 +525,26 @@ Window {
                           "app", entry.appId)
     }
 
+    function openNetworkMenu() {
+        menuPanel.openFor(networkButton, qsTr("NETWORK"),
+                          System.networkEntries(), "network")
+    }
+
+    function openBluetoothMenu() {
+        menuPanel.openFor(bluetoothButton, qsTr("BLUETOOTH"),
+                          System.bluetoothEntries(), "bluetooth")
+    }
+
     function openPowerMenu() {
         menuPanel.openFor(powerButton, qsTr("OMNIOS"), [
-            // First, and so the menu opens on it: pairing is the entry someone
-            // reaches for on purpose, while the others are one press from
-            // ending the session by accident.
+            // The corner indicators are a pointer away, and a console often has
+            // no pointer. Everything they offer is reachable from here too, so
+            // the keyboard and the controller are not second-class.
+            //
+            // The benign entries come first, so the menu opens on one of them
+            // rather than one press from ending the session.
+            { action: "network",   label: qsTr("Network"),   enabled: true },
+            { action: "bluetooth", label: qsTr("Bluetooth"), enabled: true },
             { action: "pair",     label: qsTr("Pair a controller"), enabled: true },
             { action: "suspend",  label: qsTr("Sleep"),     enabled: true },
             { action: "reboot",   label: qsTr("Restart"),   enabled: true },

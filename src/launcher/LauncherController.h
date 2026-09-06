@@ -13,12 +13,14 @@
 #include "AppListModel.h"
 #include "GameListModel.h"
 #include "GamepadInput.h"
+#include "SystemStatus.h"
 #include "HyprlandEvents.h"
 
 class LauncherController : public QObject {
     Q_OBJECT
     Q_PROPERTY(GameListModel* games READ games CONSTANT)
     Q_PROPERTY(AppListModel* apps READ apps CONSTANT)
+    Q_PROPERTY(SystemStatus* system READ system CONSTANT)
     Q_PROPERTY(QString gamesPath READ gamesPath CONSTANT)
     Q_PROPERTY(QString version READ version CONSTANT)
     Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
@@ -42,6 +44,7 @@ public:
 
     GameListModel* games() { return &model_; }
     AppListModel*  apps() { return &apps_; }
+    SystemStatus*  system() { return &system_; }
     QString gamesPath() const;
     QString version() const;
     bool    scanning() const { return scanning_; }
@@ -166,6 +169,7 @@ private:
 
     HyprlandEvents windows_;
     GamepadInput   gamepad_;
+    SystemStatus   system_;
     GameListModel  model_;
     AppListModel   apps_;
     QProcess*      package_ = nullptr;

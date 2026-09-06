@@ -178,6 +178,31 @@ another virtual terminal — so the shell is asked to take focus first. And
 `focusWindow()` is null in exactly those moments, so delivery falls back to the
 launcher's only top-level window rather than dropping the press.
 
+### The other corner
+
+The top-right used to carry a permanent line of application state — "No games
+in /home/omni/Games" — which repeated what the empty grid already said and was
+otherwise nothing anyone needed. It now answers the two questions a console is
+actually asked at a glance: am I online, and is the controller on.
+
+The state text is not gone, it is transient. Some of it matters a great deal —
+"the disk is full", "Steam could not start" — so it appears for a few seconds
+when it changes and then gets out of the way.
+
+[SystemStatus.cpp](src/launcher/SystemStatus.cpp) reads NetworkManager and bluez
+through `nmcli` and `bluetoothctl` rather than binding to their D-Bus APIs: the
+shell already shells out for everything else, and one process every eight
+seconds does not justify a dependency on libnm and GDBus. The lists it produces
+are shaped like MenuPanel's model, so the same panel that serves a tile's menu
+serves these.
+
+Clicking an indicator opens its panel, and both are in the system menu as well,
+because a console often has no pointer and the keyboard and controller should
+not be second-class. Wi-Fi lists what is in range with signal strength, and
+connects to open networks and to ones this machine already knows. A new secured
+network says plainly that it needs a password and that there is no keyboard flow
+for one yet, which is better than a connection that fails without explanation.
+
 ### The mark, and turning the machine off
 
 The top-left corner holds the OmniOS mark rather than the word "OmniOS", which

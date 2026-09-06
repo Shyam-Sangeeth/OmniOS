@@ -9,6 +9,7 @@ qt_add_executable(omni-launcher
     AppListModel.cpp
     HyprlandEvents.cpp
     GamepadInput.cpp
+    SystemStatus.cpp
     LauncherController.cpp)
 
 # The QML forms a module named "omnios". The files sit beside this file rather
@@ -27,12 +28,14 @@ qt_add_qml_module(omni-launcher
         GameTile.qml
         MenuPanel.qml
         OmniLogo.qml
+        StatusButton.qml
         GameDetail.qml
     SOURCES
         GameListModel.h
         AppListModel.h
         HyprlandEvents.h
         GamepadInput.h
+        SystemStatus.h
         LauncherController.h)
 
 # SDL3 for the controller. Optional on purpose: without it the shell still

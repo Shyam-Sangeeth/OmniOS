@@ -159,11 +159,28 @@ Item {
         if (next >= 0) list.currentIndex = next
     }
 
+    // Replaces the entries without losing the highlight, so a menu that stays
+    // open after a press can show the new state under the cursor.
+    function updateEntries(newEntries) {
+        var index = list.currentIndex
+        entries = newEntries
+        list.currentIndex = Math.min(index, Math.max(0, newEntries.length - 1))
+    }
+
     function choose(index) {
         var entry = menu.entries[index]
         if (!entry || !entry.enabled) return
         var action = entry.action
         var tag = menu.context
+
+        // A sticky entry is one you press repeatedly — turning the volume up
+        // once is never what anyone means — so the menu stays where it is and
+        // the caller refreshes what it says.
+        if (entry.sticky === true) {
+            chosen(action, tag)
+            return
+        }
+
         close()
         chosen(action, tag)
     }

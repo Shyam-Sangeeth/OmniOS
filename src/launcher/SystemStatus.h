@@ -25,6 +25,11 @@ class SystemStatus : public QObject {
     Q_PROPERTY(QString networkLabel READ networkLabel NOTIFY changed)
     Q_PROPERTY(bool online READ online NOTIFY changed)
 
+    Q_PROPERTY(bool audioAvailable READ audioAvailable NOTIFY changed)
+    Q_PROPERTY(bool audioMuted READ audioMuted NOTIFY changed)
+    // 0-100, or -1 when there is no sink to ask.
+    Q_PROPERTY(int audioVolume READ audioVolume NOTIFY changed)
+
     Q_PROPERTY(bool bluetoothAvailable READ bluetoothAvailable NOTIFY changed)
     Q_PROPERTY(bool bluetoothPowered READ bluetoothPowered NOTIFY changed)
     Q_PROPERTY(QString bluetoothLabel READ bluetoothLabel NOTIFY changed)
@@ -36,6 +41,10 @@ public:
     QString networkLabel() const { return networkLabel_; }
     bool    online() const { return networkKind_ != QLatin1String("none"); }
 
+    bool    audioAvailable() const { return audioVolume_ >= 0; }
+    bool    audioMuted() const { return audioMuted_; }
+    int     audioVolume() const { return audioVolume_; }
+
     bool    bluetoothAvailable() const { return bluetoothAvailable_; }
     bool    bluetoothPowered() const { return bluetoothPowered_; }
     QString bluetoothLabel() const { return bluetoothLabel_; }
@@ -44,6 +53,7 @@ public:
     // of nearby networks is stale the moment it is cached.
     Q_INVOKABLE QVariantList networkEntries();
     Q_INVOKABLE QVariantList bluetoothEntries();
+    Q_INVOKABLE QVariantList audioEntries();
 
     // Acts on one of the actions those entries carry.
     Q_INVOKABLE void act(const QString& action);
@@ -60,13 +70,22 @@ signals:
     void message(const QString& text);
 
 private:
+    // Split because they are asked for at very different rates. Turning the
+    // volume up should not go and ask NetworkManager and bluez what they are
+    // doing: each poll is half a dozen processes, and doing all three per
+    // keypress made the volume move once for every three presses.
     void poll();
+    void pollNetwork();
+    void pollAudio();
+    void pollBluetooth();
 
     QTimer  timer_;
     QString networkKind_  = QStringLiteral("none");
     QString networkLabel_;
     QString wifiDevice_;
     QString wiredDevice_;
+    int     audioVolume_ = -1;
+    bool    audioMuted_  = false;
     bool    bluetoothAvailable_ = false;
     bool    bluetoothPowered_   = false;
     QString bluetoothLabel_;

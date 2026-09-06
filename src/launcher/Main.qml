@@ -141,6 +141,14 @@ Window {
             }
 
             StatusButton {
+                id: speakerButton
+                glyph: System.audioMuted || !System.audioAvailable ? "muted" : "speaker"
+                active: System.audioAvailable && !System.audioMuted
+                highlighted: menuPanel.context === "audio"
+                onTriggered: window.openAudioMenu()
+            }
+
+            StatusButton {
                 id: networkButton
                 glyph: System.networkKind === "ethernet" ? "lan"
                      : System.networkKind === "wifi" ? "wifi" : "offline"
@@ -155,6 +163,15 @@ Window {
                 active: System.bluetoothPowered
                 highlighted: menuPanel.context === "bluetooth"
                 onTriggered: window.openBluetoothMenu()
+            }
+
+            // The only one that opens an application rather than a panel.
+            StatusButton {
+                id: settingsButton
+                glyph: "settings"
+                active: false
+                highlighted: false
+                onTriggered: Launcher.launchApp("settings")
             }
         }
     }
@@ -439,8 +456,14 @@ Window {
         onChosen: function (action, context) {
             // Two of the system menu's entries are doors into another menu
             // rather than actions of their own.
-            if (context === "power" && action === "network") window.openNetworkMenu()
+            if (context === "power" && action === "sound") window.openAudioMenu()
+            else if (context === "power" && action === "settings") Launcher.launchApp("settings")
+            else if (context === "power" && action === "network") window.openNetworkMenu()
             else if (context === "power" && action === "bluetooth") window.openBluetoothMenu()
+            else if (context === "audio") {
+                System.act(action)
+                if (menuPanel.visible) menuPanel.updateEntries(System.audioEntries())
+            }
             else if (context === "network" || context === "bluetooth") System.act(action)
             else if (action === "pair") Launcher.pairController()
             else if (context === "power") Launcher.powerAction(action)
@@ -525,6 +548,10 @@ Window {
                           "app", entry.appId)
     }
 
+    function openAudioMenu() {
+        menuPanel.openFor(speakerButton, qsTr("SOUND"), System.audioEntries(), "audio")
+    }
+
     function openNetworkMenu() {
         menuPanel.openFor(networkButton, qsTr("NETWORK"),
                           System.networkEntries(), "network")
@@ -543,9 +570,11 @@ Window {
             //
             // The benign entries come first, so the menu opens on one of them
             // rather than one press from ending the session.
+            { action: "sound",     label: qsTr("Sound"),     enabled: true },
             { action: "network",   label: qsTr("Network"),   enabled: true },
             { action: "bluetooth", label: qsTr("Bluetooth"), enabled: true },
             { action: "pair",     label: qsTr("Pair a controller"), enabled: true },
+            { action: "settings",  label: qsTr("Settings"),  enabled: true },
             { action: "suspend",  label: qsTr("Sleep"),     enabled: true },
             { action: "reboot",   label: qsTr("Restart"),   enabled: true },
             { action: "poweroff", label: qsTr("Shut down"), enabled: true }

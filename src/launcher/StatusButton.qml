@@ -11,7 +11,7 @@ import omnios
 Rectangle {
     id: button
 
-    // "lan", "wifi", "offline" or "bluetooth".
+    // "lan", "wifi", "offline", "bluetooth", "speaker", "muted" or "settings".
     property string glyph: "offline"
     // Connected, powered — drawn in the accent rather than dimmed.
     property bool active: false
@@ -59,6 +59,56 @@ Rectangle {
                 ctx.lineTo(cx, h * 0.14)
                 ctx.lineTo(cx + w * 0.18, h * 0.30)
                 ctx.lineTo(cx - w * 0.18, h * 0.70)
+                ctx.stroke()
+                return
+            }
+
+            if (button.glyph === "speaker" || button.glyph === "muted") {
+                // A cone and two arcs; muted is the same cone with a cross,
+                // so the two states read as one object rather than two icons.
+                ctx.beginPath()
+                ctx.moveTo(w * 0.16, h * 0.38)
+                ctx.lineTo(w * 0.30, h * 0.38)
+                ctx.lineTo(w * 0.48, h * 0.20)
+                ctx.lineTo(w * 0.48, h * 0.80)
+                ctx.lineTo(w * 0.30, h * 0.62)
+                ctx.lineTo(w * 0.16, h * 0.62)
+                ctx.closePath()
+                ctx.fill()
+
+                if (button.glyph === "speaker") {
+                    for (var s = 1; s <= 2; ++s) {
+                        ctx.beginPath()
+                        ctx.arc(w * 0.50, h * 0.5, s * w * 0.15,
+                                Math.PI * 1.75, Math.PI * 0.25)
+                        ctx.stroke()
+                    }
+                } else {
+                    ctx.beginPath()
+                    ctx.moveTo(w * 0.62, h * 0.36)
+                    ctx.lineTo(w * 0.86, h * 0.64)
+                    ctx.moveTo(w * 0.86, h * 0.36)
+                    ctx.lineTo(w * 0.62, h * 0.64)
+                    ctx.stroke()
+                }
+                return
+            }
+
+            if (button.glyph === "settings") {
+                // A cog: eight teeth around a ring. Drawn rather than themed
+                // for the same reason as the rest — at this size a fetched icon
+                // is a smudge.
+                var gx = w * 0.5
+                var gy = h * 0.5
+                for (var t = 0; t < 8; ++t) {
+                    var a = t * Math.PI / 4
+                    ctx.beginPath()
+                    ctx.moveTo(gx + Math.cos(a) * w * 0.26, gy + Math.sin(a) * h * 0.26)
+                    ctx.lineTo(gx + Math.cos(a) * w * 0.40, gy + Math.sin(a) * h * 0.40)
+                    ctx.stroke()
+                }
+                ctx.beginPath()
+                ctx.arc(gx, gy, w * 0.20, 0, Math.PI * 2)
                 ctx.stroke()
                 return
             }

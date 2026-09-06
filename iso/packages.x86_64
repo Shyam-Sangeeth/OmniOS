@@ -155,6 +155,12 @@ flatpak
 archlinux-appstream-data
 pacman-contrib
 
+## The settings app behind the corner's cog. GNOME's rather than XFCE's,
+## because its panels drive PipeWire, NetworkManager and bluez — the things
+## this image runs — while xfce4-settings writes to xfconf, which nothing here
+## reads, and would present controls that quietly do nothing.
+gnome-control-center
+
 ## Bluetooth, which is how a controller actually connects.
 ##
 ## A DualSense works over USB with nothing added — hid-playstation is in the

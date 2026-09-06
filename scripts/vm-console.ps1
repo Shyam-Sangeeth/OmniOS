@@ -18,6 +18,17 @@
 #   <ENTER>      press Return
 #   <KEY:name>   press one QEMU key name, e.g. <KEY:tab>, <KEY:ctrl-alt-f2>
 #   <WAIT:n>     wait n seconds
+#   <MON:cmd>    send one raw monitor command
+#
+# Anything not matching one of those is typed, so a mistyped token becomes
+# keystrokes rather than an error.
+#
+# There is deliberately no token for the mouse. The pointer cannot be driven
+# from here: with usb-tablet attached the guest's Wayland seat never sees the
+# monitor's mouse_move, so a following mouse_button clicks wherever the pointer
+# already sat. That is not a units mistake — the tablet takes absolute
+# coordinates on a 0-32767 axis, and it ignores correctly scaled ones too.
+# Drive the UI with the keyboard, and reach anything mouse-only another way.
 param(
     # Where to write the screenshot. A .png is converted from QEMU's PPM; any
     # other extension is left as the raw PPM.
@@ -102,6 +113,8 @@ try {
             Start-Sleep -Seconds ([int]$Matches[1])
         } elseif ($line -match '^<KEY:(.+)>$') {
             $writer.WriteLine("sendkey $($Matches[1])"); Start-Sleep -Seconds 1
+        } elseif ($line -match '^<MON:(.+)>$') {
+            $writer.WriteLine($Matches[1]); Start-Sleep -Seconds 1
         } else {
             Send-Text $writer $line
         }

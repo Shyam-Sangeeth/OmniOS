@@ -75,8 +75,22 @@ void SystemStatus::poll() {
     const QString previousKind  = networkKind_;
     const QString previousLabel = networkLabel_;
     const QString previousBt    = bluetoothLabel_;
+    const int     previousVol   = audioVolume_;
+    const bool    previousMute  = audioMuted_;
     const bool    previousOn    = bluetoothPowered_;
 
+    pollNetwork();
+    pollAudio();
+    pollBluetooth();
+
+    if (networkKind_ != previousKind || networkLabel_ != previousLabel ||
+        bluetoothLabel_ != previousBt || bluetoothPowered_ != previousOn ||
+        audioVolume_ != previousVol || audioMuted_ != previousMute) {
+        emit changed();
+    }
+}
+
+void SystemStatus::pollNetwork() {
     networkKind_ = QStringLiteral("none");
     networkLabel_ = tr("Not connected");
     wifiDevice_.clear();
@@ -129,8 +143,26 @@ void SystemStatus::poll() {
         const QString address = addressOf(wifiDevice_);
         networkLabel_ = address.isEmpty() ? wifiName : tr("%1 · %2").arg(wifiName, address);
     }
+}
 
-    // ---- bluetooth --------------------------------------------------------
+void SystemStatus::pollAudio() {
+    // wpctl reports "Volume: 0.45" and adds " [MUTED]" when it is muted, which
+    // is a far steadier thing to parse than pactl's paragraphs.
+    const QString volume = run(QStringLiteral("wpctl"),
+                               {QStringLiteral("get-volume"),
+                                QStringLiteral("@DEFAULT_AUDIO_SINK@")});
+    if (volume.contains(QLatin1String("Volume:"))) {
+        audioVolume_ = qRound(volume.section(QLatin1Char(':'), 1)
+                                  .section(QLatin1Char(' '), 1, 1)
+                                  .toDouble() * 100.0);
+        audioMuted_ = volume.contains(QLatin1String("MUTED"));
+    } else {
+        audioVolume_ = -1;
+        audioMuted_  = false;
+    }
+}
+
+void SystemStatus::pollBluetooth() {
     const QString show = run(QStringLiteral("bluetoothctl"), {QStringLiteral("show")});
     bluetoothAvailable_ = show.contains(QLatin1String("Powered:"));
     bluetoothPowered_   = show.contains(QLatin1String("Powered: yes"));
@@ -149,15 +181,10 @@ void SystemStatus::poll() {
         bluetoothLabel_ = connected == 0 ? tr("On, nothing connected")
                                          : tr("%n device(s) connected", nullptr, connected);
     }
-
-    if (networkKind_ != previousKind || networkLabel_ != previousLabel ||
-        bluetoothLabel_ != previousBt || bluetoothPowered_ != previousOn) {
-        emit changed();
-    }
 }
 
 QVariantList SystemStatus::networkEntries() {
-    poll();
+    pollNetwork();
     QVariantList entries;
 
     // What it is doing now, first and unselectable: a status line, not a choice.
@@ -209,7 +236,7 @@ QVariantList SystemStatus::networkEntries() {
 }
 
 QVariantList SystemStatus::bluetoothEntries() {
-    poll();
+    pollBluetooth();
     QVariantList entries;
 
     if (!bluetoothAvailable_) {
@@ -246,14 +273,94 @@ QVariantList SystemStatus::bluetoothEntries() {
     return entries;
 }
 
+QVariantList SystemStatus::audioEntries() {
+    pollAudio();
+    QVariantList entries;
+
+    if (audioVolume_ < 0) {
+        entries << entry(QStringLiteral("none"), tr("No audio output"), false);
+        return entries;
+    }
+
+    entries << entry(QStringLiteral("none"),
+                     audioMuted_ ? tr("Muted") : tr("Volume %1%").arg(audioVolume_), false);
+
+    // Sticky: turning the volume up once is never what anyone wants, and a menu
+    // that shuts after every step would have to be reopened for each press.
+    QVariantMap up   = entry(QStringLiteral("audio:up"), tr("Volume up"));
+    QVariantMap down = entry(QStringLiteral("audio:down"), tr("Volume down"));
+    up.insert(QStringLiteral("sticky"), true);
+    down.insert(QStringLiteral("sticky"), true);
+    entries << up << down;
+
+    entries << entry(QStringLiteral("audio:mute"),
+                     audioMuted_ ? tr("Unmute") : tr("Mute"));
+
+    // Outputs, so a console plugged into a television can be moved from the
+    // monitor's speakers to HDMI without a terminal.
+    const QString defaultSink = run(QStringLiteral("pactl"),
+                                    {QStringLiteral("get-default-sink")}).trimmed();
+    const QString sinks = run(QStringLiteral("pactl"), {QStringLiteral("list"),
+                                                        QStringLiteral("sinks")});
+    QString name;
+    for (const QString& raw : sinks.split(QLatin1Char('\n'))) {
+        const QString line = raw.trimmed();
+        if (line.startsWith(QLatin1String("Name:"))) {
+            name = line.mid(5).trimmed();
+        } else if (line.startsWith(QLatin1String("Description:")) && !name.isEmpty()) {
+            const QString description = line.mid(12).trimmed();
+            const bool current = name == defaultSink;
+            entries << entry(current ? QStringLiteral("none")
+                                     : QStringLiteral("audio:sink:") + name,
+                             current ? tr("%1  ·  in use").arg(description) : description,
+                             !current);
+            name.clear();
+        }
+    }
+    return entries;
+}
+
 void SystemStatus::act(const QString& action) {
     if (action == QLatin1String("none")) return;
+
+    // Audio is instant and local: nothing here is worth narrating in the status
+    // line, and a volume step that took a second to appear would be unusable.
+    if (action == QLatin1String("audio:up") || action == QLatin1String("audio:down")) {
+        const QString step = action.endsWith(QLatin1String("up")) ? QStringLiteral("5%+")
+                                                                  : QStringLiteral("5%-");
+        // -l 1.0 stops a held button pushing it past 100% into distortion.
+        run(QStringLiteral("wpctl"), {QStringLiteral("set-volume"), QStringLiteral("-l"),
+                                      QStringLiteral("1.0"),
+                                      QStringLiteral("@DEFAULT_AUDIO_SINK@"), step});
+        pollAudio();
+        emit changed();
+        return;
+    }
+
+    if (action == QLatin1String("audio:mute")) {
+        run(QStringLiteral("wpctl"), {QStringLiteral("set-mute"),
+                                      QStringLiteral("@DEFAULT_AUDIO_SINK@"),
+                                      QStringLiteral("toggle")});
+        pollAudio();
+        emit changed();
+        emit message(audioMuted_ ? tr("Muted") : tr("Unmuted"));
+        return;
+    }
+
+    if (action.startsWith(QLatin1String("audio:sink:"))) {
+        const QString sink = action.mid(QStringLiteral("audio:sink:").size());
+        run(QStringLiteral("pactl"), {QStringLiteral("set-default-sink"), sink});
+        pollAudio();
+        emit changed();
+        emit message(tr("Audio output changed"));
+        return;
+    }
 
     if (action == QLatin1String("bt:on") || action == QLatin1String("bt:off")) {
         const QString state = action.endsWith(QLatin1String("on")) ? QStringLiteral("on")
                                                                    : QStringLiteral("off");
         run(QStringLiteral("bluetoothctl"), {QStringLiteral("power"), state});
-        poll();
+        pollBluetooth();
         emit changed();
         emit message(state == QLatin1String("on") ? tr("Bluetooth on") : tr("Bluetooth off"));
         return;

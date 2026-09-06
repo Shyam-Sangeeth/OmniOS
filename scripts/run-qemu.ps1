@@ -189,6 +189,14 @@ $qemuArgs = @(
     # way; Mesa falls back to llvmpipe regardless.
     '-device', $(if ($Vga -eq 'virtio') { 'virtio-vga' } else { 'VGA,vgamem_mb=64' })
     '-display', $(if ($Headless) { 'none' } else { 'sdl' })
+    # A sound card the guest can see. audiodev=none means nothing is played on
+    # the host — this is headless most of the time — but PipeWire finds a real
+    # sink, so the shell's volume and output controls can be exercised at all.
+    # Without it the machine has no audio device and every audio path is
+    # untestable rather than merely silent.
+    '-audiodev', 'none,id=omnisnd'
+    '-device', 'intel-hda'
+    '-device', 'hda-output,audiodev=omnisnd'
     '-device', 'qemu-xhci'
     '-device', 'usb-tablet'
     '-netdev', $(if ($SshPort -gt 0) { "user,id=net0,hostfwd=tcp::${SshPort}-:22" } else { 'user,id=net0' })

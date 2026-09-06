@@ -35,6 +35,26 @@ const std::vector<App> kApps = {
      "Install apps from Flathub",
      "#8B5CF6", true},
 
+    // Reached from the corner as well as from here. It is a real app rather
+    // than a panel of its own because everything a console can usefully
+    // configure — sound, network, bluetooth, date, the machine's own details —
+    // already has a settings panel written for it, and none of them would be
+    // better for being rewritten in QML.
+    //
+    // GNOME's, not XFCE's: its panels talk to PipeWire, NetworkManager and
+    // bluez, which are what this image actually runs, while xfce4-settings
+    // writes to xfconf, which nothing here reads. Its display panel needs
+    // mutter and will not work under Hyprland; the rest do.
+    //
+    // Launched through omni-settings rather than directly, because
+    // gnome-control-center reads XDG_CURRENT_DESKTOP and exits 1 under anything
+    // that is not GNOME or Unity. The wrapper overrides it for that one
+    // process; see the script for why not for the session.
+    {"settings", "Settings", "omni-settings", "", "gnome-control-center",
+     "org.gnome.Settings",
+     "Sound, network, date and the machine's details",
+     "#5E5C64", true},
+
     // Steam ships with the image, so the baseline filter hides its desktop
     // entry from the Apps tab — which is right for RetroArch and Dolphin, whose
     // job is to be launched by a game tile, and wrong for this one. Steam is a

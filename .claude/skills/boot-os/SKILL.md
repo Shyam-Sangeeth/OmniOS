@@ -96,6 +96,14 @@ into one `vm-console.ps1` call rather than several.
 monitor "click" lands somewhere you did not choose and looks like the UI
 ignoring you. Drive the UI with the keyboard.
 
+It is not a units mistake, which is the obvious second guess: the tablet takes
+absolute coordinates on a 0-32767 axis rather than pixels, and it ignores
+correctly scaled ones just the same. Clicking the top-right status icons was
+tried this way and changed nothing on screen. **So anything mouse-only cannot be
+verified from here.** Reach it another way — every one of those icons has a
+duplicate in the F10 menu that runs the same function — and say which one you
+actually exercised.
+
 **A VT switch costs the session its keyboard.** After `ctrl-alt-f2` and back,
 the launcher is visible but receives nothing; `hyprctl` still reports it focused
 and even Hyprland's own Super binding does not fire. Reboot to recover, so get

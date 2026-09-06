@@ -104,6 +104,21 @@ verified from here.** Reach it another way — every one of those icons has a
 duplicate in the F10 menu that runs the same function — and say which one you
 actually exercised.
 
+**Two ways of asking "is it running?" answer "no" when it is.** From the TTY,
+`pgrep -a gnome-control-center` matches nothing — pgrep warns that a pattern
+over 15 characters cannot match a process name, and the warning is easy to read
+past. Use `pgrep -af`. And `hyprctl` run through `su omni` prints nothing at all
+without `HYPRLAND_INSTANCE_SIGNATURE`, which is not an error you will notice:
+
+```bash
+sig=$(ls /run/user/1000/hypr | head -1)
+su omni -c "XDG_RUNTIME_DIR=/run/user/1000 HYPRLAND_INSTANCE_SIGNATURE=$sig hyprctl clients"
+```
+
+Both of those said an app had failed to start while it was in fact running
+fullscreen on workspace 2 — which is where the launcher puts everything, so it
+is never on the screenshot you take of workspace 1.
+
 **A VT switch costs the session its keyboard.** After `ctrl-alt-f2` and back,
 the launcher is visible but receives nothing; `hyprctl` still reports it focused
 and even Hyprland's own Super binding does not fire. Reboot to recover, so get

@@ -8,6 +8,8 @@
 #include <QQmlContext>
 #include <cstdlib>
 
+#include "GreeterController.h"
+#include "InstallerController.h"
 #include "LauncherController.h"
 
 int main(int argc, char* argv[]) {
@@ -21,8 +23,47 @@ int main(int argc, char* argv[]) {
     }
 
     QGuiApplication app(argc, argv);
-    QGuiApplication::setApplicationName(QStringLiteral("omni-launcher"));
     QGuiApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+
+    // --install is the disk installer (Phase 13.2): the same binary, so it has
+    // the launcher's look and its controller support, but a different window
+    // and none of the launcher's work — no library scan, no Hyprland socket.
+    if (QCoreApplication::arguments().contains(QStringLiteral("--install"))) {
+        QGuiApplication::setApplicationName(QStringLiteral("omni-installer"));
+        // The name of its desktop entry, so the desktop can find its icon and
+        // the portal its app ID. And not "omni-launcher": that name is how
+        // Hyprland recognises the launcher, and the launcher moves every other
+        // window off its workspace. The installer has to be one of those.
+        QGuiApplication::setDesktopFileName(QStringLiteral("omnios-install"));
+
+        InstallerController installer;
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("Installer"), &installer);
+        QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
+                         []() { QCoreApplication::exit(1); }, Qt::QueuedConnection);
+        engine.loadFromModule("omnios", "InstallerWindow");
+        if (engine.rootObjects().isEmpty()) return 1;
+        return app.exec();
+    }
+
+    // --greeter is the sign-in screen greetd shows when a machine was installed
+    // with "sign in automatically" off. Same binary for the same reasons as
+    // the installer; it runs as greetd's unprivileged greeter user, under cage.
+    if (QCoreApplication::arguments().contains(QStringLiteral("--greeter"))) {
+        QGuiApplication::setApplicationName(QStringLiteral("omnios-greeter"));
+        QGuiApplication::setDesktopFileName(QStringLiteral("omnios-greeter"));
+
+        GreeterController greeter;
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty(QStringLiteral("Greeter"), &greeter);
+        QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
+                         []() { QCoreApplication::exit(1); }, Qt::QueuedConnection);
+        engine.loadFromModule("omnios", "GreeterWindow");
+        if (engine.rootObjects().isEmpty()) return 1;
+        return app.exec();
+    }
+
+    QGuiApplication::setApplicationName(QStringLiteral("omni-launcher"));
     // Hyprland matches this against its fullscreen window rule.
     QGuiApplication::setDesktopFileName(QStringLiteral("omni-launcher"));
 

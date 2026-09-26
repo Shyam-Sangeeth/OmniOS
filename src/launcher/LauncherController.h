@@ -36,6 +36,10 @@ class LauncherController : public QObject {
     // Free space where apps install and write, as a sentence to put on screen.
     // Empty when there is plenty.
     Q_PROPERTY(QString storageNotice READ storageNotice NOTIFY storageChanged)
+    // Running from the ISO, so there is something to install. The installer
+    // is offered only then: on an installed system it would have nothing to
+    // copy from.
+    Q_PROPERTY(bool liveImage READ liveImage CONSTANT)
     // True when there is so little left that things will start failing.
     Q_PROPERTY(bool storageCritical READ storageCritical NOTIFY storageChanged)
 
@@ -111,6 +115,15 @@ public:
     // "suspend", "reboot" or "poweroff". Anything else is refused rather than
     // handed to systemctl, because the argument comes from a QML string.
     Q_INVOKABLE void powerAction(const QString& action);
+
+    // Leaves Game Mode for the Plasma desktop. The session ends and the login
+    // loop on tty1 starts the desktop in its place; see omni-session-select.
+    Q_INVOKABLE void switchToDesktop();
+
+    // Opens the disk installer as an app on its own workspace, so the Guide
+    // button can come back to the library without stopping it.
+    Q_INVOKABLE void installOmniOS();
+    bool liveImage() const;
 
 
 signals:

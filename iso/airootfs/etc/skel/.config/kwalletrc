@@ -1,0 +1,6 @@
+[Wallet]
+# Off, so the first Wi-Fi connection from the desktop does not open with
+# "create a new wallet" and a password prompt nobody asked for. Where plasma-nm
+# keeps the network's secret instead has not been checked on this image yet.
+Enabled=false
+First Use=false

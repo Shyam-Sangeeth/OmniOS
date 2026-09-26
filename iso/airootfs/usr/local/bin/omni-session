@@ -9,11 +9,10 @@ set -uo pipefail
 
 readonly LOG=/tmp/omnios-shell.log
 
-# Before the launcher, so its first scan already sees the Steam library. Never
-# fatal: a console that cannot arrange its folders must still boot to its grid.
-if command -v omni-steam-library >/dev/null 2>&1; then
-    omni-steam-library >>"$LOG" 2>&1 || true
-fi
+# The Steam library is arranged by .bash_profile before either session starts,
+# not here: Steam can be opened for the first time from the desktop, and the
+# folder has to be in place before that happens rather than only before Game
+# Mode's first scan.
 
 if command -v omni-launcher-qml >/dev/null 2>&1; then
     omni-launcher-qml >>"$LOG" 2>&1

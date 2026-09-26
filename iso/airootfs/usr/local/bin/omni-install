@@ -1,0 +1,640 @@
+#!/usr/bin/env bash
+# Install OmniOS from the running live image onto a disk — Phase 13.2.
+#
+#   omni-install --list
+#       The disks it is willing to install onto, one per line, tab-separated:
+#       path, size in bytes, model, transport, what is on it now, and the
+#       operating system on it ("Windows", "Ubuntu", ... or empty).
+#
+#   omni-install --disk /dev/nvme1n1 --erase /dev/nvme1n1 [account options]
+#       Erase that whole disk and install onto it. --erase has to name the same
+#       disk again: the one argument that destroys data is never implied, so a
+#       caller that builds the command wrongly fails instead of wiping the wrong
+#       thing.
+#
+#   Account options, all optional:
+#       --user NAME          the account's login name (default: omni)
+#       --full-name TEXT     the name shown for it
+#       --password-stdin     read its password from the first line of stdin —
+#                            never from the command line, where every process
+#                            on the machine can read it
+#       --no-autologin       ask for the password at the console instead of
+#                            signing in by itself
+#       --hostname NAME      the computer's name (default: omnios)
+#       --timezone ZONE      e.g. Asia/Kolkata (default: UTC)
+#       --erase-os NAME      required when the disk holds an operating system,
+#                            and it has to name the one --list found there:
+#                            a caller cannot erase Windows without having been
+#                            told it was Windows
+#
+#   With no --user the account is the live image's: omni, signed in by itself,
+#   with its password locked.
+#
+# Progress goes to stdout as "PROGRESS <percent> <what>" lines and a failure as
+# one "ERROR <why>" line, for the installer UI to show. Everything else — every
+# command and its output — goes to /tmp/omnios-install.log.
+#
+# What it installs is the live system itself: the squashfs the machine booted
+# from, unpacked onto the disk. So the installed system is exactly the one that
+# was just tried, not a second build of it that might differ. Then the few
+# things that only make sense on a live image are undone (see configure_target).
+#
+# The disk gets two partitions and both kinds of boot loader, so it starts on
+# UEFI and on BIOS firmware alike without asking which one this machine is:
+#
+#   1  1 GiB  FAT32  EFI system partition, mounted at /boot. systemd-boot for
+#                    UEFI, and extlinux for BIOS (with GPT's MBR stub).
+#   2  rest   ext4   the system
+#
+# Whole-disk only. Installing beside another operating system means resizing
+# its partitions, and getting that wrong loses someone's files; putting OmniOS
+# on a disk of its own and choosing it from the firmware's boot menu does not.
+set -Eeuo pipefail
+
+readonly LOG=/tmp/omnios-install.log
+readonly ROOT=/mnt/omnios-install
+# The installed system takes 8.3 GB before anything is added to it (measured
+# on the first install). 24 GiB leaves room to use it, and lets in the disks
+# sold as "32 GB", which hold about 29.8 GiB.
+readonly MIN_BYTES=$((24 * 1024 * 1024 * 1024))
+# The live image's account. The installed system's is this one renamed, so
+# its uid, groups and everything that already belongs to it carry over.
+readonly LIVE_USER=omni
+readonly USER_ID=1000
+
+# Filled in from the arguments; see validate_account.
+USER_NAME=$LIVE_USER
+FULL_NAME=""
+PASSWORD=""
+# Whether there is one. Tests read this, never $PASSWORD: under set -x bash
+# traces a [[ -n $PASSWORD ]] with the password written out in full, into a log
+# anyone can read.
+HAVE_PASSWORD=0
+AUTOLOGIN=1
+HOST_NAME=omnios
+TIME_ZONE=UTC
+ERASE_OS=""
+
+# ---- output -------------------------------------------------------------------
+# fd 3 is the caller's stdout, for the progress protocol; stdout and stderr go
+# to the log for everything else.
+exec 3>&1
+
+progress() { printf 'PROGRESS %d %s\n' "$1" "$2" >&3; printf '\n==> [%d%%] %s\n' "$1" "$2" >>"$LOG"; }
+fail()     { printf 'ERROR %s\n' "$*" >&3; printf 'ERROR: %s\n' "$*" >>"$LOG"; exit 1; }
+
+# ---- disks ----------------------------------------------------------------------
+
+# The disk the live system is running from, so it can never be offered. The
+# ISO's own mount says it directly; the boot label on the kernel command line
+# covers a machine booted with copytoram, where that mount is gone.
+boot_disk() {
+    local source="" label parent
+    source="$(findmnt -no SOURCE /run/archiso/bootmnt 2>/dev/null || true)"
+    if [[ -z $source ]]; then
+        label="$(sed -n 's/.*archisolabel=\([^ ]*\).*/\1/p' /proc/cmdline)"
+        [[ -n $label ]] && source="$(blkid -L "$label" 2>/dev/null || true)"
+    fi
+    [[ -n $source ]] || return 0
+    parent="$(lsblk -no PKNAME "$source" 2>/dev/null | head -n 1)"
+    # A whole-disk ISO (dd onto /dev/sdb) has no parent: the disk is the source.
+    if [[ -n $parent ]]; then echo "/dev/$parent"; else echo "$source"; fi
+}
+
+# What is on a disk now, for the confirmation screen: "ntfs Windows, vfat" and
+# so on. Empty means nothing anyone would recognise.
+disk_contents() {
+    lsblk -lnpo TYPE,FSTYPE,LABEL "$1" 2>/dev/null \
+        | awk '$1 == "part" && $2 != "" { s = $2; if ($3 != "") { $1 = $2 = ""; sub(/^ +/, ""); s = s " " $0 }
+                                            out = out (out ? ", " : "") s }
+               END { print out }'
+}
+
+# The operating system on a disk, if there is one: "Windows", the NAME from a
+# Linux system's os-release ("Ubuntu", "Arch Linux", "OmniOS"), or nothing.
+#
+# Found by looking, not guessing from partition types — Windows puts the same
+# reserved partition on a data disk as on its system disk. Each filesystem is
+# mounted read-only, and with its journal left alone (noload, norecovery,
+# nologreplay): a plain read-only mount of a dirty ext4 still replays the
+# journal, which is a write, and looking at a disk must not change it.
+#
+# The answer is cached against the disk's partition layout, because the
+# installer's list is refreshed every few seconds and mounting everything each
+# time would be both slow and noisy.
+disk_os() {
+    local disk="$1" signature cache found="" part fstype mnt opts file name
+    signature="$(lsblk -lnpo NAME,FSTYPE,UUID,SIZE "$disk" 2>/dev/null | tr '\n' ' ')"
+    cache="/run/omnios-install/os-$(basename "$disk")"
+    if [[ -f $cache && "$(head -n 1 "$cache")" == "$signature" ]]; then
+        sed -n 2p "$cache"
+        return 0
+    fi
+
+    mnt="$(mktemp -d /run/omnios-install-probe.XXXXXX)"
+    while read -r part fstype; do
+        case "$fstype" in
+            vfat | ntfs | ntfs3 | exfat) opts=ro ;;
+            ext2 | ext3 | ext4) opts=ro,noload ;;
+            btrfs) opts=ro,nologreplay ;;
+            xfs) opts=ro,norecovery ;;
+            # Encrypted: nothing can be read, but nobody encrypts a disk that
+            # does not matter to them.
+            BitLocker) found="Windows"; break ;;
+            crypto_LUKS) found="an encrypted system"; break ;;
+            *) continue ;;
+        esac
+        # NTFS twice: ntfs-3g first, then the kernel's ntfs3. Windows with Fast
+        # Startup on leaves its volume hibernated, and a driver that refuses
+        # that volume must not turn a Windows disk into "nothing recognisable".
+        if ! mount -o "$opts" "$part" "$mnt" 2>/dev/null; then
+            [[ $fstype == ntfs ]] && mount -t ntfs3 -o ro "$part" "$mnt" 2>/dev/null || continue
+        fi
+
+        if [[ -f $mnt/EFI/Microsoft/Boot/bootmgfw.efi || -d $mnt/Windows/System32 ]]; then
+            found="Windows"
+        else
+            # /etc/os-release first, unless it is a link: on many systems it
+            # points at /usr/lib/os-release by an absolute path, which would
+            # resolve on this machine rather than on the disk being looked at.
+            for file in "$mnt/etc/os-release" "$mnt/usr/lib/os-release"; do
+                [[ -f $file && ! -L $file ]] || continue
+                # Parsed, never sourced: it is a file from a disk nobody here
+                # vouched for, and sourcing it as root would run whatever it
+                # holds.
+                name="$(sed -n 's/^NAME=//p' "$file" | head -n 1 | tr -d '"'"'"'\r' \
+                        | tr -cd '[:alnum:] ._()/-' | cut -c1-40)"
+                found="${name:-Linux}"
+                break
+            done
+        fi
+        umount "$mnt" 2>/dev/null || umount -l "$mnt" 2>/dev/null || true
+        [[ -n $found ]] && break
+    done < <(lsblk -lnpo NAME,FSTYPE "$disk" 2>/dev/null | awk 'NR > 1 && NF == 2')
+    rmdir "$mnt" 2>/dev/null || true
+
+    install -d -m 0700 /run/omnios-install
+    printf '%s\n%s\n' "$signature" "$found" > "$cache"
+    printf '%s\n' "$found"
+}
+
+# Every disk that is safe to offer. Anything left out is left out for a
+# reason a person would agree with: it is the thing we booted from, it is
+# read-only, it is optical or virtual, or it is too small to hold OmniOS.
+candidate_disks() {
+    local booted name type ro size model tran
+    booted="$(boot_disk)"
+    while read -r name type ro size; do
+        [[ $type == disk ]] || continue
+        [[ $ro == 0 ]] || continue
+        [[ $name == /dev/zram* || $name == /dev/loop* ]] && continue
+        [[ -n $booted && $name == "$booted" ]] && continue
+        (( size >= MIN_BYTES )) || continue
+        model="$(lsblk -dno MODEL "$name" 2>/dev/null | sed 's/[[:space:]]*$//')"
+        tran="$(lsblk -dno TRAN "$name" 2>/dev/null | tr -d '[:space:]')"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$size" "${model:-Disk}" "${tran:-unknown}" \
+            "$(disk_contents "$name")" "$(disk_os "$name")"
+    done < <(lsblk -dbnpo NAME,TYPE,RO,SIZE)
+}
+
+# ---- the install ------------------------------------------------------------------
+
+cleanup() {
+    # Leave nothing mounted, whatever happened. A half-installed disk that is
+    # still mounted cannot be retried until someone knows to unmount it.
+    if mountpoint -q "$ROOT" 2>/dev/null; then
+        sync
+        umount -R "$ROOT" 2>/dev/null || umount -Rl "$ROOT" 2>/dev/null || true
+    fi
+}
+
+on_error() {
+    printf 'ERROR %s failed (details in %s)\n' "${STEP:-the installer}" "$LOG" >&3
+    printf 'ERROR: %s failed at line %s: %s\n' "${STEP:-?}" "$1" "$2" >>"$LOG"
+}
+
+# The partitions of a disk, in order. Asked of the kernel rather than built from
+# the disk's name, which is /dev/sda1 for one kind of disk and /dev/nvme0n1p1
+# for another.
+partitions_of() { lsblk -lnpo NAME,TYPE "$1" | awk '$2 == "part" { print $1 }'; }
+
+partition_disk() {
+    local disk="$1"
+
+    # Anything the live session mounted from this disk — Dolphin will mount a
+    # partition just for being looked at — has to let go first.
+    local part
+    for part in $(partitions_of "$disk"); do
+        swapoff "$part" 2>/dev/null || true
+        if findmnt -rno TARGET -S "$part" >/dev/null 2>&1; then
+            umount -R "$(findmnt -rno TARGET -S "$part" | head -n 1)" \
+                || fail "$part is in use and could not be unmounted"
+        fi
+    done
+
+    wipefs --all --force "$disk"
+    # LegacyBIOSBootable on the first partition is what GPT's MBR stub looks for
+    # when it hands over to extlinux on a BIOS machine.
+    sfdisk --wipe always --wipe-partitions always "$disk" <<'LAYOUT'
+label: gpt
+size=1GiB, type=uefi, name="OmniOS boot", attrs="LegacyBIOSBootable"
+type=linux, name="OmniOS"
+LAYOUT
+    udevadm settle
+    partprobe "$disk" 2>/dev/null || true
+    udevadm settle
+
+    mapfile -t parts < <(partitions_of "$disk")
+    [[ ${#parts[@]} -eq 2 ]] || fail "the new partitions did not appear on $disk"
+    ESP="${parts[0]}"
+    SYSTEM="${parts[1]}"
+
+    mkfs.fat -F 32 -n OMNIOS_BOOT "$ESP"
+    mkfs.ext4 -F -q -L omnios "$SYSTEM"
+}
+
+squashfs_image() {
+    local candidate
+    for candidate in /run/archiso/bootmnt/*/x86_64/airootfs.sfs /run/archiso/copytoram/airootfs.sfs; do
+        [[ -f $candidate ]] && { echo "$candidate"; return 0; }
+    done
+    return 1
+}
+
+copy_system() {
+    local image="$1"
+    install -d "$ROOT"
+    mount "$SYSTEM" "$ROOT"
+    install -d "$ROOT/boot"
+    # umask=0077: the ESP holds the boot loader's random seed, which must not
+    # be readable by every user.
+    mount -o umask=0077 "$ESP" "$ROOT/boot"
+
+    # unsquashfs reports its own progress as bare percentages; they are mapped
+    # onto 10-80 of the installer's bar, since this is most of the wait.
+    local percent last=-1
+    unsquashfs -f -percentage -d "$ROOT" "$image" 2>>"$LOG" \
+        | while read -r percent; do
+              [[ $percent =~ ^[0-9]+$ ]] || continue
+              (( percent == last )) && continue
+              last=$percent
+              progress $(( 10 + percent * 70 / 100 )) "Copying OmniOS to the disk"
+          done
+    [[ -x $ROOT/usr/bin/bash ]] || fail "the system did not copy onto the disk"
+}
+
+# Everything that is right for a live image and wrong for an installed system.
+configure_target() {
+    # The kernel. mkarchiso empties /boot in the image, but pacman keeps the
+    # kernel beside its modules — which is exactly where its own install hook
+    # copies /boot's from, so this is what a kernel upgrade would do anyway.
+    local kernel="" dir
+    for dir in "$ROOT"/usr/lib/modules/*/; do
+        if [[ -f $dir/vmlinuz && "$(cat "$dir/pkgbase" 2>/dev/null)" == linux-zen ]]; then
+            kernel="$dir/vmlinuz"
+        fi
+    done
+    [[ -n $kernel ]] || fail "the linux-zen kernel is not in the image"
+    install -m 0644 "$kernel" "$ROOT/boot/vmlinuz-linux-zen"
+
+    # The live image's initramfs finds its root on the ISO; an installed one
+    # finds it on the disk. Same hooks otherwise, so the boot splash is the
+    # same too.
+    rm -f "$ROOT/etc/mkinitcpio.conf.d/archiso.conf"
+    cat > "$ROOT/etc/mkinitcpio.conf.d/omnios.conf" <<'CONF'
+# Written by omni-install. plymouth for the boot splash, fsck so the system
+# disk is checked before it is mounted.
+HOOKS=(base udev autodetect microcode modconf kms keyboard keymap consolefont plymouth block filesystems fsck)
+CONF
+    cat > "$ROOT/etc/mkinitcpio.d/linux-zen.preset" <<'PRESET'
+# Written by omni-install: the stock preset, the live image's is archiso's.
+ALL_kver="/boot/vmlinuz-linux-zen"
+PRESETS=('default' 'fallback')
+default_image="/boot/initramfs-linux-zen.img"
+fallback_image="/boot/initramfs-linux-zen-fallback.img"
+fallback_options="-S autodetect"
+PRESET
+
+    genfstab -U "$ROOT" > "$ROOT/etc/fstab"
+
+    # A machine of its own, not the ISO's.
+    rm -f "$ROOT/etc/machine-id"
+    systemd-machine-id-setup --root="$ROOT"
+
+    # The user, written into the installed system's own /etc/passwd now rather
+    # than at its first boot, so the rest of this can refer to it.
+    systemd-sysusers --root="$ROOT"
+
+    # ---- the account -------------------------------------------------------
+    # The live user renamed rather than a second user made beside it: uid 1000,
+    # its groups (wheel, video, input, seat, ...) and everything written for
+    # "the user" in this image stay true without a list of them kept here.
+    if [[ $USER_NAME != "$LIVE_USER" ]]; then
+        usermod --root "$ROOT" --login "$USER_NAME" --home "/home/$USER_NAME" "$LIVE_USER"
+        groupmod --root "$ROOT" --new-name "$USER_NAME" "$LIVE_USER"
+    fi
+    usermod --root "$ROOT" --comment "${FULL_NAME:-$USER_NAME}" "$USER_NAME"
+    # sysusers would otherwise make "omni" again at the first boot, beside the
+    # renamed account. Everything it declared exists on the disk now.
+    rm -f "$ROOT/etc/sysusers.d/omnios.conf"
+
+    echo "$HOST_NAME" > "$ROOT/etc/hostname"
+    ln -sfn "/usr/share/zoneinfo/$TIME_ZONE" "$ROOT/etc/localtime"
+
+    local dropin="$ROOT/etc/systemd/system/getty@tty1.service.d/autologin.conf"
+    if (( AUTOLOGIN )); then
+        sed -i "s/--autologin $LIVE_USER /--autologin $USER_NAME /" "$dropin"
+        grep -q -- "--autologin $USER_NAME " "$dropin" || fail "could not set up signing in automatically"
+    else
+        # The OmniOS sign-in screen instead of tty1 signing in by itself:
+        # greetd shows omni-greeter on tty1, and the session it starts after a
+        # right password is the same login loop tty1 would have run.
+        rm -f "$dropin"
+        # The live image masks plymouth's own quit so the splash stays up until
+        # the session takes the screen. With a sign-in screen first, the splash
+        # has to go for it; unmasked, plymouth leaves on its own before greetd.
+        rm -f "$ROOT/etc/systemd/system/plymouth-quit.service" \
+              "$ROOT/etc/systemd/system/plymouth-quit-wait.service"
+
+        install -d "$ROOT/etc/greetd"
+        cat > "$ROOT/etc/greetd/config.toml" <<'GREETD'
+# Written by omni-install: this machine asks for a password, so tty1 shows the
+# OmniOS sign-in screen rather than signing in by itself.
+[terminal]
+vt = 1
+
+[default_session]
+command = "omni-greeter"
+user = "greeter"
+GREETD
+        systemctl --root="$ROOT" enable greetd.service
+        systemctl --root="$ROOT" set-default graphical.target
+        # tty1 belongs to greetd now. A getty there as well would fight it for
+        # the terminal, whatever greetd's own unit says about conflicts.
+        systemctl --root="$ROOT" mask getty@tty1.service
+        [[ -e $ROOT/etc/systemd/system/display-manager.service ]] \
+            || fail "the sign-in screen could not be turned on"
+    fi
+
+    # The live session's home is made from /etc/skel at every boot, and chowned
+    # recursively every boot to go with it. On a disk that walk would cover the
+    # whole Steam library each time the machine starts, so the home is made
+    # once, here, and the rule goes.
+    install -d -m 0755 "$ROOT/home/$USER_NAME"
+    cp -a "$ROOT/etc/skel/." "$ROOT/home/$USER_NAME/"
+    chown -R "$USER_ID:$USER_ID" "$ROOT/home/$USER_NAME"
+    rm -f "$ROOT/etc/tmpfiles.d/omnios-home.conf"
+
+    # The installer itself, from everywhere it is offered: an installed system
+    # has no live image to install from, so an "Install OmniOS" icon there
+    # would only ever fail.
+    rm -f "$ROOT/usr/local/share/applications/omnios-install.desktop"           "$ROOT/etc/skel/Desktop/omnios-install.desktop"           "$ROOT/home/$USER_NAME/Desktop/omnios-install.desktop"
+
+    # ---- security --------------------------------------------------------
+    # The live image is a demo: ssh on, and a password for both root and omni
+    # that is printed in this repository. Carried onto a disk that is a machine
+    # anyone on the same network can log into and — omni having passwordless
+    # sudo — become root on. So: no ssh, and both passwords locked.
+    #
+    # Locked, not blank. tty1 still logs in by itself, which is the console
+    # experience; sudo still works from a session, which the store and the
+    # launcher rely on. What stops working is logging in by password anywhere,
+    # which nobody here was told a password for anyway. The setup wizard
+    # (Phase 13.3) is where a real account and password belong.
+    local unit
+    for unit in sshd.service omnios-live-credentials.service \
+                omnios-pacman-init.service etc-pacman.d-gnupg.mount; do
+        systemctl --root="$ROOT" disable "$unit" 2>/dev/null || true
+        rm -f "$ROOT"/etc/systemd/system/*.wants/"$unit"
+    done
+    arch-chroot "$ROOT" passwd -l root
+    if (( HAVE_PASSWORD )); then
+        # Tracing off while the password is in a command line: set -x would
+        # write it into the install log, which anyone can read.
+        { set +x; } 2>/dev/null
+        printf '%s:%s\n' "$USER_NAME" "$PASSWORD" | chpasswd --root "$ROOT"
+        PASSWORD=""
+        set -x
+    else
+        arch-chroot "$ROOT" passwd -l "$USER_NAME"
+    fi
+
+    # The live keyring is a tmpfs filled at every boot. An installed system
+    # keeps one on disk, made once.
+    arch-chroot "$ROOT" pacman-key --init
+    arch-chroot "$ROOT" pacman-key --populate archlinux
+    # pacman-key leaves a gpg-agent running inside the chroot, holding its /dev
+    # open, and the disk then cannot be unmounted at the end.
+    arch-chroot "$ROOT" gpgconf --homedir /etc/pacman.d/gnupg --kill all || true
+
+    progress 88 "Preparing the system to start"
+    arch-chroot "$ROOT" mkinitcpio -P
+    [[ -s $ROOT/boot/initramfs-linux-zen.img ]] || fail "the startup image was not built"
+}
+
+install_bootloaders() {
+    local disk="$1" uuid options
+    uuid="$(blkid -s UUID -o value "$SYSTEM")"
+    [[ -n $uuid ]] || fail "the system partition has no UUID"
+    # The live image's command line, pointed at the disk.
+    options="root=UUID=$uuid rw quiet splash loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 systemd.show_status=false rd.systemd.show_status=false"
+
+    # ---- UEFI: systemd-boot ----------------------------------------------
+    # Registered with the firmware when this machine booted by UEFI, so OmniOS
+    # appears in its boot menu by name. Either way bootctl also writes the
+    # fallback path, which any UEFI firmware boots from a disk it has never seen
+    # — the case for a BIOS-booted install that later meets a UEFI machine.
+    if [[ -d /sys/firmware/efi/efivars ]]; then
+        bootctl install --esp-path="$ROOT/boot" \
+            || bootctl install --esp-path="$ROOT/boot" --no-variables
+    else
+        bootctl install --esp-path="$ROOT/boot" --no-variables
+    fi
+
+    install -d "$ROOT/boot/loader/entries"
+    cat > "$ROOT/boot/loader/loader.conf" <<'LOADER'
+default omnios.conf
+# No menu unless a key is held, as on the ISO. The editor is off: editing the
+# kernel command line at boot is a root shell for anyone at the keyboard.
+timeout 0
+editor no
+LOADER
+    cat > "$ROOT/boot/loader/entries/omnios.conf" <<ENTRY
+title   OmniOS
+sort-key 01
+linux   /vmlinuz-linux-zen
+initrd  /initramfs-linux-zen.img
+options $options
+ENTRY
+    cat > "$ROOT/boot/loader/entries/omnios-game.conf" <<ENTRY
+title   OmniOS (Game Mode)
+sort-key 02
+linux   /vmlinuz-linux-zen
+initrd  /initramfs-linux-zen.img
+options $options omnios.mode=game
+ENTRY
+    cat > "$ROOT/boot/loader/entries/omnios-fallback.conf" <<ENTRY
+title   OmniOS (fallback)
+sort-key 03
+linux   /vmlinuz-linux-zen
+initrd  /initramfs-linux-zen-fallback.img
+options root=UUID=$uuid rw
+ENTRY
+
+    # ---- BIOS: extlinux behind GPT's MBR stub ------------------------------
+    install -d "$ROOT/boot/syslinux"
+    extlinux --install "$ROOT/boot/syslinux"
+    cat > "$ROOT/boot/syslinux/syslinux.cfg" <<CFG
+# Written by omni-install. No menu, as on the ISO: hold Shift or Alt while it
+# starts to get a boot: prompt and type a label.
+PROMPT 0
+TIMEOUT 20
+DEFAULT omnios
+
+LABEL omnios
+    LINUX ../vmlinuz-linux-zen
+    INITRD ../initramfs-linux-zen.img
+    APPEND $options
+
+LABEL omnios-game
+    LINUX ../vmlinuz-linux-zen
+    INITRD ../initramfs-linux-zen.img
+    APPEND $options omnios.mode=game
+
+LABEL omnios-fallback
+    LINUX ../vmlinuz-linux-zen
+    INITRD ../initramfs-linux-zen-fallback.img
+    APPEND root=UUID=$uuid rw
+CFG
+    dd bs=440 count=1 conv=notrunc if=/usr/lib/syslinux/bios/gptmbr.bin of="$disk"
+}
+
+# Everything about the account is checked before the disk is, let alone
+# erased: a name that turns out to be taken halfway through leaves a wiped disk
+# and no install, which is the worst way for this to fail.
+validate_account() {
+    if [[ ! $USER_NAME =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
+        fail "\"$USER_NAME\" cannot be a username: use lowercase letters, digits, - and _, starting with a letter"
+    fi
+    # The installed system has the same system accounts as this one, so a name
+    # taken here is taken there. The live user is the one exception: it is the
+    # account being renamed.
+    if [[ $USER_NAME != "$LIVE_USER" ]] && getent passwd "$USER_NAME" >/dev/null; then
+        fail "the username \"$USER_NAME\" belongs to the system already; choose another"
+    fi
+    # /etc/passwd separates fields with colons and the name field's parts with
+    # commas, so either one would corrupt the entry.
+    if [[ $FULL_NAME == *[:,]* || $FULL_NAME == *$'\n'* || ${#FULL_NAME} -gt 64 ]]; then
+        fail "the name cannot contain : or , and has to be 64 characters or fewer"
+    fi
+    if [[ ! $HOST_NAME =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
+        fail "\"$HOST_NAME\" cannot be a computer name: use lowercase letters, digits and -"
+    fi
+    if [[ ! $TIME_ZONE =~ ^[A-Za-z0-9_+/-]+$ || $TIME_ZONE == *..* || ! -f /usr/share/zoneinfo/$TIME_ZONE ]]; then
+        fail "\"$TIME_ZONE\" is not a time zone"
+    fi
+    if (( ! AUTOLOGIN && ! HAVE_PASSWORD )); then
+        fail "signing in by password needs a password"
+    fi
+}
+
+install_to() {
+    local disk="$1" image
+    STEP="checking the disk"
+    progress 1 "Checking the disk"
+    [[ $EUID -eq 0 ]] || fail "omni-install has to run as root"
+    [[ -d /run/archiso ]] || fail "this is not the OmniOS live image; there is nothing to install from"
+    validate_account
+    # Collected first, not piped into grep -q: grep quits at the first match,
+    # the list can then die of SIGPIPE, and pipefail would report a disk that
+    # is on the list as one that is not.
+    local offered
+    offered="$(candidate_disks | cut -f1)"
+    grep -qxF "$disk" <<<"$offered" || fail "$disk is not a disk OmniOS can be installed on"
+
+    # An operating system on the disk is only erased when the caller names it.
+    # The installer's screen asks for that in writing; this is the backstop
+    # for anything that calls omni-install some other way.
+    local installed
+    installed="$(disk_os "$disk")"
+    if [[ -n $installed && $ERASE_OS != "$installed" ]]; then
+        fail "$disk has $installed on it; nothing was changed"
+    fi
+    image="$(squashfs_image)" || fail "the live system image could not be found"
+
+    STEP="partitioning"
+    progress 3 "Erasing $disk"
+    partition_disk "$disk"
+
+    STEP="copying the system"
+    progress 10 "Copying OmniOS to the disk"
+    copy_system "$image"
+
+    STEP="configuring the system"
+    progress 81 "Setting up the installed system"
+    configure_target
+
+    STEP="installing the boot loader"
+    progress 94 "Making the disk start"
+    install_bootloaders "$disk"
+
+    STEP="finishing"
+    progress 98 "Finishing"
+    sync
+    cleanup
+    progress 100 "OmniOS is installed"
+}
+
+# ---- arguments ---------------------------------------------------------------------
+usage() {
+    echo "usage: omni-install --list | --disk DEV --erase DEV [--user NAME] [--full-name TEXT]" >&2
+    echo "         [--password-stdin] [--no-autologin] [--hostname NAME] [--timezone ZONE]" >&2
+    echo "         [--erase-os NAME]" >&2
+    exit 2
+}
+
+disk="" erase="" list=0 password_stdin=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --list) list=1; shift ;;
+        --disk) [[ $# -ge 2 ]] || usage; disk="$2"; shift 2 ;;
+        --erase) [[ $# -ge 2 ]] || usage; erase="$2"; shift 2 ;;
+        --user) [[ $# -ge 2 ]] || usage; USER_NAME="$2"; shift 2 ;;
+        --full-name) [[ $# -ge 2 ]] || usage; FULL_NAME="$2"; shift 2 ;;
+        --hostname) [[ $# -ge 2 ]] || usage; HOST_NAME="$2"; shift 2 ;;
+        --timezone) [[ $# -ge 2 ]] || usage; TIME_ZONE="$2"; shift 2 ;;
+        --erase-os) [[ $# -ge 2 ]] || usage; ERASE_OS="$2"; shift 2 ;;
+        --no-autologin) AUTOLOGIN=0; shift ;;
+        --password-stdin) password_stdin=1; shift ;;
+        *) usage ;;
+    esac
+done
+
+# Read before stdout goes to the log and before tracing starts, so the
+# password is never echoed anywhere.
+if (( password_stdin )); then
+    IFS= read -r PASSWORD || true
+    if [[ -z $PASSWORD ]]; then
+        printf 'ERROR --password-stdin was given but no password arrived; nothing was changed\n' >&3
+        exit 2
+    fi
+    HAVE_PASSWORD=1
+fi
+
+if (( list )); then
+    candidate_disks
+    exit 0
+fi
+
+[[ -n $disk ]] || usage
+if [[ $erase != "$disk" ]]; then
+    printf 'ERROR --erase must name the same disk as --disk (%s); nothing was changed\n' "$disk" >&3
+    exit 2
+fi
+
+: >"$LOG"
+exec >>"$LOG" 2>&1
+set -x
+trap 'on_error "$LINENO" "$BASH_COMMAND"' ERR
+trap cleanup EXIT
+install_to "$disk"

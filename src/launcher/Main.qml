@@ -458,6 +458,8 @@ Window {
             // rather than actions of their own.
             if (context === "power" && action === "sound") window.openAudioMenu()
             else if (context === "power" && action === "settings") Launcher.launchApp("settings")
+            else if (context === "power" && action === "desktop") Launcher.switchToDesktop()
+            else if (context === "power" && action === "install") Launcher.installOmniOS()
             else if (context === "power" && action === "network") window.openNetworkMenu()
             else if (context === "power" && action === "bluetooth") window.openBluetoothMenu()
             else if (context === "audio") {
@@ -575,10 +577,13 @@ Window {
             { action: "bluetooth", label: qsTr("Bluetooth"), enabled: true },
             { action: "pair",     label: qsTr("Pair a controller"), enabled: true },
             { action: "settings",  label: qsTr("Settings"),  enabled: true },
+            { action: "desktop",   label: qsTr("Switch to desktop"), enabled: true },
+            // Only on the live image; see LauncherController::liveImage.
+            { action: "install",   label: qsTr("Install OmniOS"), enabled: true, live: true },
             { action: "suspend",  label: qsTr("Sleep"),     enabled: true },
             { action: "reboot",   label: qsTr("Restart"),   enabled: true },
             { action: "poweroff", label: qsTr("Shut down"), enabled: true }
-        ], "power")
+        ].filter(function (entry) { return entry.live !== true || Launcher.liveImage }), "power")
     }
 
     function runTileAction(action) {

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Switch between OmniOS's two sessions.
+#
+#   omni-session-select desktop   Plasma: a desktop for mouse and keyboard
+#   omni-session-select game      the tile launcher, for a controller
+#   omni-session-select console   leave both and drop to a shell on tty1
+#
+# There is no display manager. tty1 logs in by itself and .bash_profile runs a
+# loop: read the chosen mode, start that session, and when it ends read the mode
+# again. So switching is two steps — record the choice, then end the session
+# that is running — and the loop brings up the other one.
+#
+# The choice lives in the runtime directory, which lasts exactly as long as the
+# login it belongs to. That is deliberate: a normal boot lands in Desktop Mode
+# (or whatever the boot entry asks for), not in whichever mode someone happened
+# to be in when they last pulled the plug.
+set -uo pipefail
+
+readonly mode="${1:-}"
+case "$mode" in
+    desktop | game | console) ;;
+    *)
+        echo "usage: omni-session-select desktop|game|console" >&2
+        exit 2
+        ;;
+esac
+
+runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if ! printf '%s\n' "$mode" >"$runtime/omnios-mode"; then
+    echo "error: could not record the mode in $runtime/omnios-mode" >&2
+    exit 1
+fi
+
+# Which session is running is read from the processes, not from the
+# environment. HYPRLAND_INSTANCE_SIGNATURE does not reliably reach programs the
+# launcher starts, and XDG_CURRENT_DESKTOP says nothing about a script run from
+# a TTY — both would pick the wrong way to end the session, or none.
+uid="$(id -u)"
+
+if pgrep -u "$uid" -x Hyprland >/dev/null 2>&1; then
+    # hyprctl needs the instance signature to find the compositor. Take it from
+    # the environment when it is there, otherwise from the socket directory —
+    # the newest one, in case an old instance left its directory behind.
+    if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+        sig="$(ls -1t "$runtime/hypr" 2>/dev/null | head -n 1)"
+        [ -n "$sig" ] && export HYPRLAND_INSTANCE_SIGNATURE="$sig"
+    fi
+    exec hyprctl dispatch exit
+fi
+
+if pgrep -u "$uid" -x plasmashell >/dev/null 2>&1 || pgrep -u "$uid" -x kwin_wayland >/dev/null 2>&1; then
+    # Plasma's own logout, without the confirmation dialog: the user already
+    # chose, from a menu entry that says what it does. dbus-send rather than
+    # qdbus because dbus-send is part of dbus itself and is always there.
+    if dbus-send --session --type=method_call --dest=org.kde.Shutdown \
+                 /Shutdown org.kde.Shutdown.logout 2>/dev/null; then
+        exit 0
+    fi
+    # Older Plasma, or a Shutdown service that is not up yet: ksmserver has
+    # answered this for a long time. The arguments mean no confirmation, a plain
+    # logout, and no particular timing.
+    if dbus-send --session --type=method_call --dest=org.kde.ksmserver \
+                 /KSMServer org.kde.KSMServerInterface.logout int32:0 int32:0 int32:0 2>/dev/null; then
+        exit 0
+    fi
+    echo "error: Plasma did not accept the logout request" >&2
+    exit 1
+fi
+
+# Nothing is running — called from a shell on another TTY, say. The choice is
+# recorded and takes effect the next time the loop on tty1 starts a session.
+echo "no session is running; '$mode' will be used for the next one"

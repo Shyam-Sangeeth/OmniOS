@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Install OmniOS
+GenericName=Install to a disk
+Comment=Put OmniOS on a disk of its own, so it keeps your files and apps
+Exec=omni-launcher-qml --install
+Icon=omnios
+Categories=System;
+Keywords=omnios;install;installer;disk;setup;
+# The desktop's. Game Mode offers the installer from its own menu, which
+# can also hide it once there is nothing left to install from.
+OnlyShowIn=KDE;

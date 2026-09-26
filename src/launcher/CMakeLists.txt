@@ -10,7 +10,10 @@ qt_add_executable(omni-launcher
     HyprlandEvents.cpp
     GamepadInput.cpp
     SystemStatus.cpp
-    LauncherController.cpp)
+    LauncherController.cpp
+    InstallerController.cpp
+    GreeterController.cpp
+    KeyDelivery.cpp)
 
 # The QML forms a module named "omnios". The files sit beside this file rather
 # than in a qml/ subdirectory: types in a subdirectory are not registered as
@@ -30,13 +33,20 @@ qt_add_qml_module(omni-launcher
         OmniLogo.qml
         StatusButton.qml
         GameDetail.qml
+        InstallerWindow.qml
+        GreeterWindow.qml
+        ActionButton.qml
+        Field.qml
     SOURCES
         GameListModel.h
         AppListModel.h
         HyprlandEvents.h
         GamepadInput.h
         SystemStatus.h
-        LauncherController.h)
+        LauncherController.h
+        InstallerController.h
+        GreeterController.h
+        KeyDelivery.h)
 
 # SDL3 for the controller. Optional on purpose: without it the shell still
 # builds and still works, it is simply keyboard-only. Qt6 has no gamepad module
@@ -55,7 +65,9 @@ target_link_libraries(omni-launcher PRIVATE
     omnios_core
     Qt6::Core
     Qt6::Gui
-    Qt6::Quick)
+    Qt6::Quick
+    # QLocalSocket, for the sign-in screen's conversation with greetd.
+    Qt6::Network)
 
 target_include_directories(omni-launcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 

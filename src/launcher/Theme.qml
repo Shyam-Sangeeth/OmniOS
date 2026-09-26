@@ -10,6 +10,8 @@ QtObject {
     readonly property color accent:        "#6C63FF"
     readonly property color textPrimary:   "#F0F0F5"
     readonly property color textSecondary: "#8888AA"
+    // For what cannot be undone: erasing a disk, a wrong password.
+    readonly property color danger:        "#E5484D"
 
     // Tile sizes (§12). The focused recent tile grows rather than the row
     // re-flowing, so nothing shifts under the cursor.

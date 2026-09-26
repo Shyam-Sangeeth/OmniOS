@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Game Mode
+GenericName=Return to Game Mode
+Comment=Leave the desktop for the OmniOS game library
+Exec=omni-session-select game
+Icon=input-gaming
+Categories=Game;System;
+Keywords=omnios;console;controller;launcher;
+# Only on the desktop. Inside Game Mode this would be a tile that switches to
+# where you already are.
+OnlyShowIn=KDE;

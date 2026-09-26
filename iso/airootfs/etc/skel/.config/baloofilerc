@@ -1,0 +1,5 @@
+[Basic Settings]
+# File indexing reads the whole home directory and writes its index into it.
+# On the live image the home directory is the RAM overlay, so the index would
+# spend the memory the Steam library needs.
+Indexing-Enabled=false

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Install OmniOS
+Comment=Put OmniOS on a disk of its own, so it keeps your files and apps
+Exec=omni-launcher-qml --install
+Icon=omnios
+OnlyShowIn=KDE;

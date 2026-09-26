@@ -161,6 +161,48 @@ pacman-contrib
 ## reads, and would present controls that quietly do nothing.
 gnome-control-center
 
+## Desktop Mode: Plasma, the session a normal boot lands in. Game Mode is still
+## Hyprland and the tile launcher; omni-session-select moves between the two.
+##
+## A lean set rather than plasma-meta: the shell and compositor, the three tray
+## applets that matter (network, sound, bluetooth), power and display settings,
+## System Settings, and one file manager and one terminal. The rest of KDE can
+## come from the store like any other app. No display manager — tty1's
+## autologin loop in .bash_profile starts the session instead.
+##
+## "dolphin" is KDE's file manager. The GameCube emulator is dolphin-emu, and
+## the router runs that name, so the two do not collide.
+##
+## Discover is here because Plasma's panel pins it by default, and without it
+## the second icon on a fresh desktop is a blank page that does nothing. That
+## pin is compiled into the task manager, and Plasma offers no clean way to
+## change a default panel's pins short of shipping a whole look-and-feel
+## package. It is also simply the store a KDE desktop expects. It and Game
+## Mode's GNOME Software share one Flatpak installation, so whatever either one
+## installs, both show, and the store polkit rule already covers it because it
+## matches Flatpak's actions rather than any particular app.
+plasma-desktop
+plasma-nm
+plasma-pa
+bluedevil
+powerdevil
+kscreen
+systemsettings
+kde-gtk-config
+breeze-gtk
+xdg-desktop-portal-kde
+konsole
+dolphin
+discover
+
+## The sign-in screen, for machines installed with "sign in automatically"
+## off. greetd asks PAM whether the password is right; cage is a kiosk
+## compositor that shows exactly one full-screen app — OmniOS's own sign-in
+## screen. Neither runs on the live image or on an install that signs in by
+## itself: omni-install turns them on only where a password is asked for.
+greetd
+cage
+
 ## Bluetooth, which is how a controller actually connects.
 ##
 ## A DualSense works over USB with nothing added — hid-playstation is in the

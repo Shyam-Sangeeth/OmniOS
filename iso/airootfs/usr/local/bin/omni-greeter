@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Shows the OmniOS sign-in screen. greetd runs this, as its greeter user, on a
+# machine installed with "sign in automatically" off (see omni-install, which
+# is what writes greetd's config to point here).
+#
+# cage is a compositor that shows one app full screen and nothing else, which
+# is all a sign-in screen needs; Hyprland or Plasma would be a whole desktop
+# started to show one window.
+set -uo pipefail
+
+# The boot splash hands the screen over first. On these machines plymouth's
+# own quit services run (omni-install unmasks them), so it is normally gone
+# already; this covers the case where greetd started before it finished. A
+# splash that holds on to the display leaves cage with no screen to draw on.
+if command -v plymouth >/dev/null 2>&1; then
+    plymouth quit >/dev/null 2>&1 || true
+    waited=0
+    while pgrep -x plymouthd >/dev/null 2>&1 && [ "$waited" -lt 50 ]; do
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+fi
+
+# The same coaxing .bash_profile gives a session on a virtual GPU, in cage's
+# (wlroots') terms.
+case "$(readlink -f /sys/class/drm/card0/device/driver 2>/dev/null)" in
+    *virtio* | *bochs* | *vmwgfx* | *qxl* | *vboxvideo* | *cirrus*)
+        export WLR_NO_HARDWARE_CURSORS=1
+        ;;
+esac
+# No render node means no GPU to draw with; wlroots can still draw in software.
+[ -e /dev/dri/renderD128 ] || export WLR_RENDERER=pixman
+
+# logind, not seatd: seatd hands out the seat to members of its group, and the
+# greeter user is not one. logind gives it to whoever holds the active session
+# on this VT, which greetd has just made the greeter's.
+export LIBSEAT_BACKEND=logind
+export QT_QPA_PLATFORM=wayland
+
+exec cage -s -d -- omni-launcher-qml --greeter

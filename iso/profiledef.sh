@@ -61,6 +61,12 @@ file_permissions=(
   ["/usr/local/bin/omni-steam-library"]="0:0:755"
   ["/usr/local/bin/omni-pair-controller"]="0:0:755"
   ["/usr/local/bin/omni-settings"]="0:0:755"
+  ["/usr/local/bin/omni-session-select"]="0:0:755"
+  ["/usr/local/bin/omni-install"]="0:0:755"
+  ["/usr/local/bin/omni-greeter"]="0:0:755"
+  # Plasma runs a desktop-file shortcut on the desktop without asking whether
+  # to trust it only when the file is executable.
+  ["/etc/skel/Desktop/omnios-install.desktop"]="0:0:755"
   ["/usr/lib/systemd/system-sleep/zz-omnios-resume"]="0:0:755"
   # sudo ignores any sudoers file that is group- or world-writable.
   ["/etc/sudoers.d/omnios"]="0:0:440"

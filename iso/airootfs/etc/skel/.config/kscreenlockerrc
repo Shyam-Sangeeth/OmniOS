@@ -1,0 +1,6 @@
+[Daemon]
+# The live user's password is not something anyone at the machine has been
+# told, so a desktop that locks itself after five idle minutes locks its owner
+# out. A console stays unlocked; the installer can revisit this.
+Autolock=false
+LockOnResume=false

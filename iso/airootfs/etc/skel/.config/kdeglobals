@@ -1,0 +1,6 @@
+[General]
+# Dark, to match Game Mode.
+ColorScheme=BreezeDark
+
+[KDE]
+LookAndFeelPackage=org.kde.breezedark.desktop

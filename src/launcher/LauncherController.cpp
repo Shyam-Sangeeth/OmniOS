@@ -705,6 +705,52 @@ void LauncherController::powerAction(const QString& action) {
     process->start(QStringLiteral("systemctl"), {*it});
 }
 
+bool LauncherController::liveImage() const {
+    // Only archiso's own directory, not the RAM-overlay test ephemeral() falls
+    // back to: the installer copies from the squashfs archiso mounted, so any
+    // other kind of live system has nothing for it to install.
+    return QFile::exists(QStringLiteral("/run/archiso"));
+}
+
+void LauncherController::installOmniOS() {
+    if (!liveImage()) {
+        setStatus(tr("OmniOS is already installed"));
+        return;
+    }
+    startApp(tr("Install OmniOS"), QCoreApplication::applicationFilePath(),
+             {QStringLiteral("--install")});
+}
+
+void LauncherController::switchToDesktop() {
+    // A game left running would be killed by the compositor going away rather
+    // than closed, so it is closed here first, the same as for power actions.
+    stopRunning(true);
+    setStatus(tr("Switching to the desktop ..."));
+
+    // Waited on, like powerAction and for the same reason: if the switch is
+    // refused, "Switching ..." must not sit on screen for ever. On success
+    // there is nothing to wait for — the compositor exits and takes this
+    // process with it.
+    auto* process = new QProcess(this);
+    process->setProcessChannelMode(QProcess::MergedChannels);
+    connect(process, &QProcess::finished, this,
+            [this, process](int code, QProcess::ExitStatus) {
+                if (code != 0) {
+                    const QString output = QString::fromUtf8(process->readAll()).trimmed();
+                    setStatus(output.isEmpty()
+                                  ? tr("Could not switch to the desktop")
+                                  : output.section(QLatin1Char('\n'), -1).trimmed());
+                }
+                process->deleteLater();
+            });
+    connect(process, &QProcess::errorOccurred, this,
+            [this, process](QProcess::ProcessError) {
+                setStatus(tr("Could not run omni-session-select: %1").arg(process->errorString()));
+                process->deleteLater();
+            });
+    process->start(QStringLiteral("omni-session-select"), {QStringLiteral("desktop")});
+}
+
 void LauncherController::quitRunningGame() { stopRunning(true); }
 
 void LauncherController::stopRunning(bool returnHome) {

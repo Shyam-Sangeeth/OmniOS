@@ -16,7 +16,18 @@
     Boot through OVMF instead of BIOS.
 
 .PARAMETER Disk
-    Attach a 40 GB qcow2 disk to install onto.
+    Attach a 40 GB qcow2 disk to install onto. It lives in
+    %LOCALAPPDATA%\OmniOS\vm, not in the repo: the repo is inside OneDrive,
+    and a disk image that changes by gigabytes on every install is exactly what
+    a sync client should never see.
+
+.PARAMETER BlankDisk
+    Start from an empty test disk, throwing away whatever the last install left
+    on it. Implies -Disk.
+
+.PARAMETER FromDisk
+    Boot the test disk with no ISO attached: the installed system, as it would
+    start on a machine with the USB stick pulled out. Implies -Disk.
 
 .EXAMPLE
     .\scripts\run-qemu.ps1
@@ -27,6 +38,8 @@ param(
     [string]$Iso,
     [switch]$Uefi,
     [switch]$Disk,
+    [switch]$FromDisk,
+    [switch]$BlankDisk,
     # Display device. stdvga dumps reliably at every stage of boot, which is
     # what makes the VM debuggable; virtio is closer to what a compositor
     # expects. Being able to switch isolates "did the compositor break" from
@@ -201,9 +214,15 @@ $qemuArgs = @(
     '-device', 'usb-tablet'
     '-netdev', $(if ($SshPort -gt 0) { "user,id=net0,hostfwd=tcp::${SshPort}-:22" } else { 'user,id=net0' })
     '-device', 'virtio-net-pci,netdev=net0'
-    '-drive', "file=$Iso,media=cdrom,readonly=on"
-    '-boot', 'd'
 )
+
+# The ISO, unless the point is to prove the installed disk starts without it.
+if ($FromDisk) {
+    $Disk = $true
+    $qemuArgs += @('-boot', 'c')
+} else {
+    $qemuArgs += @('-drive', "file=$Iso,media=cdrom,readonly=on", '-boot', 'd')
+}
 
 
 if ($SerialLog) {
@@ -223,20 +242,52 @@ if ($Uefi) {
     $qemuArgs += @('-drive', "if=pflash,format=raw,readonly=on,file=$ovmf")
 }
 
+if ($BlankDisk) { $Disk = $true }
+
 if ($Disk) {
-    $diskPath = Join-Path $out 'omnios-test.qcow2'
+    $diskDir = Join-Path $env:LOCALAPPDATA 'OmniOS\vm'
+    $diskPath = Join-Path $diskDir 'omnios-test.qcow2'
+    if (-not (Test-Path $diskDir)) { New-Item -ItemType Directory -Path $diskDir | Out-Null }
+
+    # Where it used to be. Moved rather than left, so an existing test install
+    # is not silently traded for an empty disk.
+    $oldPath = Join-Path $out 'omnios-test.qcow2'
+    if ((Test-Path $oldPath) -and -not (Test-Path $diskPath)) {
+        Write-Host "==> moving the test disk out of the repo (and out of OneDrive) to $diskPath"
+        Move-Item $oldPath $diskPath
+    }
+
+    if ($BlankDisk -and (Test-Path $diskPath)) {
+        Write-Host "==> discarding the old test disk"
+        Remove-Item $diskPath -Force
+    }
     if (-not (Test-Path $diskPath)) {
         Write-Host "==> creating a 40G test disk at $diskPath"
         $qemuImg = Join-Path (Split-Path -Parent $qemu) 'qemu-img.exe'
         & $qemuImg create -f qcow2 $diskPath 40G | Out-Null
     }
-    $qemuArgs += @('-drive', "file=$diskPath,if=virtio,format=qcow2")
+    # discard=unmap lets the guest hand space back. A qcow2 only ever grows:
+    # every install writes ~8 GB of new blocks, and wiping the disk inside the
+    # VM freed nothing on the host, so the file crept from empty to 16.5 GB
+    # over a few test installs. With discard passed through, the installer's
+    # own wipefs and mkfs mark those clusters free and the next install reuses
+    # them instead of growing the file. (QEMU on Windows cannot punch holes in
+    # NTFS, so the file does not shrink either; -BlankDisk starts it again.)
+    $qemuArgs += @('-drive', "file=$diskPath,if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap")
 }
 
-Write-Host "==> booting $(Split-Path -Leaf $Iso)"
+Write-Host "==> booting $(if ($FromDisk) { 'the installed test disk' } else { Split-Path -Leaf $Iso })"
 
 if ($Detach) {
-    $process = Start-Process -FilePath $qemu -ArgumentList $qemuArgs -PassThru
+    # Quoted by hand. Windows PowerShell's Start-Process joins an argument
+    # array with spaces and quotes nothing, so the UEFI firmware at
+    # "C:\Program Files\qemu\share\..." reached QEMU as "file=C:\Program" and
+    # -Uefi -Detach died on the spot. Nothing else here had a space in it, which
+    # is why it went unnoticed until the installer needed a UEFI boot.
+    $argLine = ($qemuArgs | ForEach-Object {
+        if ($_ -match '\s') { '"' + $_ + '"' } else { $_ }
+    }) -join ' '
+    $process = Start-Process -FilePath $qemu -ArgumentList $argLine -PassThru
     Start-Sleep -Seconds 6
     if ($process.HasExited) {
         throw "QEMU exited immediately with code $($process.ExitCode)"

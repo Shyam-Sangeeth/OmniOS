@@ -94,6 +94,13 @@ echo '==> building'
 echo '==> copying the ISO out of the build volume'
 mkdir -p /repo/out
 cp -v /work/out/*.iso /repo/out/
+# Only reached once the copy succeeded. The work tree is about 12 GB and the
+# next build deletes it before starting anyway; the ISO is now in /repo/out.
+# Left in the volume they held 14.5 GB of Docker's disk between builds for
+# nothing. A failed build stops before this, so its tree is still there to
+# look at. The package cache is a different volume and is kept.
+echo '==> clearing the build volume'
+rm -rf /work/iso-work /work/out
 "@
 
 $dockerArgs += @('archlinux:latest', 'bash', '-c', $script)

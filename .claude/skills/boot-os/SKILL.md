@@ -53,6 +53,23 @@ Give it another ~10 s after that for the launcher to draw.
 
 ## 3. Drive it
 
+**The ISO waits ten seconds at a boot menu** (Try / Install / Game Mode /
+troubleshooting) before starting "Try OmniOS", on BIOS and UEFI alike. Every
+boot is ten seconds slower than it looks; send `<KEY:ret>` straight after
+`run-qemu.ps1 -Detach` returns to skip it, or `<KEY:down>` then `<KEY:ret>` for
+Install, which opens the installer on the desktop by itself.
+
+**A normal boot lands in Desktop Mode (Plasma), not the tile launcher.** To
+reach Game Mode, open KRunner and run the Game Mode entry; to come back, pick
+"Switch to desktop" from the launcher's F10 menu:
+
+```powershell
+./scripts/vm-console.ps1 -Shot game.png -Script '<KEY:alt-f2>', '<WAIT:4>', 'Game Mode', '<WAIT:4>', '<ENTER>', '<WAIT:40>'
+```
+
+A switch takes 30-40 s under software rendering. `/tmp/omnios-session.log` is
+the log of whichever session started last.
+
 One script, one monitor connection:
 
 ```powershell
@@ -74,6 +91,59 @@ Reading a log from inside the guest:
 Useful logs: `/tmp/omnios-shell.log` (the launcher's own stderr, where a QML
 error would appear), `/tmp/omnios-app.log` (whatever the launcher last
 started), `/tmp/omnios-pkg.log` (package operations).
+
+**In Desktop Mode, prefer KRunner to a TTY.** KRunner runs a shell command
+typed into it, so a Konsole window shows the output without the VT switch that
+breaks the keyboard (below). The `sleep` keeps the window open long enough to
+screenshot:
+
+```powershell
+./scripts/vm-console.ps1 -Shot out.png -Script '<KEY:alt-f2>', '<WAIT:4>', `
+  'konsole -e sh -c "tail -20 /tmp/omnios-session.log; sleep 300"', '<WAIT:2>', '<ENTER>', '<WAIT:15>'
+```
+
+## Testing the installer
+
+`-Disk` attaches a 40 GB qcow2 at `%LOCALAPPDATA%\OmniOS\vm\omnios-test.qcow2`,
+created when missing and kept between boots; `-BlankDisk` starts it empty. It
+is outside the repo because the repo is in OneDrive. It is attached with
+discard, so a reinstall reuses the space the last one freed: two installs in a
+row measured 8.76 then 8.84 GB, where without discard the file had crept to
+16.5 GB and was heading for 40. It never shrinks, though; `-BlankDisk` is how
+to get the space back. After an install, `-FromDisk`
+boots that disk with **no ISO attached** — the only honest test that the disk
+starts on its own. Add `-Uefi` to boot it through OVMF instead of SeaBIOS; the
+installer puts both boot loaders on the disk, so check both.
+
+```powershell
+./scripts/run-qemu.ps1 -Detach -Fresh -Headless -Disk     -SerialLog ... -MonitorPort 4444   # live ISO + disk
+./scripts/run-qemu.ps1 -Detach -Fresh -Headless -FromDisk -SerialLog ... -MonitorPort 4444   # installed, BIOS
+./scripts/run-qemu.ps1 -Detach -Fresh -Headless -FromDisk -Uefi ...                          # installed, UEFI
+```
+
+**Iterate on a script without rebuilding the ISO.** A rebuild is 10-30
+minutes. Serve the working copy from the host instead — QEMU's user network
+reaches the host's loopback as 10.0.2.2 — and run it inside the booted ISO:
+
+```bash
+python -m http.server 8765 --bind 127.0.0.1    # in the directory holding the script
+```
+then, in the guest (through KRunner, see above):
+`konsole -e sh -c "curl -sf http://10.0.2.2:8765/t.sh | sh; sleep 3000"`.
+That is how omni-install was proven before it went into an image. It only
+works for scripts; anything compiled into the launcher needs the rebuild.
+
+**The sign-in screen only exists on an install with auto sign-in off.** Quickest
+way there: from the live session, as root,
+`echo PASSWORD | omni-install --disk /dev/vda --erase /dev/vda --user NAME --password-stdin --no-autologin`
+(add `--erase-os OmniOS` if the disk already holds an install), then power off
+and boot `-FromDisk`. The screen is `omni-greeter` under greetd; its output is
+in `journalctl -u greetd`. Signing out of the desktop there must come back to
+it, and switching modes must not.
+
+**Power off from inside the guest before `-FromDisk`**, so the disk is clean:
+KRunner, `systemctl poweroff`. vm-console will then fail with "connection was
+forcibly closed" — that is QEMU exiting, i.e. success.
 
 ## What will waste your time if you do not know it
 
@@ -144,8 +214,47 @@ dies with `failed to get xsave state` *after* ISOLINUX has drawn, which reads
 like a broken image. `run-qemu.ps1` defaults to `Skylake-Client` for that
 reason.
 
+**A QML file named like a context property hides it.** Inside `Installer.qml`,
+`Installer.refresh()` resolved to the file's own type, not to the C++ object
+registered as "Installer" — the installer opened on its failure page with a
+blank reason. The journal said it plainly ("is not a function", "Unable to
+assign [undefined]"). Read `journalctl --user -b | grep qrc:` before theorising
+about a QML screen that behaves impossibly.
+
 **Blank screen, no launcher.** Read `/tmp/omnios-shell.log` first; a QML error
 puts the shell into its terminal fallback rather than showing nothing.
+
+**Keystrokes can arrive late, so look before you press Enter on the power
+menu.** Five Downs sent with a second between them showed the highlight one row
+short in the screenshot. The fifth landed afterwards, so one more Down went to
+Sleep and Enter suspended the machine. Screenshot the highlighted row, then
+send Enter in a separate call.
+
+**"Kernel panic - not syncing: IO-APIC + timer doesn't work!" at 0.008 s is the
+VM, not the image.** The timer check it fails is timing-sensitive under WHPX
+with kernel-irqchip=off; hpet=off in run-qemu.ps1 made it rarer, not gone. On
+2026-09-26 it hit three boots out of five, with or without keys pressed at the
+menu, the host idle and nothing holding the hypervisor. Do not "fix" it with
+no_timer_check in the ISO's boot entries: on real hardware that check also
+chooses a working timer route. Boot again. A panicked screen is 720x400 text
+mode, while a healthy boot is at the 1280x800 splash 25 s in, so a loop can
+tell them apart from the screendump's header alone:
+
+```powershell
+foreach ($try in 1..4) {
+  ./scripts/run-qemu.ps1 -Detach -Fresh -Headless -Disk -SerialLog ... -MonitorPort 4444 | Out-Null
+  Start-Sleep 25
+  ./scripts/vm-console.ps1 -Shot "$env:TEMP\probe.ppm" -Script '<WAIT:0>' -SettleSeconds 0 | Out-Null
+  $dims = ([Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes("$env:TEMP\probe.ppm")[0..20]) -split "`n")[1]
+  if ($dims -ne '720 400') { break }
+}
+```
+
+**Sleep does not come back in the VM.** On 2026-09-25, `system_wakeup` after a
+suspend cold-booted to ISOLINUX and wedged there, so `-Fresh` was the only way
+out. Resume had worked when sleep was built; the sound card was added to
+run-qemu.ps1 after that and is the first suspect, but it has not been checked.
+Until it is, do not choose Sleep in a VM you still need.
 
 ## Checking the result honestly
 

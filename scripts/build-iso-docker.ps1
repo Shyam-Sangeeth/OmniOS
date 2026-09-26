@@ -88,7 +88,11 @@ echo '==> refreshing keyring and installing build tools'
 # If the keyring were genuinely broken, pacstrap says so a minute later with a
 # signature error naming the package.
 pacman -Sy --noconfirm archlinux-keyring || echo '    (keyring hook failed; continuing)'
-pacman -S --noconfirm --needed archiso cmake ninja gcc git qt6-base qt6-declarative qt6-tools
+# sdl3 is the launcher's controller support. CMake treats it as optional, so
+# without it the build still succeeds — and ships a Game Mode that ignores
+# every gamepad, which no VM test notices because the VM has none. Every image
+# up to 2026-09-26 was built that way.
+pacman -S --noconfirm --needed archiso cmake ninja gcc git qt6-base qt6-declarative qt6-tools sdl3
 echo '==> building'
 ./scripts/build-iso.sh $buildFlags
 echo '==> copying the ISO out of the build volume'

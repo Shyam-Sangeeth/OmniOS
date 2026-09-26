@@ -27,13 +27,13 @@ int main(int argc, char* argv[]) {
 
     // --install is the disk installer (Phase 13.2): the same binary, so it has
     // the launcher's look and its controller support, but a different window
-    // and none of the launcher's work — no library scan, no Hyprland socket.
+    // and none of the launcher's work — no library scan, no controller polling of its own.
     if (QCoreApplication::arguments().contains(QStringLiteral("--install"))) {
         QGuiApplication::setApplicationName(QStringLiteral("omni-installer"));
         // The name of its desktop entry, so the desktop can find its icon and
         // the portal its app ID. And not "omni-launcher": that name is how
-        // Hyprland recognises the launcher, and the launcher moves every other
-        // window off its workspace. The installer has to be one of those.
+        // KWin is asked to raise the launcher, and the installer is a window
+        // of its own.
         QGuiApplication::setDesktopFileName(QStringLiteral("omnios-install"));
 
         InstallerController installer;
@@ -64,7 +64,8 @@ int main(int argc, char* argv[]) {
     }
 
     QGuiApplication::setApplicationName(QStringLiteral("omni-launcher"));
-    // Hyprland matches this against its fullscreen window rule.
+    // Its app id: the taskbar matches it to omni-launcher.desktop for a name and
+    // icon, and omni-kwin-activate raises the launcher by it.
     QGuiApplication::setDesktopFileName(QStringLiteral("omni-launcher"));
 
     LauncherController controller;

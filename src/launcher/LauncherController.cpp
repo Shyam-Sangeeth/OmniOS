@@ -1,6 +1,7 @@
 #include "LauncherController.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QDebug>
@@ -13,6 +14,8 @@
 #include <filesystem>
 #include <system_error>
 
+#include "InputMode.h"
+#include "KeyDelivery.h"
 #include "omnios/Apps.h"
 #include "omnios/GameScanner.h"
 #include "omnios/Paths.h"
@@ -23,10 +26,6 @@ namespace {
 const omnios::Game* findGame(const omnios::GameLibrary& library, const QString& id) {
     return library.find(id.toStdString());
 }
-
-// Workspace 1 holds the launcher; anything it starts belongs on 2.
-constexpr const char* kLauncherWorkspace = "1";
-constexpr const char* kAppWorkspace      = "2";
 
 // Everything the launcher starts writes here. Without it a program that dies
 // on startup leaves no trace at all: the tile flashes, the launcher comes
@@ -44,42 +43,17 @@ void captureOutput(QProcess* process) {
     process->setStandardOutputFile(kAppLog, QIODevice::Truncate);
 }
 
-// Hyprland places a new window on the active workspace, so switching before
-// spawning puts the app on its own workspace without needing a window rule —
-// which matters because this Hyprland rejects the windowrule syntax outright
-// and its replacement is still migrating to a Lua config.
+// Brings the launcher's window to the front. A Wayland app cannot raise itself
+// — KWin treats that as focus stealing and flashes the taskbar entry instead —
+// so omni-kwin-activate asks KWin to, through its scripting interface. That is
+// what gets the library back over a running game, and back into focus after an
+// app closes, when nothing has focus and a controller's presses would land
+// nowhere.
 //
-// Silent when hyprctl is missing: the launcher must still work under another
-// compositor, or none, just without the workspace switch.
-void switchWorkspace(const char* workspace) {
-    QProcess::execute(QStringLiteral("hyprctl"),
-                      {QStringLiteral("dispatch"), QStringLiteral("workspace"),
-                       QString::fromLatin1(workspace)});
-}
-
-// The shell's own window class, as set by QGuiApplication::setDesktopFileName.
-// Everything else that turns up on the launcher's workspace is a stray.
-constexpr const char* kLauncherClass = "omni-launcher";
-
-void moveWindowToWorkspace(const QString& address, const char* workspace) {
-    // Hyprland reports the address bare in its events and requires it prefixed
-    // in its dispatchers. Sending it back the way it arrived matches nothing,
-    // and the dispatcher says so to nobody.
-    const QString target = address.startsWith(QLatin1String("0x"))
-                               ? address
-                               : QStringLiteral("0x") + address;
-    QProcess::execute(QStringLiteral("hyprctl"),
-                      {QStringLiteral("dispatch"), QStringLiteral("movetoworkspacesilent"),
-                       QStringLiteral("%1,address:%2").arg(QString::fromLatin1(workspace), target)});
-}
-
-// Switching workspace does not focus anything when the pointer has not moved,
-// and an unfocused launcher receives no keys at all. Ask for it explicitly
-// whenever the library comes back.
+// Detached and unchecked: the launcher must still work under another
+// compositor, or none, just without being raised.
 void focusLauncherWindow() {
-    QProcess::execute(QStringLiteral("hyprctl"),
-                      {QStringLiteral("dispatch"), QStringLiteral("focuswindow"),
-                       QStringLiteral("class:omni-launcher")});
+    QProcess::startDetached(QStringLiteral("omni-kwin-activate"), {QStringLiteral("omni-launcher")});
 }
 
 // The first line the package manager marked as an error, with the prefix
@@ -108,16 +82,6 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
     std::string error;
     omnios::ensureDirectories(error);
 
-    // Windows the launcher did not open still have to behave. A game started
-    // from inside Steam is the case that made this necessary: Steam spawns it,
-    // so it lands on whatever workspace is current, and the shell ends up
-    // tiled beside it.
-    connect(&windows_, &HyprlandEvents::windowOpened, this,
-            [this](const QString& address, const QString& workspace,
-                   const QString& windowClass, const QString&) {
-                adoptStrayWindow(address, workspace, windowClass);
-            });
-
     // Network and bluetooth actions are long enough to be worth narrating, and
     // the shell already has one place that narrates a running system command.
     connect(&system_, &SystemStatus::runRequested, this,
@@ -128,12 +92,54 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
             [this](const QString& text) { setPackageStatus(text); });
 
     connect(&gamepad_, &GamepadInput::keyPressed, this, &LauncherController::deliverKey);
+    QCoreApplication::instance()->installEventFilter(this);
     connect(&gamepad_, &GamepadInput::homeRequested, this, &LauncherController::goHome);
+    connect(&gamepad_, &GamepadInput::kindChanged, this, &LauncherController::controllerKindChanged);
+
+    // Controller use counts as someone being there. Told to KDE through the
+    // freedesktop screensaver interface it implements, at most every half
+    // minute: the idle timeouts are minutes long, and a process per press
+    // would be waste.
+    connect(&gamepad_, &GamepadInput::activity, this, [this]() {
+        if (activityPinged_.isValid() && activityPinged_.elapsed() < 30000) return;
+        activityPinged_.start();
+        QProcess::startDetached(QStringLiteral("dbus-send"),
+                                {QStringLiteral("--session"), QStringLiteral("--type=method_call"),
+                                 QStringLiteral("--dest=org.freedesktop.ScreenSaver"),
+                                 QStringLiteral("/ScreenSaver"),
+                                 QStringLiteral("org.freedesktop.ScreenSaver.SimulateUserActivity")});
+    });
 
     refresh();
 }
 
+QVariantMap LauncherController::buttonNames() const { return buttonNamesFor(gamepad_.kind()); }
+
+void LauncherController::setUsingController(bool on) {
+    if (usingController_ == on) return;
+    usingController_ = on;
+    emit usingControllerChanged();
+}
+
+bool LauncherController::eventFilter(QObject* watched, QEvent* event) {
+    switch (event->type()) {
+        case QEvent::KeyPress:
+            // Controller presses are posted with a scan code no keyboard sends.
+            if (static_cast<QKeyEvent*>(event)->nativeScanCode() != kControllerScanCode)
+                setUsingController(false);
+            break;
+        case QEvent::MouseButtonPress:
+        case QEvent::TouchBegin:
+            setUsingController(false);
+            break;
+        default:
+            break;
+    }
+    return QObject::eventFilter(watched, event);
+}
+
 void LauncherController::deliverKey(int key) {
+    setUsingController(true);
     // Focus first, but not only focus. SDL reads the controller straight from
     // the input devices, so a press arrives whether or not the compositor has
     // given the shell keyboard focus — and there are several ordinary ways to
@@ -167,31 +173,14 @@ void LauncherController::deliverKey(int key) {
 
     // A press and a release, because Qt's key handling expects both and some
     // of the shell's handlers are on release.
-    QGuiApplication::postEvent(
-        window, new QKeyEvent(QEvent::KeyPress, key, Qt::NoModifier));
-    QGuiApplication::postEvent(
-        window, new QKeyEvent(QEvent::KeyRelease, key, Qt::NoModifier));
+    QGuiApplication::postEvent(window, controllerKeyEvent(QEvent::KeyPress, key));
+    QGuiApplication::postEvent(window, controllerKeyEvent(QEvent::KeyRelease, key));
 }
 
 void LauncherController::goHome() {
     // Whatever is running keeps running; this is the console's "show me the
     // library" button, not a way to close a game.
-    switchWorkspace(kLauncherWorkspace);
     focusLauncherWindow();
-}
-
-void LauncherController::adoptStrayWindow(const QString& address, const QString& workspace,
-                                          const QString& windowClass) {
-    if (workspace != QLatin1String(kLauncherWorkspace)) return;
-    if (windowClass == QLatin1String(kLauncherClass)) return;
-
-    // Silent, then switch: moving it without switching would leave whatever the
-    // user just started running invisibly on another workspace, which is worse
-    // than the tiling it replaces.
-    qWarning("omni-launcher: moving stray window %s (class \"%s\") off workspace %s",
-             qPrintable(address), qPrintable(windowClass), kLauncherWorkspace);
-    moveWindowToWorkspace(address, kAppWorkspace);
-    switchWorkspace(kAppWorkspace);
 }
 
 QString LauncherController::gamesPath() const {
@@ -295,7 +284,6 @@ bool LauncherController::launch(const QString& gameId) {
     // shell would be left staring at whatever the game left on screen.
     connect(process, &QProcess::finished, this,
             [this, process](int code, QProcess::ExitStatus) {
-                switchWorkspace(kLauncherWorkspace);
                 focusLauncherWindow();
                 setStatus(code == 0
                               ? tr("%1 exited").arg(runningTitle_)
@@ -309,7 +297,7 @@ bool LauncherController::launch(const QString& gameId) {
             });
     connect(process, &QProcess::errorOccurred, this,
             [this, process](QProcess::ProcessError) {
-                switchWorkspace(kLauncherWorkspace);
+                focusLauncherWindow();
                 setStatus(tr("%1 could not start: %2").arg(runningTitle_, process->errorString()));
                 running_ = nullptr;
                 gamepad_.setAppRunning(false);
@@ -318,7 +306,6 @@ bool LauncherController::launch(const QString& gameId) {
                 emit gameRunningChanged();
             });
 
-    switchWorkspace(kAppWorkspace);
     process->start(QString::fromStdString(plan.argv.front()), args);
     running_ = process;
     gamepad_.setAppRunning(true);
@@ -374,7 +361,6 @@ bool LauncherController::startApp(const QString& title, const QString& program,
 
     connect(process, &QProcess::finished, this,
             [this, process, startedAt](int, QProcess::ExitStatus) {
-                switchWorkspace(kLauncherWorkspace);
                 focusLauncherWindow();
                 // An app that closes within a couple of seconds did not
                 // "close", it failed. Say so, and say where to look.
@@ -398,7 +384,7 @@ bool LauncherController::startApp(const QString& title, const QString& program,
             });
     connect(process, &QProcess::errorOccurred, this,
             [this, process](QProcess::ProcessError) {
-                switchWorkspace(kLauncherWorkspace);
+                focusLauncherWindow();
                 setStatus(tr("%1 could not start: %2").arg(runningTitle_, process->errorString()));
                 running_ = nullptr;
                 gamepad_.setAppRunning(false);
@@ -407,7 +393,6 @@ bool LauncherController::startApp(const QString& title, const QString& program,
                 emit gameRunningChanged();
             });
 
-    switchWorkspace(kAppWorkspace);
     process->start(program, args);
     running_ = process;
     gamepad_.setAppRunning(true);
@@ -498,8 +483,111 @@ void LauncherController::setPackageStatus(const QString& text) {
     emit packageStatusChanged();
 }
 
+namespace {
+
+// Whether sudo will run without asking. Yes on the live image and on an install
+// whose account has no password (sudoers there says NOPASSWD, since there is no
+// password to type); no on an install with one.
+bool sudoWithoutPassword() {
+    QProcess probe;
+    probe.start(QStringLiteral("sudo"), {QStringLiteral("-n"), QStringLiteral("true")});
+    probe.closeWriteChannel();
+    return probe.waitForFinished(3000) && probe.exitStatus() == QProcess::NormalExit &&
+           probe.exitCode() == 0;
+}
+
+}  // namespace
+
 void LauncherController::runSystemCommand(const QString& script, const QString& verb,
-                                           const QString& pastTense) {
+                                           const QString& pastTense, const QString& rootReason) {
+    if (!rootReason.isEmpty() && !sudoWithoutPassword()) {
+        pendingRoot_ = {true, script, verb, pastTense, rootReason};
+        passwordError_.clear();
+        emit passwordChanged();
+        emit packageBusyChanged();
+        return;
+    }
+    startSystemCommand(script, verb, pastTense, QByteArray());
+}
+
+void LauncherController::submitPassword(const QString& password) {
+    if (!pendingRoot_.active || passwordCheck_ != nullptr) return;
+    QByteArray secret = password.toUtf8();
+    if (secret.isEmpty()) return;
+
+    // Checked on its own before anything runs. Handing a wrong password
+    // straight to the real command would fail it halfway through a script,
+    // with sudo's complaint as the only thing to show for it.
+    auto* check = new QProcess(this);
+    check->setProcessChannelMode(QProcess::MergedChannels);
+    passwordCheck_ = check;
+    connect(check, &QProcess::finished, this,
+            [this, check, secret](int code, QProcess::ExitStatus status) mutable {
+                const QString output = QString::fromUtf8(check->readAll());
+                passwordCheck_ = nullptr;
+                check->deleteLater();
+                if (!pendingRoot_.active) {  // cancelled while it was checking
+                    secret.fill('\0');
+                    emit passwordChanged();
+                    return;
+                }
+                if (status == QProcess::NormalExit && code == 0) {
+                    const PendingRoot job = pendingRoot_;
+                    pendingRoot_ = PendingRoot();
+                    passwordError_.clear();
+                    emit passwordChanged();
+                    startSystemCommand(job.script, job.verb, job.pastTense, secret);
+                } else {
+                    // pam_faillock locks the account for ten minutes after three
+                    // misses in fifteen, and from then on even the right
+                    // password fails — silently, as Arch configures it, and its
+                    // records are root's to read. So the misses are counted
+                    // here: saying "not right" to a locked account is a lie
+                    // that invites a fourth try, which happened in testing.
+                    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+                    passwordFailures_.append(now);
+                    while (!passwordFailures_.isEmpty() &&
+                           now - passwordFailures_.first() > 15 * 60 * 1000)
+                        passwordFailures_.removeFirst();
+                    const bool maybeLocked =
+                        passwordFailures_.size() >= 3 ||
+                        output.contains(QLatin1String("locked"), Qt::CaseInsensitive);
+                    passwordError_ = maybeLocked
+                                         ? tr("Still refused. After three wrong tries the account is "
+                                              "locked for ten minutes, so wait before the next one.")
+                                         : tr("That password is not right");
+                    emit passwordChanged();
+                }
+                secret.fill('\0');
+            });
+    connect(check, &QProcess::errorOccurred, this, [this, check](QProcess::ProcessError) {
+        if (passwordCheck_ != check) return;
+        passwordCheck_ = nullptr;
+        passwordError_ = tr("Could not run sudo: %1").arg(check->errorString());
+        check->deleteLater();
+        emit passwordChanged();
+    });
+
+    // -k: check this password, not a timestamp left by an earlier sudo.
+    check->start(QStringLiteral("sudo"), {QStringLiteral("-S"), QStringLiteral("-k"),
+                                          QStringLiteral("-p"), QString(), QStringLiteral("true")});
+    check->write(secret + '\n');
+    check->closeWriteChannel();
+    secret.fill('\0');
+    emit passwordChanged();
+}
+
+void LauncherController::cancelPassword() {
+    if (!pendingRoot_.active) return;
+    pendingRoot_ = PendingRoot();
+    passwordError_.clear();
+    emit passwordChanged();
+    emit packageBusyChanged();
+    setPackageStatus(tr("Cancelled"));
+}
+
+void LauncherController::startSystemCommand(const QString& script, const QString& verb,
+                                             const QString& pastTense, QByteArray password) {
     auto* process = new QProcess(this);
     process->setProcessChannelMode(QProcess::MergedChannels);
 
@@ -546,6 +634,15 @@ void LauncherController::runSystemCommand(const QString& script, const QString& 
             });
 
     process->start(QStringLiteral("sh"), {QStringLiteral("-c"), shellWrap(script)});
+    // The password goes down stdin, never into args: every process on the
+    // machine can read another's command line. With no password stdin is
+    // simply closed, so a sudo that unexpectedly asks gets end-of-file and
+    // fails rather than waiting for ever.
+    if (!password.isEmpty()) {
+        process->write(password + '\n');
+        password.fill('\0');
+    }
+    process->closeWriteChannel();
     package_ = process;
     setPackageStatus(verb);
     emit packageBusyChanged();
@@ -578,12 +675,18 @@ void LauncherController::removeApp(const QString& appId) {
     // "thunar", but plenty of apps ship an entry from a package named nothing
     // like the binary. -Rns then takes the dependencies it brought in with it,
     // which is how a console avoids accumulating a gigabyte nothing uses.
+    //
+    // packagePathFor, as Update uses: a built-in tile has no desktop entry of
+    // its own, so it is the program's path that pacman is asked about. Steam's
+    // Uninstall asked about an empty path until this was shared.
     const QString script =
         QStringLiteral("pkg=$(pacman -Qoq %1 2>/dev/null) || { echo \"error: no package owns %1\"; "
-                       "exit 1; }; sudo pacman -Rns --noconfirm \"$pkg\"")
-            .arg(removal.target);
+                       "exit 1; }; sudo -S -p '' pacman -Rns --noconfirm \"$pkg\"")
+            .arg(packagePathFor(appId));
     runSystemCommand(script, tr("Removing %1 ...").arg(removal.title),
-                      tr("%1 removed").arg(removal.title));
+                      tr("%1 removed").arg(removal.title),
+                      tr("Removing %1 changes the system, so it needs your password.")
+                          .arg(removal.title));
 }
 
 void LauncherController::checkForUpdate(const QString& appId) {
@@ -638,10 +741,12 @@ void LauncherController::updateApp(const QString& appId) {
 
     const QString script =
         QStringLiteral("pkg=$(pacman -Qoq %1 2>/dev/null) || { echo \"error: no package owns %1\"; "
-                       "exit 1; }; sudo pacman -Sy --noconfirm \"$pkg\"")
+                       "exit 1; }; sudo -S -p '' pacman -Sy --noconfirm \"$pkg\"")
             .arg(packagePathFor(appId));
     runSystemCommand(script, tr("Updating %1 ...").arg(ref.title),
-                      tr("%1 is up to date").arg(ref.title));
+                      tr("%1 is up to date").arg(ref.title),
+                      tr("Updating %1 changes the system, so it needs your password.")
+                          .arg(ref.title));
 }
 
 void LauncherController::pairController() {
@@ -722,15 +827,14 @@ void LauncherController::installOmniOS() {
 }
 
 void LauncherController::switchToDesktop() {
-    // A game left running would be killed by the compositor going away rather
-    // than closed, so it is closed here first, the same as for power actions.
-    stopRunning(true);
+    // Whatever is running stays running. Both modes are the one Plasma session,
+    // so leaving Game Mode only closes the launcher, and the game or app it
+    // started carries on, on the desktop's taskbar.
     setStatus(tr("Switching to the desktop ..."));
 
     // Waited on, like powerAction and for the same reason: if the switch is
     // refused, "Switching ..." must not sit on screen for ever. On success
-    // there is nothing to wait for — the compositor exits and takes this
-    // process with it.
+    // there is nothing to wait for — omni-session-select closes this process.
     auto* process = new QProcess(this);
     process->setProcessChannelMode(QProcess::MergedChannels);
     connect(process, &QProcess::finished, this,
@@ -760,7 +864,7 @@ void LauncherController::stopRunning(bool returnHome) {
 
     // Detach the handlers first. The exit we are about to cause would
     // otherwise report "X exited" over the status of whatever is starting, and
-    // switch the workspace home again just as the new app arrives there.
+    // raise the launcher again just as the new app arrives over it.
     process->disconnect(this);
     running_ = nullptr;
     gamepad_.setAppRunning(false);
@@ -775,10 +879,7 @@ void LauncherController::stopRunning(bool returnHome) {
     }
     process->deleteLater();
 
-    if (returnHome) {
-        switchWorkspace(kLauncherWorkspace);
-        focusLauncherWindow();
-    }
+    if (returnHome) focusLauncherWindow();
     if (!previous.isEmpty()) setStatus(tr("%1 closed").arg(previous));
     emit gameRunningChanged();
 }

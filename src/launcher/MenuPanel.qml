@@ -1,4 +1,4 @@
-// The panel behind a tile's three dots, and behind the logo.
+// The panel behind a tile's three dots, and behind the taskbar's buttons.
 //
 // A plain Item rather than a Popup: Qt Quick Controls is not linked in, and the
 // menu only ever needs to be one panel anchored to something. It is owned by
@@ -41,9 +41,20 @@ Item {
         // Anchor under the item's bottom-right, then pull back inside the
         // window: an item near an edge would otherwise open a panel that runs
         // off the screen.
+        //
+        // Where there is no room below — the taskbar along the bottom — it
+        // opens above instead, as a panel's menus do. Pulled back inside the
+        // window from there, it would cover the very button that opened it.
+        // The height is worked out from the entries rather than read from the
+        // panel, whose list has not laid the new entries out yet.
+        var expected = header.y + header.height + 2 + menuEntries.length * 32 + 10
         var origin = item.mapToItem(menu, item.width, item.height)
+        var top = item.mapToItem(menu, 0, 0).y
         panel.x = Math.max(8, Math.min(origin.x - panel.width, menu.width - panel.width - 8))
-        panel.y = Math.max(8, Math.min(origin.y - 4, menu.height - panel.height - 8))
+        if (origin.y - 4 + expected > menu.height - 8 && top - expected - 6 >= 8)
+            panel.y = top - expected - 6
+        else
+            panel.y = Math.max(8, Math.min(origin.y - 4, menu.height - expected - 8))
 
         visible = true
         // Land on something usable. Opening on a greyed-out entry looks like

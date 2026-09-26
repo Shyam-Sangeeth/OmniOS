@@ -1,3 +1,6 @@
 # Live image: the launcher has to install packages and manage services without
 # stopping to ask for a password there is no keyboard flow to type.
+#
+# An install keeps this only when its account has no password. With one,
+# omni-install replaces this file and sudo asks (see require_admin_password).
 %wheel ALL=(ALL:ALL) NOPASSWD: ALL

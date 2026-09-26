@@ -7,13 +7,13 @@ qt_add_executable(omni-launcher
     main.cpp
     GameListModel.cpp
     AppListModel.cpp
-    HyprlandEvents.cpp
     GamepadInput.cpp
     SystemStatus.cpp
     LauncherController.cpp
     InstallerController.cpp
     GreeterController.cpp
-    KeyDelivery.cpp)
+    KeyDelivery.cpp
+    InputMode.cpp)
 
 # The QML forms a module named "omnios". The files sit beside this file rather
 # than in a qml/ subdirectory: types in a subdirectory are not registered as
@@ -31,22 +31,24 @@ qt_add_qml_module(omni-launcher
         GameTile.qml
         MenuPanel.qml
         OmniLogo.qml
-        StatusButton.qml
         GameDetail.qml
         InstallerWindow.qml
         GreeterWindow.qml
         ActionButton.qml
         Field.qml
+        OnScreenKeyboard.qml
+        FieldKeyboard.qml
+        PromptPanel.qml
     SOURCES
         GameListModel.h
         AppListModel.h
-        HyprlandEvents.h
         GamepadInput.h
         SystemStatus.h
         LauncherController.h
         InstallerController.h
         GreeterController.h
-        KeyDelivery.h)
+        KeyDelivery.h
+        InputMode.h)
 
 # SDL3 for the controller. Optional on purpose: without it the shell still
 # builds and still works, it is simply keyboard-only. Qt6 has no gamepad module

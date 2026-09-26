@@ -22,6 +22,7 @@
 #pragma once
 
 #include <QObject>
+#include <QString>
 #include <QTimer>
 
 class GamepadInput : public QObject {
@@ -39,20 +40,35 @@ public:
     // other press belongs to the game.
     void setAppRunning(bool running) { appRunning_ = running; }
 
+    // The family of the pad last used: "playstation", "xbox", "nintendo" or
+    // "generic". It decides what the buttons are called on screen — a
+    // DualSense has no "A", it has ✕ in the same place.
+    QString kind() const { return kind_; }
+
 signals:
     // A button that maps onto a key the shell already understands.
     void keyPressed(int key);
     // The Guide button — the one press that means "back to the library",
     // wherever you are.
     void homeRequested();
+    // Any press or deliberate stick movement, including while a game is
+    // running. KDE's idle timer counts keyboards and mice but not gamepads —
+    // the launcher reads the pad itself — so someone playing or browsing with
+    // only a controller would have the screen dim, blank and the machine sleep
+    // under them. This is what tells KDE otherwise.
+    void activity();
+    void kindChanged();
 
 private:
     void poll();
     void emitKey(int key);
     void handleDirection(int key, bool pressed);
 
+    void setKind(const QString& kind);
+
     bool available_  = false;
     bool appRunning_ = false;
+    QString kind_ = QStringLiteral("generic");
 
     QTimer timer_;
     // The direction currently held, so it can repeat, and when it last fired.

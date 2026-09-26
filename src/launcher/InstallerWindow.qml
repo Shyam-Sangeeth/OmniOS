@@ -43,8 +43,8 @@ Window {
     property string step: "choose"
 
     // The account, as the account screen leaves it. skipAccount keeps the live
-    // image's own passwordless "omni", which is the only way through this with
-    // a controller and no keyboard.
+    // image's own passwordless "omni", for anyone who would rather not spell
+    // out a name and password on the on-screen keyboard.
     property bool skipAccount: false
     property bool usernameEdited: false
     property bool hostnameEdited: false
@@ -359,6 +359,7 @@ Window {
 
                     Field {
                         id: nameField
+                        keyboard: fieldKeyboard
                         width: accountGrid.cell
                         label: qsTr("Your name")
                         onEdited: {
@@ -371,6 +372,7 @@ Window {
                     }
                     Field {
                         id: passwordField
+                        keyboard: fieldKeyboard
                         width: accountGrid.cell
                         label: qsTr("Password")
                         secret: true
@@ -381,6 +383,7 @@ Window {
                     }
                     Field {
                         id: usernameField
+                        keyboard: fieldKeyboard
                         width: accountGrid.cell
                         label: qsTr("Username")
                         invalid: window.accountProblem !== "" && Installer.usernameProblem(text) !== ""
@@ -395,6 +398,7 @@ Window {
                     }
                     Field {
                         id: confirmField
+                        keyboard: fieldKeyboard
                         width: accountGrid.cell
                         label: qsTr("Password again")
                         secret: true
@@ -406,6 +410,7 @@ Window {
                     }
                     Field {
                         id: hostnameField
+                        keyboard: fieldKeyboard
                         width: accountGrid.cell
                         label: qsTr("Computer name")
                         text: "omnios"
@@ -483,7 +488,8 @@ Window {
                     wrapMode: Text.WordWrap
                     color: Theme.textSecondary
                     font.pixelSize: 13
-                    text: qsTr("No keyboard? Skip keeps an account named \"omni\" with no password, as on this USB stick.")
+                    text: qsTr("No keyboard? %1 on a box types with the controller, or Skip keeps an account named \"omni\" with no password, as on this USB stick.")
+                              .arg(Installer.input.buttonNames.south)
                 }
 
                 // Enter on any field is Next, as on any form.
@@ -510,11 +516,13 @@ Window {
                 Heading {
                     id: zoneHeading
                     title: qsTr("Choose your time zone")
-                    subtitle: qsTr("It sets the clock. Type a city to find it, or scroll; LB and RB on a controller jump a region at a time.")
+                    subtitle: qsTr("It sets the clock. Type a city to find it, or scroll; %1 and %2 on a controller jump a region at a time.")
+                              .arg(Installer.input.buttonNames.l1).arg(Installer.input.buttonNames.r1)
                 }
 
                 Field {
                     id: zoneSearch
+                    keyboard: fieldKeyboard
                     anchors { top: zoneHeading.bottom; topMargin: 20; left: parent.left }
                     width: Math.min(parent.width, 420)
                     label: qsTr("Search")
@@ -727,6 +735,7 @@ Window {
                 // this: there is nothing on it to lose.
                 Field {
                     id: eraseField
+                    keyboard: fieldKeyboard
                     visible: window.holdsSomething
                     anchors {
                         left: parent.left; bottom: parent.bottom
@@ -984,5 +993,11 @@ Window {
         }
         zoneList.currentIndex = i
         zoneList.positionViewAtIndex(i, ListView.Beginning)
+    }
+
+    // Typing with a controller: the fields above open this on A (✕).
+    FieldKeyboard {
+        id: fieldKeyboard
+        inputMode: Installer.input
     }
 }

@@ -30,7 +30,37 @@ constexpr int kAxisRelease   = 12000;   // hysteresis, so it does not chatter
 constexpr qint64 kRepeatDelayMs    = 400;
 constexpr qint64 kRepeatIntervalMs = 120;
 
+#ifdef OMNIOS_HAS_GAMEPAD
+// Which family a pad belongs to, for naming its buttons on screen. The mapping
+// itself does not change: presses are read by position (south, east, …), so a
+// DualSense's ✕ is where an Xbox pad's A is and does the same thing.
+QString kindOf(SDL_Gamepad* pad) {
+    switch (SDL_GetGamepadType(pad)) {
+        case SDL_GAMEPAD_TYPE_PS3:
+        case SDL_GAMEPAD_TYPE_PS4:
+        case SDL_GAMEPAD_TYPE_PS5:
+            return QStringLiteral("playstation");
+        case SDL_GAMEPAD_TYPE_XBOX360:
+        case SDL_GAMEPAD_TYPE_XBOXONE:
+            return QStringLiteral("xbox");
+        case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO:
+        case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+        case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
+        case SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
+            return QStringLiteral("nintendo");
+        default:
+            return QStringLiteral("generic");
+    }
+}
+#endif
+
 }  // namespace
+
+void GamepadInput::setKind(const QString& kind) {
+    if (kind_ == kind) return;
+    kind_ = kind;
+    emit kindChanged();
+}
 
 GamepadInput::GamepadInput(QObject* parent) : QObject(parent) {
 #ifdef OMNIOS_HAS_GAMEPAD
@@ -98,8 +128,19 @@ void GamepadInput::poll() {
                 // third.
                 if (pad != nullptr) {
                     const char* name = SDL_GetGamepadName(pad);
-                    qWarning("omni-launcher: controller connected: %s",
-                             name != nullptr ? name : "unnamed");
+                    const QString kind = kindOf(pad);
+                    qWarning("omni-launcher: controller connected: %s (%s)",
+                             name != nullptr ? name : "unnamed", qPrintable(kind));
+                    setKind(kind);
+                    // A DualSense or DualShock 4 lights up in OmniOS's colour, the
+                    // way a PlayStation lights it in its own. Only through SDL's
+                    // HID driver, which needs the hidraw access that
+                    // 60-omnios-controllers.rules grants; over the kernel's
+                    // evdev device alone SDL cannot reach the light bar, and
+                    // this quietly does nothing.
+                    if (kind == QLatin1String("playstation") &&
+                        !SDL_SetGamepadLED(pad, 0x6C, 0x63, 0xFF))
+                        qWarning("omni-launcher: light bar not reachable: %s", SDL_GetError());
                 } else {
                     qWarning("omni-launcher: could not open controller: %s", SDL_GetError());
                 }
@@ -120,6 +161,13 @@ void GamepadInput::poll() {
             case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
             case SDL_EVENT_GAMEPAD_BUTTON_UP: {
                 const bool pressed = event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+                if (pressed) {
+                    emit activity();
+                    // With two pads connected, the one being used names the
+                    // buttons.
+                    if (SDL_Gamepad* pad = SDL_GetGamepadFromID(event.gbutton.which))
+                        setKind(kindOf(pad));
+                }
 
                 // The one button that works while a game is running, and the
                 // only way back to the library without a keyboard.
@@ -171,6 +219,7 @@ void GamepadInput::poll() {
             }
 
             case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
+                if (std::abs(event.gaxis.value) > kAxisThreshold) emit activity();
                 if (appRunning_) break;
 
                 const bool horizontal = event.gaxis.axis == SDL_GAMEPAD_AXIS_LEFTX;

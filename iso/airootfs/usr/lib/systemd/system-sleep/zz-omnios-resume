@@ -1,17 +1,20 @@
 #!/bin/sh
-# Bring the shell back after a resume.
+# Bring the display back after a resume.
 #
-# Waking from S3 came back to a stuck OmniOS splash rather than the launcher.
+# Waking from S3 came back to a stuck OmniOS splash rather than the session.
 # Plymouth ships no sleep hook of its own, and this profile masks
 # plymouth-quit.service — the boot handoff needs that — so on resume there was
 # nothing at all whose job it was to take the splash down, and plymouthd sat
-# holding DRM master with Hyprland unable to draw behind it.
+# holding DRM master with the compositor unable to draw behind it.
+#
+# Switching the outputs back on is KWin's own business on resume; this hook
+# only has to get the splash out of its way.
 #
 # Named zz- so it runs after anything else that lands in this directory.
 #
-# Never fails the resume: a machine that will not come back to its grid is bad,
-# but a systemd sleep hook returning non-zero makes the resume itself an error,
-# which is worse and harder to see.
+# Never fails the resume: a machine that will not come back to its screen is
+# bad, but a systemd sleep hook returning non-zero makes the resume itself an
+# error, which is worse and harder to see.
 set -u
 
 [ "${1:-}" = "post" ] || exit 0
@@ -20,22 +23,5 @@ set -u
 # already be gone, and the exit status of that is not worth acting on.
 plymouth quit >/dev/null 2>&1 || true
 pkill -x plymouthd >/dev/null 2>&1 || true
-
-# The compositor can come back with its outputs still asleep, which reads as a
-# dead console — "Display output is not active" is what the screen said. Ask
-# Hyprland to switch them on again.
-#
-# hyprctl needs the instance signature and the user's runtime directory, and
-# this hook runs as root, so both are supplied by hand.
-for runtime in /run/user/*; do
-    [ -d "$runtime/hypr" ] || continue
-    uid=$(basename "$runtime")
-    signature=$(ls -1t "$runtime/hypr" 2>/dev/null | head -1)
-    [ -n "$signature" ] || continue
-    user=$(id -nu "$uid" 2>/dev/null) || continue
-    runuser -u "$user" -- env "XDG_RUNTIME_DIR=$runtime" \
-        "HYPRLAND_INSTANCE_SIGNATURE=$signature" \
-        hyprctl dispatch dpms on >/dev/null 2>&1 || true
-done
 
 exit 0

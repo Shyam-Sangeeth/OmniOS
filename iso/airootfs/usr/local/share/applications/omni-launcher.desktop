@@ -1,0 +1,11 @@
+[Desktop Entry]
+# The launcher's own entry, matched to its window by app id (omni-launcher), so
+# Plasma's taskbar shows it as "OmniOS" with the mark instead of a blank icon
+# and a binary name. Hidden from menus: "Game Mode" is the way in.
+Type=Application
+Name=OmniOS
+GenericName=Game Mode
+Exec=omni-session-select game
+Icon=omnios
+NoDisplay=true
+StartupWMClass=omni-launcher

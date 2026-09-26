@@ -17,6 +17,14 @@ Column {
     property Item tabTo: null
     property Item upTo: null
     property Item downTo: null
+    // The window's FieldKeyboard, if it has one. A controller's A (✕) on the
+    // box then opens it on this field, rather than submitting a box nobody
+    // could have typed into.
+    property Item keyboard: null
+    readonly property bool controllerTyping: !!keyboard && keyboard.controller
+    // After the keyboard's Done, go on to the next box (downTo, else tabTo).
+    // Off where Return in this box is the whole point, like signing in.
+    property bool doneMovesOn: true
 
     // Typed into, as opposed to set from code.
     signal edited()
@@ -55,6 +63,22 @@ Column {
             KeyNavigation.tab: field.tabTo
             KeyNavigation.up: field.upTo
             KeyNavigation.down: field.downTo
+            Keys.onPressed: event => {
+                if (field.keyboard && event.nativeScanCode === Theme.controllerScanCode
+                        && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+                    field.keyboard.show(field)
+                    event.accepted = true
+                }
+            }
+        }
+        // With a controller in hand an empty box says how to fill it in.
+        Text {
+            anchors { fill: box }
+            verticalAlignment: Text.AlignVCenter
+            visible: box.text === "" && box.activeFocus && field.controllerTyping
+            text: qsTr("%1  to type").arg(field.controllerTyping ? field.keyboard.buttons.south : "")
+            color: Theme.textSecondary
+            font.pixelSize: 15
         }
     }
 }

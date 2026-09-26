@@ -283,6 +283,31 @@ copy_system() {
     [[ -x $ROOT/usr/bin/bash ]] || fail "the system did not copy onto the disk"
 }
 
+# For an account with a password: sudo, and polkit's system-package actions,
+# ask for it. The live image's rules let wheel do both without one.
+require_admin_password() {
+    cat > "$ROOT/etc/sudoers.d/omnios" <<'SUDOERS'
+# An installed system whose account has a password: sudo asks for it. The live
+# image, and an install without a password, let wheel use sudo without one —
+# there is no password to type there.
+%wheel ALL=(ALL:ALL) ALL
+
+# Except for taking the boot splash down, which the session does as it starts,
+# before there is anything to type a password into. A splash that will not
+# leave holds the display, and the desktop cannot start behind it.
+%wheel ALL=(root) NOPASSWD: /usr/bin/pkill -x plymouthd
+SUDOERS
+    chmod 0440 "$ROOT/etc/sudoers.d/omnios"
+    # A sudoers file sudo cannot parse switches sudo off entirely, and on a
+    # system with root locked that is no way back in. Checked, not assumed.
+    arch-chroot "$ROOT" visudo -cf /etc/sudoers.d/omnios >/dev/null \
+        || fail "the administrator rules did not check out"
+
+    # System packages through PackageKit (Discover). Flatpaks stay
+    # password-free, as flatpak's own rules have it for wheel.
+    rm -f "$ROOT/etc/polkit-1/rules.d/49-omnios-packagekit.rules"
+}
+
 # Everything that is right for a live image and wrong for an installed system.
 configure_target() {
     # The kernel. mkarchiso empties /boot in the image, but pacman keeps the
@@ -396,17 +421,28 @@ GREETD
     # anyone on the same network can log into and — omni having passwordless
     # sudo — become root on. So: no ssh, and both passwords locked.
     #
-    # Locked, not blank. tty1 still logs in by itself, which is the console
-    # experience; sudo still works from a session, which the store and the
-    # launcher rely on. What stops working is logging in by password anywhere,
-    # which nobody here was told a password for anyway. The setup wizard
-    # (Phase 13.3) is where a real account and password belong.
+    # Root is locked, not blank. The account gets the password chosen in the
+    # installer, or — skipped — is locked too: tty1 still logs in by itself,
+    # which is the console experience, and nothing can log in by password.
+    #
+    # sudo follows the account. With a password it asks for it, as it would on
+    # any other system: otherwise the password guards signing in and nothing
+    # else, since anything signed in could become root without it. Without
+    # one it cannot ask — there is nothing to type — so it keeps the live
+    # image's NOPASSWD rule.
     local unit
     for unit in sshd.service omnios-live-credentials.service \
                 omnios-pacman-init.service etc-pacman.d-gnupg.mount; do
         systemctl --root="$ROOT" disable "$unit" 2>/dev/null || true
         rm -f "$ROOT"/etc/systemd/system/*.wants/"$unit"
     done
+    # The live keyring's units go altogether, not just disabled. A mount unit
+    # needs no "wants" to start: any unit that touches the path pulls it in,
+    # and something did at every boot — so the tmpfs was mounted over the
+    # keyring made below, and every update and removal on an installed system
+    # failed with "keyring is not writable".
+    rm -f "$ROOT/etc/systemd/system/etc-pacman.d-gnupg.mount" \
+          "$ROOT/etc/systemd/system/omnios-pacman-init.service"
     arch-chroot "$ROOT" passwd -l root
     if (( HAVE_PASSWORD )); then
         # Tracing off while the password is in a command line: set -x would
@@ -415,6 +451,7 @@ GREETD
         printf '%s:%s\n' "$USER_NAME" "$PASSWORD" | chpasswd --root "$ROOT"
         PASSWORD=""
         set -x
+        require_admin_password
     else
         arch-chroot "$ROOT" passwd -l "$USER_NAME"
     fi

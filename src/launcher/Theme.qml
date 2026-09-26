@@ -29,6 +29,10 @@ QtObject {
 
     readonly property int gutter: 28
 
+    // The native scan code a controller press arrives with (KeyDelivery.h,
+    // kControllerScanCode — keep the two equal). No keyboard sends it.
+    readonly property int controllerScanCode: 0x6F53
+
     // Slack around each tile in its grid cell. A focused tile scales to 1.06
     // and draws a ring 2px outside itself, so on a 160px tile it needs about
     // 7px on every side; 26 total leaves 13 each way with the tile centred.

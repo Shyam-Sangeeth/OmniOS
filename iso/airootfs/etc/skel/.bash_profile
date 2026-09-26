@@ -1,17 +1,17 @@
 # Phase 3.2 (OmniOS.md §5.3.2). Boot straight into a session on tty1 and
 # nowhere else, so ssh and the other ttys stay a plain shell.
 #
-# There are two sessions, Desktop Mode (Plasma) and Game Mode (Hyprland and the
-# tile launcher), and this file is what switches between them: there is no
-# display manager. The loop at the bottom starts whichever one is chosen and,
-# when it ends, starts whichever one is chosen next. omni-session-select makes
-# the choice.
+# There is one session, Plasma, and two modes inside it: Desktop Mode is Plasma
+# as it is, Game Mode is the tile launcher open over it. omni-session-select
+# moves between them without ending the session. There is no display manager:
+# the loop at the bottom starts Plasma, and starts it again when it ends —
+# unless the console was asked for, or the sign-in screen is waiting.
 #
 # The compositor is never exec'd blindly. A console OS that fails to start its
-# shell must say why: an `exec Hyprland` that dies leaves a black screen with a
-# cursor and no way to diagnose it, which is exactly what the first QEMU boot
-# produced. Output is logged and a failure drops to a shell with the reason on
-# screen.
+# shell must say why: an `exec` of a compositor that dies leaves a black screen
+# with a cursor and no way to diagnose it, which is exactly what the first QEMU
+# boot produced. Output is logged and a failure drops to a shell with the reason
+# on screen.
 
 if [ -n "$WAYLAND_DISPLAY" ] || [ "$XDG_VTNR" != "1" ]; then
     return 2>/dev/null || true
@@ -24,9 +24,9 @@ if grep -qw omnios.nolauncher /proc/cmdline 2>/dev/null; then
     return 2>/dev/null || true
 fi
 
-# Hyprland, like every wlroots compositor, exits rather than run with
-# superuser privileges. Reaching here as root means the autologin user is
-# misconfigured; say that plainly instead of failing inside the compositor.
+# The session is not meant to run as root, and a compositor started as root
+# fails in ways that say nothing about why. Reaching here as root means the
+# autologin user is misconfigured; say that plainly instead.
 if [ "$(id -u)" = "0" ]; then
     echo "OmniOS: refusing to start the compositor as root."
     echo "The live user is 'omni' — check the getty autologin drop-in."
@@ -47,30 +47,8 @@ if [ -e /sys/class/drm/card0/device/driver ]; then
     omni_drm_driver=$(readlink -f /sys/class/drm/card0/device/driver)
 fi
 
-case "$omni_drm_driver" in
-    *virtio* | *bochs* | *vmwgfx* | *qxl* | *vboxvideo* | *cirrus*)
-        # AQ_NO_MODIFIERS is the important one. Without it aquamarine
-        # negotiates DRM format modifiers that these drivers cannot satisfy
-        # under software rendering, and every mode is refused:
-        #
-        #   ERR: Monitor Virtual-1: REJECTED available mode 1280x800@74.99Hz!
-        #   ERR: Monitor Virtual-1: REJECTED preferred mode!!!
-        #
-        # The compositor then runs perfectly with nothing ever committed to
-        # the screen — no error, no exit, no clue.
-        export AQ_NO_MODIFIERS=1
-        export WLR_NO_HARDWARE_CURSORS=1
-        ;;
-esac
-
-# No render node at all means no GL device to bind: bochs/stdvga exposes
-# card0 for modesetting but no renderD128, and aquamarine then reports
-# "Can't create renderer, no matching devices found". Software GL does not
-# rescue that — the device has to exist — so this only helps drivers that do
-# expose one.
-#
-# WLR_RENDERER=pixman is deliberately NOT set. Hyprland has no pixman
-# renderer; setting it yields a compositor that runs and never draws.
+# No render node at all means no GL device to bind: bochs/stdvga exposes card0
+# for modesetting but no renderD128. Software GL is what KWin draws with there.
 if ! [ -e /dev/dri/renderD128 ]; then
     export LIBGL_ALWAYS_SOFTWARE=1
 fi
@@ -116,9 +94,7 @@ if [ -e /dev/ttyS0 ]; then
         loginctl session-status 2>/dev/null | head -8 || echo "  (none)"
         echo "===== GRAPHICS ENVIRONMENT ====="
         echo "drm driver path: ${omni_drm_driver:-none}"
-        echo "AQ_NO_MODIFIERS=${AQ_NO_MODIFIERS:-unset}"
         echo "LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE:-unset}"
-        echo "WLR_NO_HARDWARE_CURSORS=${WLR_NO_HARDWARE_CURSORS:-unset}"
         echo "===== DRM DEVICES ====="
         ls -l /dev/dri 2>/dev/null
         echo "===== END ====="
@@ -126,8 +102,8 @@ if [ -e /dev/ttyS0 ]; then
 fi
 
 # Hand the display over before starting the compositor. plymouth holds DRM
-# master for as long as it runs, and a wlroots compositor cannot take the
-# device from it — Hyprland simply blocks. Holding the splash until the
+# master for as long as it runs, and a compositor cannot take the device
+# from it — it simply blocks. Holding the splash until the
 # launcher had drawn therefore deadlocked one step later than the last fix:
 # boot reached autologin and stopped there.
 #
@@ -149,7 +125,7 @@ if command -v plymouth >/dev/null 2>&1; then
 
     # 'plymouth quit' returns as soon as the request is sent, not when the
     # daemon has exited and dropped DRM master. Starting the compositor into
-    # that gap produced the worst possible outcome: Hyprland came up healthy
+    # that gap produced the worst possible outcome: the compositor came up healthy
     # with no output device at all — process running, Xwayland running, screen
     # still showing the console underneath. A compositor that fails is
     # debuggable; one that runs invisibly is not.
@@ -224,8 +200,10 @@ fi
 
 # Plasma opens whatever is in ~/.config/autostart when it starts, which is how
 # the installer comes up by itself. It is taken away again as soon as that
-# first desktop session ends, so switching to Game Mode and back, or logging
-# out, does not open it a second time.
+# first session ends, so logging out and back in does not open it a second
+# time. (Game Mode's launcher comes up the same way, from a system-wide
+# autostart entry that asks omni-session-select whether this login is in Game
+# Mode.)
 readonly OMNI_INSTALL_AUTOSTART="$HOME/.config/autostart/omnios-install-now.desktop"
 omni_install_armed=0
 
@@ -261,15 +239,16 @@ AUTOSTART
             echo "Type 'exit' to start $(cat "$OMNI_MODE_FILE") mode again."
             break
             ;;
-        desktop)
+        desktop | game)
+            # Both modes are the one Plasma session; Game Mode is the launcher
+            # opened in it at login (see the autostart entry above).
             if ! command -v startplasma-wayland >/dev/null 2>&1; then
-                # An image built without Plasma must still boot to something.
-                echo "Desktop Mode is not installed on this image; starting Game Mode." >"$OMNI_LOG"
-                echo game >"$OMNI_MODE_FILE"
-                continue
+                clear
+                echo "OmniOS: Plasma is not installed on this image, so there is no"
+                echo "session to start. 'omnictl list' works without one."
+                break
             fi
             ;;
-        game) ;;
         *)
             omni_boot_mode >"$OMNI_MODE_FILE"
             continue
@@ -278,23 +257,7 @@ AUTOSTART
 
     omni_started=$SECONDS
 
-    # Hyprland is invoked directly, on purpose.
-    #
-    # start-hyprland is the upstream-recommended entry point and silences the
-    # "started without start-hyprland" warning, but it hands off to a session
-    # manager and returns immediately. From a tty autologin that means this
-    # loop sees the session end the instant it began, which is exactly what
-    # happened before the loop existed: the login shell exited, getty respawned,
-    # and the boot never reached the launcher. Verified by isolation: the
-    # failure was identical under both stdvga and virtio-vga, so the display
-    # device was not involved.
-    #
-    # The warning is cosmetic. A console that never starts is not.
-    if [ "$omni_mode" = game ]; then
-        Hyprland >"$OMNI_LOG" 2>&1
-    else
-        omni_start_desktop >"$OMNI_LOG" 2>&1
-    fi
+    omni_start_desktop >"$OMNI_LOG" 2>&1
     status=$?
     omni_lasted=$((SECONDS - omni_started))
 
@@ -312,34 +275,21 @@ AUTOSTART
         tail -n 20 "$OMNI_LOG" 2>/dev/null || echo "(no log was written)"
         echo "---------------------------------------------------------------"
         echo
-
-        # A desktop that will not start should not cost you the machine: Game
-        # Mode is a different compositor and very likely still works. The
-        # delay is so the reason above can be read, and Ctrl-C keeps you at
-        # this shell instead.
-        if [ "$omni_mode" = desktop ]; then
-            echo "Starting Game Mode in 10 seconds. Press Ctrl-C to stay at a shell."
-            sleep 10
-            echo game >"$OMNI_MODE_FILE"
-            continue
-        fi
-
         echo "You are at a shell. 'omnictl list' works without the compositor."
         break
     fi
 
-    # Signed in at the sign-in screen, and signed out rather than switched:
-    # the mode is the one this session started in, so nobody asked for the
-    # other. Leaving the login shell ends the session, and greetd shows the
-    # sign-in screen again — where a machine that asks for a password has to
-    # go back to, not straight into a fresh session for whoever is sitting
-    # there next.
-    if [ "${OMNIOS_GREETER:-}" = 1 ] && [ "$(head -n 1 "$OMNI_MODE_FILE" 2>/dev/null)" = "$omni_mode" ]; then
+    # Signed in at the sign-in screen, and signed out. Switching modes never
+    # ends the session, so a session that ended was someone signing out —
+    # unless they asked for the console, which the loop handles above. Leaving
+    # the login shell ends the session, and greetd shows the sign-in screen
+    # again: where a machine that asks for a password has to go back to, not
+    # straight into a fresh session for whoever is sitting there next.
+    if [ "${OMNIOS_GREETER:-}" = 1 ] && [ "$(head -n 1 "$OMNI_MODE_FILE" 2>/dev/null)" != console ]; then
         exit 0
     fi
 
-    # A clean exit is someone switching mode or logging out, and the loop
-    # carries on. Three in a row that each lasted seconds are a session that
+    # A clean exit is someone logging out, and the loop carries on. Three in a row that each lasted seconds are a session that
     # cannot start and exits politely about it — restarting that for ever would
     # be a black screen that flickers, with the reason never shown.
     if [ $omni_lasted -lt 10 ]; then

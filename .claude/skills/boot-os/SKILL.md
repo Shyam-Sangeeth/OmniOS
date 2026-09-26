@@ -5,10 +5,10 @@ description: Boot the OmniOS ISO in QEMU on Windows and drive it — press keys,
 
 # Booting OmniOS
 
-The ISO boots straight into a fullscreen shell with no ssh and no desktop
-behind it, and a foreground QEMU holds the terminal. So everything after the
-boot goes through QEMU's monitor socket, and the two scripts below are the whole
-interface.
+The ISO boots into a Plasma session (Desktop Mode; Game Mode is the launcher
+open inside the same session), and a foreground QEMU holds the terminal. So
+everything after the boot goes through QEMU's monitor socket or ssh, and the
+scripts below are the interface.
 
 ## 1. Make sure there is an ISO
 
@@ -59,16 +59,22 @@ boot is ten seconds slower than it looks; send `<KEY:ret>` straight after
 `run-qemu.ps1 -Detach` returns to skip it, or `<KEY:down>` then `<KEY:ret>` for
 Install, which opens the installer on the desktop by itself.
 
-**A normal boot lands in Desktop Mode (Plasma), not the tile launcher.** To
-reach Game Mode, open KRunner and run the Game Mode entry; to come back, pick
-"Switch to desktop" from the launcher's F10 menu:
+**A normal boot lands in Desktop Mode (Plasma), not the tile launcher.** Game
+Mode is the launcher opened inside that same Plasma session, so switching is
+instant either way. To reach it, open KRunner and run the Game Mode entry (or
+`omni-session-select game` over ssh); to come back, pick "Switch to desktop"
+from the launcher's F10 menu:
 
 ```powershell
-./scripts/vm-console.ps1 -Shot game.png -Script '<KEY:alt-f2>', '<WAIT:4>', 'Game Mode', '<WAIT:4>', '<ENTER>', '<WAIT:40>'
+./scripts/vm-console.ps1 -Shot game.png -Script '<KEY:alt-f2>', '<WAIT:4>', 'Game Mode', '<WAIT:4>', '<ENTER>', '<WAIT:10>'
 ```
 
-A switch takes 30-40 s under software rendering. `/tmp/omnios-session.log` is
-the log of whichever session started last.
+`/tmp/omnios-session.log` is Plasma's log. The launcher's own messages go to
+the journal when Plasma starts it (`journalctl --user -b | grep omni-launcher`),
+not to `/tmp/omnios-shell.log` — "gamepad input ready" there is how to confirm
+the image was built with SDL3. A launcher started over ssh lacks the session's
+environment (XDG_CURRENT_DESKTOP among it), so check anything that depends on
+it with a launcher Plasma started.
 
 One script, one monitor connection:
 
@@ -141,6 +147,12 @@ and boot `-FromDisk`. The screen is `omni-greeter` under greetd; its output is
 in `journalctl -u greetd`. Signing out of the desktop there must come back to
 it, and switching modes must not.
 
+**An installed disk has no ssh**, and with a password its `sudo` asks for it —
+from KRunner's Konsole, type it after the command. To exercise Game Mode's own
+password box: Apps tab, a pacman app's menu (M), Update. What that update then
+did is in `/tmp/omnios-pkg.log`, read from the desktop; the status line on
+screen is gone after seven seconds.
+
 **Power off from inside the guest before `-FromDisk`**, so the disk is clean:
 KRunner, `systemctl poweroff`. vm-console will then fail with "connection was
 forcibly closed" — that is QEMU exiting, i.e. success.
@@ -184,6 +196,29 @@ without `HYPRLAND_INSTANCE_SIGNATURE`, which is not an error you will notice:
 sig=$(ls /run/user/1000/hypr | head -1)
 su omni -c "XDG_RUNTIME_DIR=/run/user/1000 HYPRLAND_INSTANCE_SIGNATURE=$sig hyprctl clients"
 ```
+
+**A controller in the VM: [scripts/vm-gamepad.c](../../../scripts/vm-gamepad.c).**
+QEMU cannot emulate a gamepad, so this makes a virtual Xbox 360 pad through
+uinput inside the guest; SDL treats it as a real one. Compile it there with gcc,
+run it as root, and `echo a > /tmp/pad` taps A. Give it `ps5` as a second
+argument and it is a DualSense instead ("PS5 Controller" in the launcher's
+journal), for checking what the screen calls the buttons; its light bar cannot
+be tested, having no hidraw node. Things learned driving it:
+
+- xpad reports X as `BTN_X` and Y as `BTN_Y`, which input.h names `BTN_NORTH`
+  and `BTN_WEST` — send `BTN_WEST` for X and the launcher sees Y (rescan).
+- Three wrong sudo passwords in fifteen minutes lock the account for ten
+  (pam_faillock), ssh included, and the right password then fails silently.
+  Test the error path with two wrong tries at most.
+- KDE blanks the screen after ten idle minutes and a pad does not count as
+  activity to KWin — only the launcher's SimulateUserActivity call does. For a
+  quick check set `powerdevilrc [AC][Display] TurnOffDisplayIdleTimeoutSec=60`
+  with kwriteconfig6 and restart `plasma-powerdevil`; `GetSessionIdleTime` is
+  "not supported" on Wayland, so watch the screen instead.
+
+**Raising a window from outside is `omni-kwin-activate <app id>`**, which
+loads a KWin script over D-Bus. The launcher's app id is `omni-launcher`.
+Hyprland is no longer on the image; ignore older notes here that use `hyprctl`.
 
 Both of those said an app had failed to start while it was in fact running
 fullscreen on workspace 2 — which is where the launcher puts everything, so it
@@ -230,6 +265,19 @@ short in the screenshot. The fifth landed afterwards, so one more Down went to
 Sleep and Enter suspended the machine. Screenshot the highlighted row, then
 send Enter in a separate call.
 
+Most of that lag was probably the launcher, not the VM. Until 2026-09-26 its
+status poll ran `bluetoothctl` every eight seconds on the UI thread, and with
+no Bluetooth adapter — this VM has none — bluetoothctl never returns, so Game
+Mode was frozen four seconds in every eight. Fixed in SystemStatus.cpp; if
+keys start arriving late again, look for a synchronous tool call in a poll
+before blaming QEMU.
+
+**Timing a transition:** a screendump every 0.4 s over the one monitor
+connection, plus a guest-side loop over ssh that stamps when each process
+comes and goes, is enough to split a slow switch into its parts. That is how
+the four-second wait entering Game Mode turned out to be the launcher starting,
+not the compositors handing over (0.4 s).
+
 **"Kernel panic - not syncing: IO-APIC + timer doesn't work!" at 0.008 s is the
 VM, not the image.** The timer check it fails is timing-sensitive under WHPX
 with kernel-irqchip=off; hpet=off in run-qemu.ps1 made it rarer, not gone. On
@@ -250,11 +298,43 @@ foreach ($try in 1..4) {
 }
 ```
 
-**Sleep does not come back in the VM.** On 2026-09-25, `system_wakeup` after a
-suspend cold-booted to ISOLINUX and wedged there, so `-Fresh` was the only way
-out. Resume had worked when sleep was built; the sound card was added to
-run-qemu.ps1 after that and is the first suspect, but it has not been checked.
-Until it is, do not choose Sleep in a VM you still need.
+**Sleep in the VM: three faults, all QEMU's, and a recipe that works.** Traced
+on 2026-09-26 with the kernel log on the serial port (below). The guest's own
+resume is fine every time — `PM: suspend exit` — and then:
+
+1. **It cold-boots half a second later, with nothing in any log.** The ICH9 TCO
+   watchdog: waking resets it to running, `iTCO_wdt` does not stop it again, and
+   QEMU 11 lets it reboot the machine. `run-qemu.ps1` now passes
+   `ICH9-LPC.noreboot=on`. (The sound card, the old suspect, was innocent.)
+2. **virtio-gpu does not come back.** KWin logs "Pageflip timed out! This is a
+   bug in the virtio_gpu kernel driver" every second. `x-pcie-pm-no-soft-reset=on`
+   made the resume hang on the root bus and froze the guest behind a
+   pcie-root-port. `-Vga std` (bochs) resumes cleanly. Game Mode is the same
+   Plasma session now, so that covers both modes (it did not while Game Mode
+   was Hyprland, which cannot run on bochs).
+3. **The guest freezes about 0.5 s after waking, in 4 runs out of 7.** Look for
+   `clocksource: Watchdog acpi_pm interval: 0ns` then `Switched to clocksource
+   acpi_pm`: under WHPX the ACPI PM timer has stopped, the kernel trusts it over
+   the TSC, and time stops. `tsc=reliable` on the command line avoids it. Do not
+   put that in the ISO; real PM timers tick and real TSCs need the watchdog.
+
+So, to test Desktop Mode's sleep: boot `-Vga std`, press Tab at the boot menu
+and append ` tsc=reliable` (plus ` no_timer_check`, since the IO-APIC panic
+below gets much more likely once the kernel log goes to serial), suspend via
+KRunner `systemctl suspend`, then `system_wakeup` on the monitor (`<MON:...>` in
+vm-console). Verified: the clock on the panel advanced across the sleep and ssh
+answered afterwards.
+
+To see the kernel's side, append ` console=ttyS0,115200 console=tty0
+loglevel=7 no_console_suspend` at the menu and boot with `-SerialLog`. For a
+reset nobody logged, `-ExtraArgs '-d','cpu_reset,guest_errors','-D',<file>`
+records every reset QEMU performs.
+
+**ssh from Windows, without a prompt:** point `SSH_ASKPASS` at a .bat that
+echoes `omnios`, set `SSH_ASKPASS_REQUIRE=force`, and send the command base64
+encoded (`echo <b64> | base64 -d | bash`), because Windows PowerShell mangles
+quotes and pipes on the way to ssh.exe. A `systemctl suspend` sent over ssh
+leaves ssh hanging into the sleep; kill it.
 
 ## Checking the result honestly
 

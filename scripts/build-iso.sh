@@ -50,17 +50,26 @@ fi
 [[ -x "$CORE_BUILD/omnictl" ]] || die "$CORE_BUILD/omnictl missing; run without --skip-core"
 install -Dm755 "$CORE_BUILD/omnictl" "$PROFILE/airootfs/usr/local/bin/omnictl"
 
-# The Phase 10 shell. Absent when the build host has no Qt6, in which case the
-# image falls back to the terminal launcher — say so rather than shipping a
-# broken exec-once that leaves a blank desktop.
+# The Phase 10 shell. Absent when the build host has no Qt6, in which case
+# Game Mode has no launcher — say so rather than failing somewhere less clear.
 launcher_bin="$CORE_BUILD/src/launcher/omni-launcher"
 if [[ -x "$launcher_bin" ]]; then
+    # Controller support is optional to CMake — the launcher still builds
+    # keyboard-only without SDL3 — but a console image without it is broken,
+    # and nothing short of a real gamepad would show it. Every image up to
+    # 2026-09-26 shipped that way because the build container lacked sdl3.
+    # OMNIOS_ALLOW_NO_GAMEPAD=1 lets a deliberate keyboard-only build through.
+    if ! readelf -d "$launcher_bin" 2>/dev/null | grep -q 'libSDL3'; then
+        [[ ${OMNIOS_ALLOW_NO_GAMEPAD:-0} == 1 ]] \
+            || die "the launcher was built without SDL3, so Game Mode would ignore every controller — pacman -S sdl3 and build again"
+        echo "warning: building a keyboard-only launcher (OMNIOS_ALLOW_NO_GAMEPAD=1)" >&2
+    fi
     install -Dm755 "$launcher_bin" "$PROFILE/airootfs/usr/local/bin/omni-launcher-qml"
     step "including the Qt6 launcher"
 else
     # profiledef.sh lists this path in file_permissions, and mkarchiso aborts
     # the build if a listed path is missing. Install a shim so a Qt6-less build
-    # degrades to the terminal launcher instead of failing outright — archiso
+    # still produces a desktop image instead of failing outright — archiso
     # copies the airootfs with --no-preserve=mode, so file_permissions is the
     # only thing that can make either version executable.
     install -Dm755 /dev/stdin "$PROFILE/airootfs/usr/local/bin/omni-launcher-qml" <<'SHIM'
@@ -68,7 +77,7 @@ else
 echo "omni-launcher-qml: not built into this image (no Qt6 at build time)" >&2
 exit 127
 SHIM
-    echo "warning: Qt6 launcher not built; image uses the terminal launcher" >&2
+    echo "warning: Qt6 launcher not built; the image has no Game Mode" >&2
 fi
 
 # --- 2. service symlinks git could not carry --------------------------------
@@ -174,6 +183,14 @@ install -d "$(dirname "$baseline")"
                n = split($2, parts, "/"); id = parts[n]; sub(/\.desktop$/, "", id); print id }' \
         | sort -u >> "$baseline"
 )
+
+# OmniOS's own entries too. They are the desktop's doors into what Game Mode
+# already is — "Game Mode", "Install OmniOS", the launcher itself — and since
+# Game Mode runs inside the Plasma session, OnlyShowIn=KDE no longer keeps them
+# off the Apps tab, where each would be a tile that opens the screen it is on.
+for entry in "$PROFILE"/airootfs/usr/local/share/applications/*.desktop; do
+    [[ -e $entry ]] && basename "$entry" .desktop
+done >> "$baseline"
 
 found=$(grep -cv '^#' "$baseline" || true)
 echo "    $found entries"

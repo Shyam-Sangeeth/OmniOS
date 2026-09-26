@@ -18,9 +18,13 @@
 #include <QVariantList>
 
 #include "GamepadInput.h"
+#include "InputMode.h"
 
 class GreeterController : public QObject {
     Q_OBJECT
+    // Whether a controller is in use, and what it calls its buttons — for the
+    // on-screen keyboard its text boxes bring up. See InputMode.
+    Q_PROPERTY(InputMode* input READ input CONSTANT)
 
     // [{ name: "shyam", fullName: "Shyam Sangeeth" }, ...] — the people who can
     // sign in: regular accounts with a login shell.
@@ -43,6 +47,9 @@ public:
     Q_INVOKABLE void powerAction(const QString& action);
     Q_INVOKABLE void clearError();
 
+public:
+    InputMode* input() { return &input_; }
+
 signals:
     void stateChanged();
     void focusWanted();
@@ -64,4 +71,5 @@ private:
     QString mode_;
     QByteArray password_;
     GamepadInput gamepad_;
+    InputMode    input_{&gamepad_};
 };

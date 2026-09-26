@@ -71,25 +71,20 @@ openssh
 
 ## Storage and input — Phases 2.4, 2.5
 udisks2
-udiskie
 libinput
 usbutils
 psmisc
 
-## Display — Phase 3. Hyprland is the phase-1 compositor; the custom wlroots
-## shell replaces it later without changing anything else in this profile.
-hyprland
+## Display — Phase 3. Both modes run in Plasma's compositor, KWin (below, with
+## Plasma); Game Mode is the launcher open over the desktop. Hyprland used to be
+## Game Mode's compositor and is gone: one compositor means switching modes is
+## opening a window rather than restarting the display, and one thing to keep
+## working across sleep.
 xorg-xwayland
 qt6-wayland
+# libseat, which the sign-in screen's kiosk compositor (cage) is built against.
 seatd
 polkit
-# Terminal emulator: the launcher's escape hatch, and the surface the
-# placeholder launcher draws into until the QML shell exists.
-# foot-terminfo is only an optional dependency of foot, so it has to be named
-# explicitly. Without it TERM=foot falls back to whatever ncurses ships, and
-# screen control the launcher relies on (clear, cursor addressing) degrades.
-foot
-foot-terminfo
 
 ## Core gaming services — Phase 4
 gamemode
@@ -121,48 +116,32 @@ cmake
 ninja
 gcc
 
-## Built-in apps — the non-game tiles (OmniOS.md §17, §18).
-## Existing, proven programs rather than ones written here.
-## mpv plays video and music; thunar browses drives. thunar-volman and gvfs
-## are what make removable media actually work in Thunar, which is the whole
-## reason it is here. Comments stay on their own lines: the rest of this file
-## does the same, and it avoids depending on how mkarchiso strips trailing ones.
+## The desktop's browser and media player: Plasma's panel pins the browser,
+## and mpv opens video and music from Dolphin. Game Mode's Apps tab no longer
+## has tiles for either — Game Mode runs in the Plasma session, and these are a
+## switch to the desktop away. Comments stay on their own lines: the rest of
+## this file does the same, and it avoids depending on how mkarchiso strips
+## trailing ones.
 mpv
 chromium
-thunar
-thunar-volman
-gvfs
-ffmpegthumbnailer
 
-## The store, and what a tile menu needs to manage what it installed.
+## What installs and updates apps. Discover (with Plasma, below) is the store,
+## on Flathub: a Flatpak carries its own libraries, so installing one cannot
+## drag the base system into the partial upgrade that "pacman -Sy something"
+## invites. Discover brings archlinux-appstream-data with it.
+## checkupdates (pacman-contrib) keeps a tile menu's "check for update" safe on
+## native packages: it compares against a throwaway database instead of
+## running pacman -Sy, which on Arch leaves the system one partial upgrade from
+## a mismatched libc.
 ##
-## gnome-software is Ubuntu's store — the same program, before Canonical
-## renamed it. Arch builds it without the PackageKit plugin, so its catalogue
-## is Flathub rather than the repositories, which is the right choice here: a
-## Flatpak carries its own libraries, so installing one cannot drag the base
-## system into the partial upgrade that "pacman -Sy something" invites.
-##
-## archlinux-appstream-data is what makes it look like a store rather than a
-## package list — names, summaries and icons for anything shown from the repos.
-## xdg-desktop-portal-gtk is already pulled in by the file manager and is what
-## lets a sandboxed app open a file dialog at all.
-## checkupdates (pacman-contrib) keeps "check for update" safe on native
-## packages: it compares against a throwaway database instead of running
-## pacman -Sy, which on Arch leaves the system one partial upgrade from a
-## mismatched libc.
-gnome-software
+## GNOME Software, GNOME Settings and Thunar used to be here, as Game Mode's
+## Store, Settings and Files tiles; the tiles went, and so did they.
 flatpak
-archlinux-appstream-data
 pacman-contrib
 
-## The settings app behind the corner's cog. GNOME's rather than XFCE's,
-## because its panels drive PipeWire, NetworkManager and bluez — the things
-## this image runs — while xfce4-settings writes to xfconf, which nothing here
-## reads, and would present controls that quietly do nothing.
-gnome-control-center
-
-## Desktop Mode: Plasma, the session a normal boot lands in. Game Mode is still
-## Hyprland and the tile launcher; omni-session-select moves between the two.
+## Plasma: the session every login runs. Desktop Mode is Plasma as it is; Game
+## Mode is the tile launcher open over it, with Plasma's panel still underneath.
+## omni-session-select moves between the two.
 ##
 ## A lean set rather than plasma-meta: the shell and compositor, the three tray
 ## applets that matter (network, sound, bluetooth), power and display settings,
@@ -194,6 +173,13 @@ xdg-desktop-portal-kde
 konsole
 dolphin
 discover
+## What puts a password dialog on the desktop when something asks polkit —
+## Discover installing a system package, or a settings page that changes the
+## system, on an install whose account has a password. Named here rather than
+## trusted to arrive as a dependency: without an agent those requests are
+## refused with nothing on screen to say why. Game Mode, being the same
+## Plasma session, uses it too.
+polkit-kde-agent
 
 ## The sign-in screen, for machines installed with "sign in automatically"
 ## off. greetd asks PAM whether the password is right; cage is a kiosk
@@ -212,12 +198,6 @@ cage
 ## paired at all, which is how most people use them.
 bluez
 bluez-utils
-
-## A Flatpak install is a privileged operation and polkit is what authorises it.
-## The rule in /etc/polkit-1/rules.d grants it without a prompt, but an agent is
-## still needed for anything the rule does not cover, and a console with no
-## agent simply fails silently instead of asking.
-hyprpolkitagent
 
 ## Branding — Phase 11
 plymouth

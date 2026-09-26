@@ -1,72 +1,290 @@
 #!/usr/bin/env bash
-# Switch between OmniOS's two sessions.
+# Switch between OmniOS's two modes.
 #
-#   omni-session-select desktop   Plasma: a desktop for mouse and keyboard
-#   omni-session-select game      the tile launcher, for a controller
-#   omni-session-select console   leave both and drop to a shell on tty1
+#   omni-session-select desktop      Plasma, for mouse and keyboard
+#   omni-session-select game         the tile launcher, for a controller
+#   omni-session-select console      leave both and drop to a shell on tty1
+#   omni-session-select --autostart  Plasma's login hook: open the launcher if
+#                                    this login started in Game Mode
+#   omni-session-select --current    print "game" or "desktop" — for the start
+#                                    menu's button, which switches either way
 #
-# There is no display manager. tty1 logs in by itself and .bash_profile runs a
-# loop: read the chosen mode, start that session, and when it ends read the mode
-# again. So switching is two steps — record the choice, then end the session
-# that is running — and the loop brings up the other one.
+# Both modes are the one Plasma session. Game Mode is the OmniOS launcher open
+# over the desktop, leaving room for Plasma's own panel, so switching is opening
+# or closing one window: no session ends, and nothing goes black in between.
+# Only "console" ends the session, and tty1's loop in .bash_profile then stops.
 #
 # The choice lives in the runtime directory, which lasts exactly as long as the
 # login it belongs to. That is deliberate: a normal boot lands in Desktop Mode
-# (or whatever the boot entry asks for), not in whichever mode someone happened
-# to be in when they last pulled the plug.
+# (or whatever the boot entry or the sign-in screen asks for), not in whichever
+# mode someone happened to be in when they last pulled the plug.
 set -uo pipefail
 
 readonly mode="${1:-}"
 case "$mode" in
-    desktop | game | console) ;;
+    desktop | game | console | --autostart | --current) ;;
     *)
         echo "usage: omni-session-select desktop|game|console" >&2
         exit 2
         ;;
 esac
 
-runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-if ! printf '%s\n' "$mode" >"$runtime/omnios-mode"; then
-    echo "error: could not record the mode in $runtime/omnios-mode" >&2
-    exit 1
-fi
-
-# Which session is running is read from the processes, not from the
-# environment. HYPRLAND_INSTANCE_SIGNATURE does not reliably reach programs the
-# launcher starts, and XDG_CURRENT_DESKTOP says nothing about a script run from
-# a TTY — both would pick the wrong way to end the session, or none.
 uid="$(id -u)"
+runtime="${XDG_RUNTIME_DIR:-/run/user/$uid}"
+mode_file="$runtime/omnios-mode"
 
-if pgrep -u "$uid" -x Hyprland >/dev/null 2>&1; then
-    # hyprctl needs the instance signature to find the compositor. Take it from
-    # the environment when it is there, otherwise from the socket directory —
-    # the newest one, in case an old instance left its directory behind.
-    if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
-        sig="$(ls -1t "$runtime/hypr" 2>/dev/null | head -n 1)"
-        [ -n "$sig" ] && export HYPRLAND_INSTANCE_SIGNATURE="$sig"
+# Reaching the session from outside it — ssh, another TTY — as well as from a
+# menu inside it. Plasma's socket and bus are at their usual places.
+export XDG_RUNTIME_DIR="$runtime"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$runtime/bus}"
+
+# The launcher itself, not its installer (--install) or sign-in (--greeter)
+# faces, which are the same binary with an argument.
+readonly launcher_pattern='^(/usr/local/bin/)?omni-launcher-qml$'
+
+plasma_running() {
+    pgrep -u "$uid" -x plasmashell >/dev/null 2>&1 || pgrep -u "$uid" -x kwin_wayland >/dev/null 2>&1
+}
+
+open_launcher() {
+    if pgrep -u "$uid" -f "$launcher_pattern" >/dev/null 2>&1; then
+        # Already open, perhaps behind a game: bring it forward.
+        omni-kwin-activate omni-launcher
+        return
     fi
-    exec hyprctl dispatch exit
+    # Its own session, so it outlives whatever asked for it — a menu entry, a
+    # script, an ssh login — and logs where it always has.
+    setsid -f omni-launcher-qml >>/tmp/omnios-shell.log 2>&1 </dev/null
+}
+
+close_launcher() {
+    # Whatever it started keeps running: leaving Game Mode is not quitting the
+    # game, and the game is still on the desktop's taskbar afterwards.
+    pkill -u "$uid" -f "$launcher_pattern" 2>/dev/null || true
+}
+
+# ---- Plasma's panel in Game Mode ---------------------------------------------
+#
+# Game Mode opens onto an empty taskbar: none of the desktop's pinned apps, and
+# no entry for the launcher itself, so what appears there is only what gets
+# started from the library. The panel's tray and clock stay.
+#
+# The pins are the task manager's own setting, so Game Mode saves them, clears
+# them, and puts them back when it ends. The panel stops floating too: with the
+# launcher kept off the taskbar Plasma no longer counts it as a maximised
+# window, and a floating panel then shows a strip of wallpaper around itself.
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/omnios"
+state_file="$state_dir/game-mode-panel.json"
+
+# Plasma's scripting interface; prints what the script print()s.
+plasma_eval() {
+    dbus-send --session --print-reply --dest=org.kde.plasmashell /PlasmaShell \
+        org.kde.PlasmaShell.evaluateScript string:"$1" 2>/dev/null \
+        | sed -n 's/^ *string "\(.*\)"$/\1/p'
+}
+
+# At login this runs from an autostart entry, which can be ahead of the panel.
+wait_for_plasma() {
+    local i
+    for i in $(seq 1 40); do
+        [ "$(plasma_eval 'print("up")')" = up ] && return 0
+        sleep 0.5
+    done
+    return 1
+}
+
+readonly task_managers='w.type === "org.kde.plasma.icontasks" || w.type === "org.kde.plasma.taskmanager"'
+
+panel_to_game_mode() {
+    # Already saved means already in Game Mode: saving again would record the
+    # empty list as the one to go back to.
+    [ -s "$state_file" ] && return 0
+    wait_for_plasma || return 0
+    local saved
+    saved="$(plasma_eval "
+        const state = { floating: null, launchers: null };
+        for (const p of panels()) {
+            if (state.floating === null) state.floating = p.floating;
+            p.floating = false;
+            for (const w of p.widgets()) {
+                if (!($task_managers)) continue;
+                w.currentConfigGroup = ['General'];
+                const current = w.readConfig('launchers', '__default__');
+                if (state.launchers === null) state.launchers = current;
+                w.writeConfig('launchers', []);
+                w.reloadConfig();
+            }
+        }
+        print(JSON.stringify(state));")"
+    [ -n "$saved" ] || return 0
+    mkdir -p "$state_dir"
+    printf '%s\n' "$saved" >"$state_file"
+}
+
+panel_to_desktop() {
+    [ -s "$state_file" ] || return 0
+    wait_for_plasma || return 0
+    # A pin list that was never set in the panel's config is the task manager's
+    # built-in default — Plasma 6's own, which is what the desktop showed.
+    plasma_eval "
+        const state = $(cat "$state_file");
+        const defaults = ['applications:systemsettings.desktop',
+                          'applications:org.kde.discover.desktop',
+                          'preferred://filemanager', 'preferred://browser'];
+        for (const p of panels()) {
+            if (typeof state.floating === 'boolean') p.floating = state.floating;
+            for (const w of p.widgets()) {
+                if (!($task_managers)) continue;
+                w.currentConfigGroup = ['General'];
+                // readConfig hands a list back as one comma-joined string, and
+                // written back as it came it is one pin with a nonsense address
+                // — a blank icon, which is what the first try left behind.
+                let launchers = state.launchers;
+                if (launchers === null || launchers === '__default__') launchers = defaults;
+                else if (typeof launchers === 'string')
+                    launchers = launchers === '' ? [] : launchers.split(',');
+                w.writeConfig('launchers', launchers);
+                w.reloadConfig();
+            }
+        }" >/dev/null
+    rm -f "$state_file"
+}
+
+# Game Mode's rules for windows, as a KWin script that stays loaded for the
+# rest of the session once Game Mode has been entered:
+#
+# - the launcher never gets a taskbar or pager entry;
+# - while the launcher is open, what opens is a game or an app from the
+#   library, and a console shows it full screen — dialogs excepted, which
+#   belong on top of their window rather than instead of it;
+# - when the launcher closes, those windows go back to ordinary desktop
+#   windows, since leaving Game Mode leaves them running on the desktop.
+#
+# A script rather than window rules: a rule file written after KWin started
+# was not picked up for new windows in testing, and a rule cannot ask whether
+# Game Mode is on.
+readonly kwin_script=omnios-game-mode
+load_game_mode_kwin_script() {
+    local kwin=(dbus-send --session --print-reply --dest=org.kde.KWin)
+    "${kwin[@]}" /Scripting org.kde.kwin.Scripting.isScriptLoaded string:"$kwin_script" 2>/dev/null \
+        | grep -q 'boolean true' && return 0
+    local script="$state_dir/game-mode-kwin.js" id
+    mkdir -p "$state_dir"
+    cat >"$script" <<'EOF'
+const LAUNCHER = "omni-launcher";
+const madeFullScreen = new Set();
+
+function isLauncher(window) {
+    return window.resourceClass === LAUNCHER;
+}
+
+function gameModeOn() {
+    return workspace.windowList().some(isLauncher);
+}
+
+function opened(window) {
+    if (isLauncher(window)) {
+        window.skipTaskbar = true;
+        window.skipPager = true;
+        return;
+    }
+    if (!gameModeOn() || !window.normalWindow || window.transient) return;
+    window.fullScreen = true;
+    madeFullScreen.add(window);
+    // Some apps restore a remembered window size as they start, which takes
+    // them straight back out of full screen. Put it back if that happens in
+    // the first few seconds; after that it is someone's choice (F11 in a
+    // player, a game's own setting) and it is left alone.
+    const openedAt = Date.now();
+    window.fullScreenChanged.connect(function () {
+        if (!window.fullScreen && madeFullScreen.has(window)
+                && Date.now() - openedAt < 3000 && gameModeOn())
+            window.fullScreen = true;
+    });
+}
+
+function closed(window) {
+    madeFullScreen.delete(window);
+    if (!isLauncher(window)) return;
+    for (const other of madeFullScreen) other.fullScreen = false;
+    madeFullScreen.clear();
+}
+
+workspace.windowList().forEach(function (window) {
+    if (isLauncher(window)) opened(window);
+});
+workspace.windowAdded.connect(opened);
+workspace.windowRemoved.connect(closed);
+EOF
+    id="$("${kwin[@]}" /Scripting org.kde.kwin.Scripting.loadScript \
+          string:"$script" string:"$kwin_script" 2>/dev/null | awk '/int32/ { print $2 }')"
+    [ -n "$id" ] && "${kwin[@]}" "/Scripting/Script$id" org.kde.kwin.Script.run >/dev/null 2>&1
+    return 0
+}
+
+enter_game_mode() {
+    load_game_mode_kwin_script
+    panel_to_game_mode
+    open_launcher
+}
+
+leave_game_mode() {
+    close_launcher
+    panel_to_desktop
+}
+
+# Game Mode is on while the launcher is open. Asked of the process rather than
+# the mode file, which records how the login began as much as where it is now.
+if [ "$mode" = --current ]; then
+    if pgrep -u "$uid" -f "$launcher_pattern" >/dev/null 2>&1; then echo game; else echo desktop; fi
+    exit 0
 fi
 
-if pgrep -u "$uid" -x plasmashell >/dev/null 2>&1 || pgrep -u "$uid" -x kwin_wayland >/dev/null 2>&1; then
-    # Plasma's own logout, without the confirmation dialog: the user already
-    # chose, from a menu entry that says what it does. dbus-send rather than
-    # qdbus because dbus-send is part of dbus itself and is always there.
-    if dbus-send --session --type=method_call --dest=org.kde.Shutdown \
-                 /Shutdown org.kde.Shutdown.logout 2>/dev/null; then
-        exit 0
+if [ "$mode" = --autostart ]; then
+    # Also the way back from a session that ended in Game Mode: a login that
+    # starts on the desktop gets its pins back.
+    if [ "$(head -n 1 "$mode_file" 2>/dev/null)" = game ]; then
+        enter_game_mode
+    else
+        panel_to_desktop
     fi
-    # Older Plasma, or a Shutdown service that is not up yet: ksmserver has
-    # answered this for a long time. The arguments mean no confirmation, a plain
-    # logout, and no particular timing.
-    if dbus-send --session --type=method_call --dest=org.kde.ksmserver \
-                 /KSMServer org.kde.KSMServerInterface.logout int32:0 int32:0 int32:0 2>/dev/null; then
-        exit 0
-    fi
-    echo "error: Plasma did not accept the logout request" >&2
+    exit 0
+fi
+
+if ! printf '%s\n' "$mode" >"$mode_file"; then
+    echo "error: could not record the mode in $mode_file" >&2
     exit 1
 fi
 
-# Nothing is running — called from a shell on another TTY, say. The choice is
-# recorded and takes effect the next time the loop on tty1 starts a session.
-echo "no session is running; '$mode' will be used for the next one"
+if ! plasma_running; then
+    # Nothing is running — called from a shell on another TTY, say. The choice
+    # is recorded and takes effect the next time the loop on tty1 starts one.
+    echo "no session is running; '$mode' will be used for the next one"
+    exit 0
+fi
+
+case "$mode" in
+    game)    enter_game_mode ;;
+    desktop) leave_game_mode ;;
+    console)
+        leave_game_mode
+        # Plasma's own logout, without the confirmation dialog: the user
+        # already chose, from a menu entry that says what it does. dbus-send
+        # rather than qdbus because dbus-send is part of dbus itself.
+        if dbus-send --session --type=method_call --dest=org.kde.Shutdown \
+                     /Shutdown org.kde.Shutdown.logout 2>/dev/null; then
+            exit 0
+        fi
+        # Older Plasma, or a Shutdown service that is not up yet: ksmserver has
+        # answered this for a long time. No confirmation, a plain logout, no
+        # particular timing.
+        if dbus-send --session --type=method_call --dest=org.kde.ksmserver \
+                     /KSMServer org.kde.KSMServerInterface.logout int32:0 int32:0 int32:0 2>/dev/null; then
+            exit 0
+        fi
+        echo "error: Plasma did not accept the logout request" >&2
+        exit 1
+        ;;
+esac

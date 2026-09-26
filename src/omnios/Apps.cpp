@@ -10,51 +10,18 @@
 namespace omnios {
 namespace {
 
-// The app registry.
+// The app registry: the tiles on Game Mode's Apps tab that are not found from
+// desktop entries.
 //
-// mpv is started with a window forced open: launched bare from a tile it would
-// otherwise exit immediately having been given no file, which on a console
-// looks exactly like a crash.
+// Only Steam. Game Mode runs inside the Plasma session, so a browser, a file
+// manager, a video player, a store and settings are all a switch to the
+// desktop away, where they are Plasma's own; on the library they were tiles
+// that opened desktop apps full screen. Steam stays because it is a library in
+// its own right, and one you open to play.
 //
-// Thunar opens on the games directory rather than $HOME. On a console the
-// reason to open a file manager is almost always to move a game or read a USB
-// stick, and §18's install flow starts from exactly there.
+// Apps someone installs still turn up on the tab, found from their desktop
+// entries (see DesktopEntry.cpp).
 const std::vector<App> kApps = {
-    // First on the tab on purpose. On a console the store is how the machine
-    // grows, so it should be the thing under the cursor when the tab opens
-    // rather than something to hunt for at the end of a row.
-    //
-    // GNOME Software is Ubuntu's store — the same program, before Canonical
-    // renamed it — and Arch builds it with the Flatpak backend, so it offers
-    // Flathub rather than the repositories. That is the right catalogue for a
-    // console: a Flatpak carries its own libraries, so installing one cannot
-    // drag the base system into a partial upgrade the way "pacman -Sy vlc"
-    // could.
-    {"store", "Store", "gnome-software", "", "gnome-software",
-     "org.gnome.Software",
-     "Install apps from Flathub",
-     "#8B5CF6", true},
-
-    // Reached from the corner as well as from here. It is a real app rather
-    // than a panel of its own because everything a console can usefully
-    // configure — sound, network, bluetooth, date, the machine's own details —
-    // already has a settings panel written for it, and none of them would be
-    // better for being rewritten in QML.
-    //
-    // GNOME's, not XFCE's: its panels talk to PipeWire, NetworkManager and
-    // bluez, which are what this image actually runs, while xfce4-settings
-    // writes to xfconf, which nothing here reads. Its display panel needs
-    // mutter and will not work under Hyprland; the rest do.
-    //
-    // Launched through omni-settings rather than directly, because
-    // gnome-control-center reads XDG_CURRENT_DESKTOP and exits 1 under anything
-    // that is not GNOME or Unity. The wrapper overrides it for that one
-    // process; see the script for why not for the session.
-    {"settings", "Settings", "omni-settings", "", "gnome-control-center",
-     "org.gnome.Settings",
-     "Sound, network, date and the machine's details",
-     "#5E5C64", true},
-
     // Steam ships with the image, so the baseline filter hides its desktop
     // entry from the Apps tab — which is right for RetroArch and Dolphin, whose
     // job is to be launched by a game tile, and wrong for this one. Steam is a
@@ -64,57 +31,6 @@ const std::vector<App> kApps = {
     {"steam", "Steam", "steam", "", "steam", "steam",
      "Your Steam library, and the store",
      "#1B2838", false},
-
-    // Both --vo and --gpu-context are pinned, and the second one is the one
-    // that matters. Without hardware GL, mpv crashes here:
-    //
-    //   MESA-EGL: warning: egl: failed to create dri2 screen
-    //   mpv: video/out/x11_common.c:679: vo_x11_init: Assertion !vo->x11 failed
-    //
-    // vo_x11_init is called by the *gpu* output's X11 context, not by the x11
-    // output, so restricting --vo alone changes nothing — it was tried and the
-    // assertion came back unchanged. --gpu-context=wayland is what keeps mpv
-    // off X11; OmniOS is a Wayland system, so nothing is given up.
-    //
-    // --vo=gpu,wlshm then means: use the GPU on a real machine, and fall back
-    // to Wayland shared memory (software scaling) where there is none.
-    {"video", "Video Player", "mpv",
-     "--player-operation-mode=pseudo-gui --force-window=yes --idle=yes "
-     "--vo=gpu,wlshm --gpu-context=wayland",
-     "mpv", "mpv",
-     "Play video and music from a drive or USB stick",
-     "#6C63FF", true},
-
-    {"files", "Files", "thunar", "%GAMES%", "thunar", "org.xfce.thunar",
-     "Browse drives, copy games, open a USB stick",
-     "#3A8FFF", true},
-
-    // Chromium, not Chrome: Chrome is AUR-only, chromium is the same engine in
-    // the official repos and needs no build step on first boot.
-    //
-    // --ozone-platform=wayland for the same reason mpv pins its context —
-    // letting a browser fall back to XWayland on a machine with no GPU is how
-    // the mpv crash happened.
-    // --no-first-run matters more than it looks: without it chromium opens on
-    // a terms-of-service dialog with Cancel/Accept, which is not something a
-    // console should ever put in front of someone. --no-default-browser-check
-    // suppresses the other startup prompt for the same reason.
-    {"browser", "Browser", "chromium",
-     "--ozone-platform=wayland --no-first-run --no-default-browser-check "
-     "--start-maximized",
-     "chromium", "chromium",
-     "Browse the web",
-     "#3A8FFF", true},
-
-    // YouTube is a web app, so it is Chromium in app mode: no tabs, no
-    // address bar, just the site. The icon is Chromium's own, which is honest
-    // about what is actually running.
-    {"youtube", "YouTube", "chromium",
-     "--ozone-platform=wayland --no-first-run --no-default-browser-check "
-     "--app=https://www.youtube.com --start-fullscreen",
-     "chromium", "chromium",
-     "Watch YouTube",
-     "#E4000F", true},
 };
 
 }  // namespace

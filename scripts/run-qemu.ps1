@@ -127,7 +127,16 @@ param(
     # produces a warning, but the warning is written to stderr and PowerShell
     # turns native stderr into a terminating NativeCommandError when this
     # script is called from a pipeline.
-    [string]$Cpu = 'Skylake-Client,-hypervisor,-tsc-deadline'
+    [string]$Cpu = 'Skylake-Client,-hypervisor,-tsc-deadline',
+
+    # Leave the sound card out, to tell a problem that comes with it from one
+    # that does not.
+    [switch]$NoSound,
+
+    # Anything else to hand QEMU as it is, for a one-off experiment — for
+    # example -ExtraArgs '-d','cpu_reset,guest_errors','-D','C:\tmp\qemu.log'
+    # to see why a guest reset.
+    [string[]]$ExtraArgs = @()
 )
 
 # Before anything else. The VM being replaced still holds the serial log open,
@@ -195,6 +204,14 @@ $qemuArgs = @(
     # checked as far as "it asked". Wake it again from the monitor with
     # "system_wakeup".
     '-global', 'ICH9-LPC.disable_s3=0'
+    # And do not let the chipset's watchdog reboot it on the way back. Waking
+    # from S3 resets the ICH9 TCO timer to running, Linux's iTCO_wdt only stops
+    # it again if something was using it, and since QEMU made "noreboot" default
+    # to off its second timeout resets the machine — so the guest resumed
+    # completely, then cold-booted half a second later with nothing in any log.
+    # That is the VM's chipset, not the image: on a real board the firmware
+    # sets the TCO timer up again on resume, which SeaBIOS does not do.
+    '-global', 'ICH9-LPC.noreboot=on'
     '-cpu', $Cpu
     '-m', $Memory
     '-smp', "$cpus"
@@ -207,9 +224,7 @@ $qemuArgs = @(
     # sink, so the shell's volume and output controls can be exercised at all.
     # Without it the machine has no audio device and every audio path is
     # untestable rather than merely silent.
-    '-audiodev', 'none,id=omnisnd'
-    '-device', 'intel-hda'
-    '-device', 'hda-output,audiodev=omnisnd'
+    $(if (-not $NoSound) { '-audiodev', 'none,id=omnisnd', '-device', 'intel-hda', '-device', 'hda-output,audiodev=omnisnd' })
     '-device', 'qemu-xhci'
     '-device', 'usb-tablet'
     '-netdev', $(if ($SshPort -gt 0) { "user,id=net0,hostfwd=tcp::${SshPort}-:22" } else { 'user,id=net0' })
@@ -275,6 +290,8 @@ if ($Disk) {
     # NTFS, so the file does not shrink either; -BlankDisk starts it again.)
     $qemuArgs += @('-drive', "file=$diskPath,if=virtio,format=qcow2,discard=unmap,detect-zeroes=unmap")
 }
+
+$qemuArgs += $ExtraArgs
 
 Write-Host "==> booting $(if ($FromDisk) { 'the installed test disk' } else { Split-Path -Leaf $Iso })"
 

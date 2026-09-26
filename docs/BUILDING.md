@@ -75,7 +75,7 @@ wsl --install archlinux
 Then inside the Arch shell:
 
 ```bash
-sudo pacman -Syu --noconfirm archiso cmake ninja gcc
+sudo pacman -Syu --noconfirm archiso cmake ninja gcc qt6-base qt6-declarative qt6-tools sdl3
 cd /mnt/c/Users/shyam/OneDrive/Documents/Projects/OmniOS
 sudo ./scripts/build-iso.sh
 ```
@@ -87,7 +87,7 @@ window) or on Windows against the same file (`.\scripts\run-qemu.ps1`).
 ## Route C — an actual Arch machine
 
 ```bash
-sudo pacman -S archiso qemu-full edk2-ovmf
+sudo pacman -S archiso qemu-full edk2-ovmf cmake ninja gcc qt6-base qt6-declarative qt6-tools sdl3
 sudo ./scripts/build-iso.sh
 ./scripts/run-qemu.sh --uefi
 ```
@@ -270,12 +270,15 @@ build:
 - **AUR package names are unverified.** The ISO build never sees them — pacman
   has no AUR support — so `pcsx2-git`, `shadps4-bin`, `ryubing` and the rest
   are only proven when `omni-first-boot` runs on a live system.
-- **Not an installer yet.** This is a live image. Phase 13.2's auto-installer —
-  boot, confirm once, install to disk — is not written. `archinstall` is on the
-  image as a manual fallback.
+- **The installer has only run in a VM.** *Install OmniOS* (Phase 13.2) is on
+  the boot menu, the live desktop and Game Mode's menu, and has installed and
+  booted on QEMU's BIOS and UEFI firmware. Registering OmniOS with a real UEFI
+  machine's boot menu has not run anywhere yet: every test install started from
+  a BIOS-booted stick, so the disk was found through the fallback path instead.
 - **No GPU in a VM.** Mesa falls back to `llvmpipe`, which is enough for the
   compositor and the launcher but not for any game. Phase 13.4 still means
   real hardware.
-- **Branding is partial.** The Plymouth splash is in and working; the boot menu
-  is silent. A GRUB theme and launcher sound effects are not done, and the
-  Hyprland config still uses the .conf format that Hyprland 0.57 removes.
+- **Branding is partial.** The Plymouth splash, Plasma's loading screen and the
+  BIOS boot menu are in OmniOS colours; systemd-boot's UEFI menu has no colours
+  to set. Launcher sound effects are not done, and the Hyprland config still uses
+  the .conf format that Hyprland 0.57 removes.

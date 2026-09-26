@@ -8,8 +8,8 @@
 # to type.
 #
 # Wired needs none of this. A DualSense over USB is already a working gamepad
-# the moment it is plugged in: hid-playstation is in the kernel and the udev
-# rules that let SDL reach its hidraw node arrive with steam-devices.
+# the moment it is plugged in: hid-playstation is in the kernel, and
+# /etc/udev/rules.d/60-omnios-controllers.rules lets SDL reach its hidraw node.
 set -uo pipefail
 
 readonly SCAN_SECONDS="${1:-25}"

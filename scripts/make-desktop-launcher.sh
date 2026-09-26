@@ -130,18 +130,32 @@ grep -q '<default>omnios</default>' "$APPLET/contents/config/main.xml" \
 # Inserted at the front of the row that holds Sleep, Restart and Shut Down, and
 # styled the same way they are. It runs omni-session-select through Plasma's
 # "executable" data engine, which is how an applet starts a program.
+#
+# The same menu is open in both modes — Game Mode runs in the Plasma session —
+# so the button asks which mode is on each time the menu opens, and offers the
+# other one: "Game Mode" on the desktop, "Desktop" in Game Mode.
 leave="$ui/LeaveButtons.qml"
 button="$work/button.qml"
 cat > "$button" <<'QML'
-        // OmniOS: leave the desktop for Game Mode, beside Sleep and Shut Down.
-        // Added by scripts/make-desktop-launcher.sh; not part of Kickoff.
+        // OmniOS: switch between the desktop and Game Mode, beside Sleep and
+        // Shut Down. Added by scripts/make-desktop-launcher.sh; not Kickoff's.
         PC3.ToolButton {
             id: omniGameModeButton
-            text: i18nc("@action:button", "Game Mode")
-            icon.name: "input-gaming"
+            property bool inGameMode: false
+
+            // "Desktop", not "Switch to desktop": Kickoff folds its whole button
+            // row into the Session menu once the row is wider than the menu,
+            // and this button — not being one of Kickoff's own actions — then
+            // vanishes with nowhere to go. "Switch to desktop" did exactly
+            // that; the tooltip says it in full.
+            text: inGameMode ? i18nc("@action:button", "Desktop")
+                             : i18nc("@action:button", "Game Mode")
+            icon.name: inGameMode ? "user-desktop" : "input-gaming"
             display: Plasmoid.configuration.showActionButtonCaptions ? PC3.AbstractButton.TextBesideIcon : PC3.AbstractButton.IconOnly
 
-            PC3.ToolTip.text: i18nc("@info:tooltip", "Leave the desktop for the OmniOS game library")
+            PC3.ToolTip.text: inGameMode
+                ? i18nc("@info:tooltip", "Switch to desktop — close the game library")
+                : i18nc("@info:tooltip", "Leave the desktop for the OmniOS game library")
             PC3.ToolTip.delay: Kirigami.Units.toolTipDelay
             PC3.ToolTip.visible: hovered
 
@@ -149,12 +163,28 @@ cat > "$button" <<'QML'
                 id: omniSessionSelect
                 engine: "executable"
                 connectedSources: []
-                onNewData: (sourceName, data) => disconnectSource(sourceName)
+                onNewData: (sourceName, data) => {
+                    if (sourceName === "omni-session-select --current")
+                        omniGameModeButton.inGameMode = String(data["stdout"]).trim() === "game";
+                    // Disconnected so the same command runs again next time,
+                    // rather than answering from the engine's cache.
+                    disconnectSource(sourceName);
+                }
             }
+
+            Connections {
+                target: kickoff
+                function onExpandedChanged() {
+                    if (kickoff.expanded) omniSessionSelect.connectSource("omni-session-select --current");
+                }
+            }
+            Component.onCompleted: omniSessionSelect.connectSource("omni-session-select --current")
 
             onClicked: {
                 kickoff.expanded = false;
-                omniSessionSelect.connectSource("omni-session-select game");
+                omniSessionSelect.connectSource(inGameMode ? "omni-session-select desktop"
+                                                           : "omni-session-select game");
+                inGameMode = !inGameMode;
             }
             Keys.onEnterPressed: clicked()
             Keys.onReturnPressed: clicked()

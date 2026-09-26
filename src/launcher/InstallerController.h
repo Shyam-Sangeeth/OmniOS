@@ -12,9 +12,13 @@
 #include <QVariantList>
 
 #include "GamepadInput.h"
+#include "InputMode.h"
 
 class InstallerController : public QObject {
     Q_OBJECT
+    // Whether a controller is in use, and what it calls its buttons — for the
+    // on-screen keyboard its text boxes bring up. See InputMode.
+    Q_PROPERTY(InputMode* input READ input CONSTANT)
 
     // [{ path, model, transport, contents, os, size: "1.0 TB" }, ...], the
     // safest first: empty disks, then disks with files, then disks with an
@@ -79,6 +83,9 @@ public:
 
     Q_INVOKABLE void restart();
 
+public:
+    InputMode* input() { return &input_; }
+
 signals:
     void disksChanged();
     void stateChanged();
@@ -102,4 +109,5 @@ private:
     QProcess* installing_ = nullptr;
     QByteArray pending_;
     GamepadInput gamepad_;
+    InputMode    input_{&gamepad_};
 };

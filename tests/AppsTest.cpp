@@ -6,9 +6,8 @@
 
 using namespace omnios;
 
-TEST("apps: the registry has the two a console cannot do without") {
-    CHECK(findApp("video") != nullptr);
-    CHECK(findApp("files") != nullptr);
+TEST("apps: the registry has Steam and nothing it does not know") {
+    CHECK(findApp("steam") != nullptr);
     CHECK(findApp("nope") == nullptr);
 }
 
@@ -28,75 +27,13 @@ TEST("apps: every row is complete") {
 }
 
 TEST("apps: argv starts with the command") {
-    const App* video = findApp("video");
-    CHECK(video != nullptr);
-    if (video == nullptr) return;
+    const App* steam = findApp("steam");
+    CHECK(steam != nullptr);
+    if (steam == nullptr) return;
 
-    const std::vector<std::string> argv = appArgv(*video);
-    CHECK(!argv.empty());
-    CHECK_EQ(argv.front(), std::string("mpv"));
-    // The window flags matter: launched bare from a tile, mpv would exit at
-    // once having been given no file, which looks like a crash on a console.
-    bool forcesWindow = false;
-    for (const std::string& arg : argv) {
-        if (arg.find("force-window") != std::string::npos) forcesWindow = true;
-    }
-    CHECK(forcesWindow);
-
-    // The video output list must be explicit and must not offer x11: mpv's
-    // X11 output asserts and dies when hardware GL is unavailable, which is
-    // every VM and any machine with a broken driver.
-    bool pinsOutput = false;
-    for (const std::string& arg : argv) {
-        if (arg.rfind("--vo=", 0) == 0) {
-            pinsOutput = true;
-            CHECK(arg.find("x11") == std::string::npos);
-            // A software fallback has to be present or a GPU-less machine has
-            // nothing left to try.
-            CHECK(arg.find("wlshm") != std::string::npos);
-        }
-    }
-    CHECK(pinsOutput);
-
-    // Pinning the GPU context is the part that actually keeps mpv off X11:
-    // the crash is inside the gpu output's X11 context, which --vo cannot
-    // reach. Anything containing "x11" here reintroduces the crash.
-    bool pinsContext = false;
-    for (const std::string& arg : argv) {
-        if (arg.rfind("--gpu-context=", 0) == 0) {
-            pinsContext = true;
-            CHECK(arg.find("x11") == std::string::npos);
-        }
-    }
-    CHECK(pinsContext);
-}
-
-TEST("apps: the browser and YouTube tiles run chromium") {
-    for (const char* id : {"browser", "youtube"}) {
-        const App* app = findApp(id);
-        CHECK(app != nullptr);
-        if (app == nullptr) continue;
-
-        CHECK_EQ(std::string(app->command), std::string("chromium"));
-        // Chrome proper is AUR-only; the image must not name a package pacman
-        // cannot install.
-        CHECK_EQ(std::string(app->package), std::string("chromium"));
-
-        // Same lesson as mpv: a browser left to choose its own backend can
-        // fall back to XWayland, and OmniOS is a Wayland system.
-        CHECK(std::string(app->args).find("--ozone-platform=wayland") != std::string::npos);
-
-        // Without this chromium opens on a terms-of-service dialog. A console
-        // must not greet anyone with Cancel/Accept.
-        CHECK(std::string(app->args).find("--no-first-run") != std::string::npos);
-    }
-
-    const App* youtube = findApp("youtube");
-    CHECK(youtube != nullptr);
-    // App mode is what makes it a YouTube tile rather than a browser window
-    // that happens to start on YouTube.
-    if (youtube != nullptr)
-        CHECK(std::string(youtube->args).find("--app=") != std::string::npos);
+    const std::vector<std::string> argv = appArgv(*steam);
+    CHECK_EQ(argv.size(), std::size_t(1));
+    CHECK_EQ(argv.front(), std::string("steam"));
 }
 
 TEST("apps: every app names an icon") {
@@ -115,11 +52,11 @@ TEST("apps: %GAMES% expands to the real games directory") {
     setenv("OMNIOS_GAMES_DIR", "/tmp/omni-games", 1);
 #endif
 
-    const App* files = findApp("files");
-    CHECK(files != nullptr);
-    if (files == nullptr) return;
-
-    const std::vector<std::string> argv = appArgv(*files);
+    // No row uses the token today, so a row is made for the test: the
+    // substitution is the registry's contract, not any one app's.
+    const App opener{"opener", "Opener", "xdg-open", "%GAMES%", "xdg-utils", "folder",
+                     "Open the games folder", "#3A8FFF", false};
+    const std::vector<std::string> argv = appArgv(opener);
     CHECK_EQ(argv.size(), std::size_t(2));
 
     // The token must be gone and the real path in its place — a file manager
@@ -144,22 +81,16 @@ TEST("apps: an app with no arguments yields just its command") {
 
 // ---- system apps ----------------------------------------------------------
 
-TEST("apps: the ones a console needs are marked system") {
-    CHECK(findApp("video")->system);
-    CHECK(findApp("files")->system);
-    // Removing the way to install things is not something a console should
-    // offer, so the store is protected too.
-    CHECK(findApp("store")->system);
+TEST("apps: Steam can be uninstalled from its tile") {
+    // Nothing about the console stops working without it.
+    CHECK(!findApp("steam")->system);
+    CHECK(!packageIsProtected("steam"));
 }
 
 TEST("apps: a system app's package cannot be removed") {
     for (const App& app : allApps()) {
         if (app.system) CHECK(packageIsProtected(app.package));
     }
-    // The browser and the YouTube tile are two rows sharing one package, so
-    // protection has to be a property of the package rather than of the tile:
-    // removing chromium from either tile would break both.
-    CHECK(packageIsProtected("chromium"));
 }
 
 TEST("apps: an empty package name is refused rather than passed to pacman") {

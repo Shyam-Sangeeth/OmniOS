@@ -1,0 +1,14 @@
+// System packages through PackageKit (Discover) without a password prompt.
+//
+// The PackageKit half of 49-omnios-store.rules, kept in a file of its own so
+// the installer can take it away: on an install whose account has a password,
+// changing the system asks for that password, the same as sudo does there.
+// The live image and a passwordless console account keep this, because there
+// is no password to ask for.
+polkit.addRule(function (action, subject) {
+    if (subject.isInGroup("wheel") &&
+        action.id.indexOf("org.freedesktop.packagekit.") === 0) {
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});

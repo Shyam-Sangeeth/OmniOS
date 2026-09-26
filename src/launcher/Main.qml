@@ -5,10 +5,10 @@
 // tabs give each one the whole screen and make the library the thing you land
 // on.
 //
-// There is no Store tab. Installing things is GNOME Software's job and it is a
-// tile on the Apps tab like anything else — which also means whatever it
-// installs comes back as a tile, because the Apps tab is built from the
-// machine's desktop entries rather than from a list kept here.
+// There is no store in Game Mode. Installing things is Discover's job on the
+// desktop, and whatever it installs comes back here as a tile, because the
+// Apps tab is built from the machine's desktop entries rather than from a list
+// kept here. The only built-in tile is Steam.
 import QtQuick
 import QtQuick.Window
 import omnios
@@ -16,7 +16,12 @@ import omnios
 Window {
     id: window
     visible: true
-    visibility: Window.FullScreen
+    // Maximised and frameless rather than full screen: Game Mode runs in the
+    // Plasma session, and this leaves room for Plasma's own panel along the
+    // bottom — the same taskbar, tray and clock as the desktop, rather than a
+    // copy of them.
+    flags: Qt.Window | Qt.FramelessWindowHint
+    visibility: Window.Maximized
     title: "OmniOS"
     color: Theme.background
 
@@ -75,111 +80,34 @@ Window {
         Behavior on opacity { NumberAnimation { duration: Theme.backgroundDuration } }
     }
 
-    // ---- top bar ----------------------------------------------------------
+    // Where the system menu (F10, Start) opens from: the top-left corner.
+    // Nothing is drawn here — the menu is for the keyboard and the controller,
+    // and Plasma's panel underneath has the same things for the pointer.
     Item {
-        id: topBar
-        anchors { top: parent.top; left: parent.left; right: parent.right }
-        height: 58
+        id: menuAnchor
+        anchors { left: parent.left; leftMargin: Theme.gutter - 12; top: parent.top; topMargin: 16 }
+        width: 1
+        height: 1
+    }
 
-        // The mark, and the way to turn the machine off.
-        //
-        // It replaced a wordmark that only told you what you were already
-        // looking at. A console needs somewhere to put sleep and shutdown, and
-        // the corner the logo already occupies is where anyone would look.
-        Rectangle {
-            id: powerButton
-            anchors { left: parent.left; leftMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
-            width: 38
-            height: 38
-            radius: 8
-            color: powerHover.containsMouse || menuPanel.context === "power"
-                   ? "#1FFFFFFF" : "transparent"
-            Behavior on color { ColorAnimation { duration: Theme.focusDuration } }
-
-            OmniLogo {
-                anchors.centerIn: parent
-                diameter: 28
-            }
-
-            MouseArea {
-                id: powerHover
-                anchors.fill: parent
-                hoverEnabled: true
-                onClicked: window.openPowerMenu()
-            }
-        }
-
-        // ---- the other corner ---------------------------------------------
-        //
-        // What used to sit here was a permanent line of application state —
-        // "No games in /home/omni/Games" — which repeated what the empty grid
-        // below already said and was, the rest of the time, nothing anyone
-        // needed. The corner now answers the two questions a console is
-        // actually asked at a glance: am I online, and is the controller on.
-        //
-        // The state text is not gone, it is transient. Some of it matters very
-        // much — "the disk is full", "Steam could not start" — and it appears
-        // for a few seconds when it changes, then gets out of the way.
-        Row {
-            id: statusRow
-            anchors {
-                right: parent.right; rightMargin: Theme.gutter
-                verticalCenter: parent.verticalCenter
-            }
-            spacing: 6
-
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                width: Math.min(implicitWidth, window.width * 0.45)
-                text: window.transientStatus
-                color: Launcher.storageCritical ? "#E4000F" : Theme.textSecondary
-                font.pixelSize: 13
-                elide: Text.ElideRight
-                opacity: window.transientStatus === "" ? 0 : 1
-                Behavior on opacity { NumberAnimation { duration: Theme.focusDuration } }
-                rightPadding: 10
-            }
-
-            StatusButton {
-                id: speakerButton
-                glyph: System.audioMuted || !System.audioAvailable ? "muted" : "speaker"
-                active: System.audioAvailable && !System.audioMuted
-                highlighted: menuPanel.context === "audio"
-                onTriggered: window.openAudioMenu()
-            }
-
-            StatusButton {
-                id: networkButton
-                glyph: System.networkKind === "ethernet" ? "lan"
-                     : System.networkKind === "wifi" ? "wifi" : "offline"
-                active: System.online
-                highlighted: menuPanel.context === "network"
-                onTriggered: window.openNetworkMenu()
-            }
-
-            StatusButton {
-                id: bluetoothButton
-                glyph: "bluetooth"
-                active: System.bluetoothPowered
-                highlighted: menuPanel.context === "bluetooth"
-                onTriggered: window.openBluetoothMenu()
-            }
-
-            // The only one that opens an application rather than a panel.
-            StatusButton {
-                id: settingsButton
-                glyph: "settings"
-                active: false
-                highlighted: false
-                onTriggered: Launcher.launchApp("settings")
-            }
-        }
+    // "The disk is full", "Steam could not start": for a few seconds, then gone.
+    Text {
+        anchors { right: parent.right; rightMargin: Theme.gutter; verticalCenter: tabBar.verticalCenter
+                  verticalCenterOffset: -4 }
+        width: Math.min(implicitWidth, window.width * 0.45)
+        text: window.transientStatus
+        color: Launcher.storageCritical ? "#E4000F" : Theme.textSecondary
+        font.pixelSize: 13
+        elide: Text.ElideRight
+        horizontalAlignment: Text.AlignRight
+        opacity: window.transientStatus === "" ? 0 : 1
+        Behavior on opacity { NumberAnimation { duration: Theme.focusDuration } }
     }
 
     // ---- tabs -------------------------------------------------------------
     Row {
         id: tabBar
-        anchors { top: topBar.bottom; left: parent.left; leftMargin: Theme.gutter }
+        anchors { top: parent.top; topMargin: 24; left: parent.left; leftMargin: Theme.gutter }
         spacing: 26
 
         Repeater {
@@ -231,7 +159,7 @@ Window {
             top: tabRule.bottom; topMargin: 18
             left: parent.left; leftMargin: Theme.gutter
             right: parent.right; rightMargin: Theme.gutter
-            bottom: runningBanner.visible ? runningBanner.top : footer.top
+            bottom: footer.top
             bottomMargin: 10
         }
 
@@ -361,8 +289,8 @@ Window {
             }
         }
 
-        // What someone is about to need to know, on the tab that has the Store
-        // tile on it, rather than buried in documentation they read afterwards:
+        // What someone is about to need to know, on the tab where installed
+        // apps turn up, rather than buried in documentation they read afterwards:
         // that nothing here survives a reboot, and how much room is left.
         //
         // The second half is not decoration. A full overlay is what makes apps
@@ -379,52 +307,35 @@ Window {
         }
     }
 
-    // ---- running strip ----------------------------------------------------
-    Rectangle {
-        id: runningBanner
-        visible: Launcher.gameRunning
-        anchors { left: parent.left; right: parent.right; bottom: footer.top }
-        height: 42
-        color: "#1B1830"
-
-        Rectangle {
-            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
-            width: 3
-            color: Theme.accent
-        }
-        Text {
-            anchors { left: parent.left; leftMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
-            text: qsTr("▶  %1 is running").arg(Launcher.runningTitle)
-            color: Theme.textPrimary
-            font.pixelSize: 14
-        }
-        Text {
-            anchors { right: parent.right; rightMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
-            text: qsTr("Super  library    ·    Super+Tab  back to it")
-            color: Theme.textSecondary
-            font.pixelSize: 12
-        }
-    }
-
-    // ---- footer -----------------------------------------------------------
+    // ---- key hints ------------------------------------------------------------
+    // The keyboard and controller routes, along the bottom edge, just above
+    // Plasma's panel.
     Item {
         id: footer
         anchors { bottom: parent.bottom; left: parent.left; right: parent.right }
-        height: 44
+        height: 36
 
         Text {
             anchors { left: parent.left; leftMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
-            text: window.currentTab === 0
-                  ? qsTr("↑↓←→ move    Enter open    Tab switch tab    F10 power    F5 rescan")
-                  : qsTr("↑↓←→ move    Enter open    M menu    Tab switch tab    F10 power")
+            // The controller's own button names when a controller is in
+            // use — ✕ and ○ on a DualSense — and the keyboard's otherwise.
+            readonly property var b: Launcher.buttonNames
+            text: Launcher.gameRunning
+                  ? qsTr("%1  library    ·    %2 is running").arg(Launcher.usingController ? b.guide : qsTr("Guide button"))
+                                                               .arg(Launcher.runningTitle)
+                  : Launcher.usingController
+                    ? (window.currentTab === 0
+                       ? qsTr("%1 open    %2 back    %3 %4 switch tab    %5 menu    %6 rescan")
+                             .arg(b.south).arg(b.east).arg(b.l1).arg(b.r1).arg(b.start).arg(b.north)
+                       : qsTr("%1 open    %2 back    %3 app menu    %4 %5 switch tab    %6 menu")
+                             .arg(b.south).arg(b.east).arg(b.west).arg(b.l1).arg(b.r1).arg(b.start))
+                    : window.currentTab === 0
+                      ? qsTr("↑↓←→ move    Enter open    Tab switch tab    F10 menu    F5 rescan")
+                      : qsTr("↑↓←→ move    Enter open    M app menu    Tab switch tab    F10 menu")
             color: Theme.textSecondary
             font.pixelSize: 12
-        }
-        Text {
-            anchors { right: parent.right; rightMargin: Theme.gutter; verticalCenter: parent.verticalCenter }
-            text: "OmniOS " + Launcher.version
-            color: "#55FFFFFF"
-            font.pixelSize: 12
+            elide: Text.ElideRight
+            width: parent.width - 2 * Theme.gutter
         }
     }
 
@@ -457,7 +368,6 @@ Window {
             // Two of the system menu's entries are doors into another menu
             // rather than actions of their own.
             if (context === "power" && action === "sound") window.openAudioMenu()
-            else if (context === "power" && action === "settings") Launcher.launchApp("settings")
             else if (context === "power" && action === "desktop") Launcher.switchToDesktop()
             else if (context === "power" && action === "install") Launcher.installOmniOS()
             else if (context === "power" && action === "network") window.openNetworkMenu()
@@ -474,6 +384,49 @@ Window {
         onClosed: window.activeGrid.forceActiveFocus()
     }
 
+    // ---- questions that need typing ------------------------------------------
+    // The administrator password — only an install whose account has one asks,
+    // and only for what changes the system itself: removing or updating a
+    // pacman app. And a Wi-Fi network's password, the first time it is joined.
+    // With a controller, each shows the on-screen keyboard; see PromptPanel.
+    PromptPanel {
+        id: passwordPrompt
+        open: Launcher.passwordWanted
+        title: qsTr("Enter your password")
+        reason: Launcher.passwordReason
+        errorText: Launcher.passwordError
+        checking: Launcher.passwordChecking
+        useKeyboard: Launcher.usingController
+        buttons: Launcher.buttonNames
+        onAccepted: function (text) { Launcher.submitPassword(text) }
+        onCancelled: Launcher.cancelPassword()
+        onOpenChanged: if (!open) window.restoreFocus()
+    }
+
+    PromptPanel {
+        id: wifiPrompt
+        open: System.wifiPasswordFor !== ""
+        title: qsTr("Wi-Fi password")
+        reason: qsTr("%1 is secured. Enter its password to join it.").arg(System.wifiPasswordFor)
+        continueLabel: qsTr("Join")
+        useKeyboard: Launcher.usingController
+        buttons: Launcher.buttonNames
+        onAccepted: function (text) { System.joinWifi(System.wifiPasswordFor, text) }
+        onCancelled: System.cancelWifiPassword()
+        onOpenChanged: if (!open) window.restoreFocus()
+    }
+
+    function promptOpen() {
+        return passwordPrompt.open || wifiPrompt.open
+    }
+
+    // Focus back where it belongs: an open prompt if there is one, the grid if not.
+    function restoreFocus() {
+        if (passwordPrompt.open) passwordPrompt.takeFocus()
+        else if (wifiPrompt.open) wifiPrompt.takeFocus()
+        else activeGrid.forceActiveFocus()
+    }
+
     // ---- keys -------------------------------------------------------------
     // Tab is handled on the grids themselves, not here. Qt Quick's focus
     // traversal consumes Tab before a Shortcut ever sees it, so a Shortcut
@@ -486,7 +439,7 @@ Window {
     // Shortcut works and reaches it from either tab.
     Shortcut {
         sequence: "F10"
-        onActivated: window.openPowerMenu()
+        onActivated: if (!window.promptOpen()) window.openPowerMenu()
     }
 
     Shortcut {
@@ -551,22 +504,22 @@ Window {
     }
 
     function openAudioMenu() {
-        menuPanel.openFor(speakerButton, qsTr("SOUND"), System.audioEntries(), "audio")
+        menuPanel.openFor(menuAnchor, qsTr("SOUND"), System.audioEntries(), "audio")
     }
 
     function openNetworkMenu() {
-        menuPanel.openFor(networkButton, qsTr("NETWORK"),
+        menuPanel.openFor(menuAnchor, qsTr("NETWORK"),
                           System.networkEntries(), "network")
     }
 
     function openBluetoothMenu() {
-        menuPanel.openFor(bluetoothButton, qsTr("BLUETOOTH"),
+        menuPanel.openFor(menuAnchor, qsTr("BLUETOOTH"),
                           System.bluetoothEntries(), "bluetooth")
     }
 
     function openPowerMenu() {
-        menuPanel.openFor(powerButton, qsTr("OMNIOS"), [
-            // The corner indicators are a pointer away, and a console often has
+        menuPanel.openFor(menuAnchor, qsTr("OMNIOS %1").arg(Launcher.version), [
+            // Plasma's panel has these a pointer away, and a console often has
             // no pointer. Everything they offer is reachable from here too, so
             // the keyboard and the controller are not second-class.
             //
@@ -576,7 +529,6 @@ Window {
             { action: "network",   label: qsTr("Network"),   enabled: true },
             { action: "bluetooth", label: qsTr("Bluetooth"), enabled: true },
             { action: "pair",     label: qsTr("Pair a controller"), enabled: true },
-            { action: "settings",  label: qsTr("Settings"),  enabled: true },
             { action: "desktop",   label: qsTr("Switch to desktop"), enabled: true },
             // Only on the live image; see LauncherController::liveImage.
             { action: "install",   label: qsTr("Install OmniOS"), enabled: true, live: true },
@@ -610,14 +562,15 @@ Window {
     Connections {
         target: Launcher
         function onFocusWanted() {
-            if (!window.activeFocusItem) window.activeGrid.forceActiveFocus()
+            if (window.activeFocusItem) return
+            window.restoreFocus()
         }
     }
 
     // Re-assert focus whenever the window becomes active. Returning from an
     // app leaves Qt's focus item unset, and without this the grid is visible
     // but deaf until something is clicked.
-    onActiveChanged: if (active) activeGrid.forceActiveFocus()
+    onActiveChanged: if (active) restoreFocus()
 
     Component.onCompleted: gamesGrid.forceActiveFocus()
 }

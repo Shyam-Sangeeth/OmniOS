@@ -1,0 +1,11 @@
+[Desktop Entry]
+# Opens the OmniOS launcher when a login starts in Game Mode — the boot menu's
+# Game Mode entry, or Game Mode picked at the sign-in screen. It does nothing
+# for a login that starts on the desktop; see omni-session-select.
+Type=Application
+Name=OmniOS Game Mode
+Exec=omni-session-select --autostart
+Icon=omnios
+OnlyShowIn=KDE;
+NoDisplay=true
+X-KDE-autostart-phase=2

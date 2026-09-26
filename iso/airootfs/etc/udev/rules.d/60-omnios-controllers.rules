@@ -1,0 +1,23 @@
+# Let the person at the console reach PlayStation controllers directly.
+#
+# The kernel's hid-playstation driver already makes a DualSense or DualShock 4
+# an ordinary gamepad, and SDL can drive that. But SDL's own PlayStation driver
+# talks to the pad's hidraw node, and only through it can it set the light bar,
+# read the touchpad and gyro, and name the pad correctly — and hidraw nodes are
+# root's unless a rule says otherwise. Arch's steam package ships no such rule
+# (these are what Valve's "steam-devices" rules do on other distributions), so
+# OmniOS carries its own.
+#
+# uaccess, not a group: the device goes to whoever is signed in at the seat,
+# and to nobody else. Numbered below 73 so logind's seat rules see the tag.
+#
+#   054c:05c4  DualShock 4          054c:09cc  DualShock 4 (second model)
+#   054c:0ba0  DualShock 4 USB wireless adaptor
+#   054c:0ce6  DualSense            054c:0df2  DualSense Edge
+
+# Over USB.
+KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="05c4|09cc|0ba0|0ce6|0df2", MODE="0660", TAG+="uaccess"
+
+# Over Bluetooth there is no USB parent to match, only the HID device's own
+# name, which carries the same ids: 0005:054C:0CE6.xxxx.
+KERNEL=="hidraw*", KERNELS=="*054C:05C4*|*054C:09CC*|*054C:0CE6*|*054C:0DF2*", MODE="0660", TAG+="uaccess"

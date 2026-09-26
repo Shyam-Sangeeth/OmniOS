@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Bring a window to the front in Plasma, by its app id.
+#
+#   omni-kwin-activate omni-launcher
+#
+# A Wayland app cannot raise itself: that is focus stealing, and KWin answers it
+# by flashing the taskbar entry instead. KWin's own scripting can, so this hands
+# it a three-line script over D-Bus — load, run, unload — the way kdotool does.
+# It is how the controller's Guide button gets back to the library from inside a
+# running game, and how "Game Mode" finds a launcher that is already open.
+set -uo pipefail
+
+readonly app="${1:?usage: omni-kwin-activate APP_ID}"
+uid="$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUNTIME_DIR:-/run/user/$uid}/bus}"
+
+script="$(mktemp --suffix=.js)"
+trap 'rm -f "$script"' EXIT
+# Escaped before it goes into the script, so a quote in the app id cannot end
+# the string literal. Done here rather than inside the here-document, where the
+# shell would process the backslashes a second time.
+app_js="$(printf '%s' "$app" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+cat >"$script" <<EOF
+const wanted = "$app_js";
+for (const window of workspace.windowList()) {
+    if (window.resourceClass === wanted) {
+        window.minimized = false;
+        workspace.activeWindow = window;
+        break;
+    }
+}
+EOF
+
+name="omnios-activate-$$"
+kwin() { dbus-send --session --print-reply --dest=org.kde.KWin "$@" 2>/dev/null; }
+
+id="$(kwin /Scripting org.kde.kwin.Scripting.loadScript string:"$script" string:"$name" \
+      | awk '/int32/ { print $2 }')"
+[ -n "$id" ] || exit 1
+kwin "/Scripting/Script$id" org.kde.kwin.Script.run >/dev/null
+kwin /Scripting org.kde.kwin.Scripting.unloadScript string:"$name" >/dev/null
+exit 0

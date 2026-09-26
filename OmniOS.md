@@ -1,7 +1,7 @@
 # OmniOS
 > "Play everything."
 
-A custom gaming OS based on Arch Linux. Runs every game from every platform — natively where possible, emulated where not. PS5-style tile launcher. No desktop clutter.
+A custom gaming OS based on Arch Linux. Runs every game from every platform — natively where possible, emulated where not. Two modes on one system: a Plasma desktop by default, and Game Mode — a PS5-style tile launcher made for a controller — one button away.
 
 ---
 
@@ -37,12 +37,29 @@ A custom gaming OS based on Arch Linux. Runs every game from every platform — 
 OmniOS
   = Arch Linux base (minimal install)
   + linux-zen kernel       (low-latency gaming patches)
-  + Wayland compositor     (Hyprland → custom wlroots)
+  + Desktop Mode           (KDE Plasma on Wayland — the default session)
+  + Game Mode              (PS5-style tile launcher, in the same Plasma session)
   + Steam + Proton + DXVK  (Windows games at near-native speed)
   + All emulators           (PS4, Switch, PS3, PS2, GameCube...)
-  + PS5-style tile launcher (boots straight into game library)
+  + Disk installer + sign-in screen
   + Custom branding
 ```
+
+### Two modes
+
+OmniOS is one system with two faces, and either one is a button away from the other.
+
+| | Desktop Mode | Game Mode |
+|---|---|---|
+| For | Keyboard and mouse at a desk | A controller on the sofa |
+| Session | KDE Plasma (Wayland), a lean set of it | The same Plasma session, with the OmniOS launcher open |
+| Shows | A normal desktop, OmniOS-branded | The game library as tiles, filling the screen above Plasma's panel |
+| Store | Discover (Flathub) | None of its own — Discover, a switch away; what it installs appears on the Apps tab |
+| Switch | *Game Mode* button in the application launcher | *Switch to desktop* in the system menu |
+
+Desktop Mode is the default, because a new user meets a desktop they already know, and a PC that is also a desk machine needs one. Game Mode is still the whole console experience from Phase 10: it can be chosen at boot, at sign-in, or from the desktop, and a controller-only install can live in it.
+
+Both modes are one Plasma session, sharing one user, one home folder, one game library, one set of installed apps and one taskbar — KDE's own panel stays along the bottom in Game Mode. Switching modes opens or closes the launcher; nothing restarts, and whatever is running stays running.
 
 ### Execution Strategy
 
@@ -131,7 +148,7 @@ git clone https://aur.archlinux.org/yay.git
 cd yay && makepkg -si
 ```
 
-### 1.4 Set up auto-login (no login screen)
+### 1.4 Set up auto-login
 
 Edit `/etc/systemd/system/getty@tty1.service.d/autologin.conf`:
 ```ini
@@ -139,6 +156,8 @@ Edit `/etc/systemd/system/getty@tty1.service.d/autologin.conf`:
 ExecStart=
 ExecStart=-/sbin/agetty --autologin yourusername --noclear %I $TERM
 ```
+
+Auto-login is the default, and the live USB always uses it. An installed system can turn it off in the installer, and then shows the OmniOS sign-in screen instead (see [Phase 13](#15-phase-13--distribution)).
 
 ---
 
@@ -179,8 +198,9 @@ sudo systemctl enable --now NetworkManager
 
 ### 2.4 USB auto-mount
 ```bash
-sudo pacman -S udisks2 udiskie
+sudo pacman -S udisks2
 ```
+Plasma's device notifier mounts drives through udisks2 in both modes, so no separate automounter is needed.
 
 ### 2.5 Input devices
 ```bash
@@ -193,40 +213,37 @@ sudo pacman -S libinput
 
 **Goal:** A blank Wayland desktop that can display windows.
 
-### 3.1 Install Hyprland
+### 3.1 Install Plasma
 
+Both modes run in Plasma — a lean set, not the whole of KDE:
 ```bash
-sudo pacman -S hyprland xwayland
+sudo pacman -S plasma-desktop plasma-nm plasma-pa bluedevil powerdevil kscreen                systemsettings xdg-desktop-portal-kde konsole dolphin discover                polkit-kde-agent xorg-xwayland
 ```
+
+Game Mode used to run in its own session on Hyprland. It moved into Plasma so that switching modes is opening a window rather than restarting the display, and so there is one compositor, one polkit agent and one taskbar to keep working.
 
 ### 3.2 Auto-start on login
 
-Add to `~/.bash_profile`:
+There is no display manager. `~/.bash_profile` on tty1 starts Plasma, and starts it again if it ends:
 ```bash
 if [ -z "$WAYLAND_DISPLAY" ] && [ "$XDG_VTNR" = "1" ]; then
-    exec Hyprland
+    while true; do
+        case "$(cat "$XDG_RUNTIME_DIR/omnios-mode" 2>/dev/null || echo desktop)" in
+            game | desktop) startplasma-wayland ;;
+            console)        break ;;
+        esac
+    done
 fi
 ```
 
-### 3.3 Hyprland config for OmniOS
+- The first mode comes from the boot menu (`omnios.mode=game|desktop|install` on the kernel command line) or the sign-in screen, defaulting to desktop.
+- A login that starts in Game Mode opens the launcher from a Plasma autostart entry (`/etc/xdg/autostart/omnios-game-mode.desktop`).
+- `omni-session-select game|desktop` opens or closes the launcher; `console` logs out, and the loop stops.
+- The loop stops, with the reason on screen, if a session ends within seconds three times running.
 
-`~/.config/hypr/hyprland.conf`:
-```ini
-# Boot straight into launcher
-exec-once = omni-launcher
+### 3.3 Game Mode's window
 
-# No window decorations
-windowrulev2 = fullscreen, class:omni-launcher
-
-# Fast animations
-animation = windows, 1, 3, default
-
-# Gaming: variable frame rate
-misc {
-    vfr = true
-    no_vfr_on_fullscreen = false
-}
-```
+The launcher opens maximised and frameless, not full screen, so Plasma's panel stays visible beneath it. Games and apps it starts open over it; closing them brings the library back. A Wayland app cannot raise its own window, so the controller's Guide button brings the library forward through KWin's scripting interface (`omni-kwin-activate`).
 
 ---
 
@@ -532,9 +549,12 @@ waydroid init
 
 **Goal:** Complete, usable launcher. Feels like PS5.
 
+This is Game Mode. The desktop is Desktop Mode (see [Two modes](#two-modes)); the launcher's system menu has *Switch to desktop*, and the desktop's application launcher has a *Game Mode* button beside Sleep, Restart and Shut Down.
+
 ### Design philosophy
 
-- Boot straight into tiles — no login screen, no desktop
+- Once in Game Mode, the tiles fill the screen above Plasma's panel — no desktop icons, no windows to manage
+- Can be the whole system: boot straight into it (the boot menu's Game Mode entry, or Game Mode picked at sign-in)
 - Every game is a tile with cover art + platform badge
 - One thing in focus at a time
 - Background art shifts to match focused tile (blurred + dark)
@@ -544,7 +564,7 @@ waydroid init
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  OmniOS                                      ⚙   🔍   👤   │
+│  GAMES   APPS                                               │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │   ╔═══════════╗  ┌─────────┐  ┌─────────┐  ┌─────────┐    │
@@ -558,8 +578,13 @@ waydroid init
 │  │    │ │    │ │    │ │    │ │    │ │    │ │    │         │
 │  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘         │
 │                                                             │
+│ ╭─────────────────────────────────────────────────────────╮ │
+│ │ ◉  ⚙ 🛍 📁 🌐  [Running game]        🔊 🖧 ᛒ   2:47 PM │ │
+│ ╰─────────────────────────────────────────────────────────╯ │
 └─────────────────────────────────────────────────────────────┘
   Background = blurred art of focused game, darkened
+  Taskbar = Plasma's own panel: Game Mode runs in the same session as the
+            desktop, so the taskbar, tray and clock are KDE's
 ```
 
 ### Game detail screen
@@ -632,7 +657,7 @@ Animations:
 
 | Part | Technology |
 |---|---|
-| Compositor | Hyprland (phase 1) → custom wlroots (phase 2) |
+| Compositor | KWin (Plasma), shared with Desktop Mode |
 | Launcher UI | Qt6 + QML |
 | Game scanner | C++ backend |
 | Cover art | SteamGridDB API |
@@ -672,29 +697,26 @@ omnios-launcher/
 
 **Goal:** Boots and feels like a product, not a modded distro.
 
-```bash
-# Boot splash
-sudo pacman -S plymouth
-yay -S plymouth-theme-game
-sudo plymouth-set-default-theme -R your-theme-name
+From the power button to the desktop it should be one OmniOS screen, never a Linux one followed by a KDE one:
 
-# GRUB theme
-yay -S grub-theme-vimix
-```
+| Stage | What shows |
+|---|---|
+| Boot menu (USB) | BIOS: syslinux vesamenu in the launcher's colours. UEFI: systemd-boot's plain list. |
+| Boot menu (installed) | None — boots straight through. |
+| Boot splash | Plymouth, OmniOS theme (the mark + a progress bar). |
+| Sign-in | The OmniOS sign-in screen, only when auto-login is off. |
+| Desktop loading | A KSplash theme that continues the Plymouth splash: same images, size and place. |
+| Desktop | Breeze Dark, with the OmniOS mark in place of the KDE logo on the application launcher. |
 
-`/etc/default/grub`:
-```ini
-GRUB_THEME="/usr/share/grub/themes/vimix/theme.txt"
-GRUB_TIMEOUT=2
-GRUB_DISTRIBUTOR="OmniOS"
-```
+OmniOS does not use GRUB: the USB uses syslinux (BIOS) and systemd-boot (UEFI), and installs use systemd-boot plus extlinux, so one disk boots on either kind of machine.
 
-Apply: `sudo grub-mkconfig -o /boot/grub/grub.cfg`
+Plasma's application launcher cannot be given a new power button by configuration, so the build forks Kickoff for the exact Plasma release it installs, adds the *Game Mode* button and the OmniOS mark, and uses that on the default panel. If the fork fails, the build keeps Plasma's own launcher.
 
 Checklist:
-- [ ] Boot splash (Plymouth — OmniOS logo)
-- [ ] GRUB theme
-- [ ] Auto-login (no login screen shown)
+- [x] Boot splash (Plymouth — OmniOS logo)
+- [x] Boot menu theme (syslinux vesamenu; systemd-boot on UEFI)
+- [x] Auto-login by default; an OmniOS sign-in screen when it is off
+- [x] Desktop: OmniOS launcher icon, loading screen, dark theme
 - [ ] Custom fonts bundled
 - [ ] Sound effects (tile focus, launch, notification)
 - [ ] Launcher theme system (.otheme packages)
@@ -720,11 +742,45 @@ Checklist:
 
 ```
 13.1  Build custom Arch ISO with all phases included (archiso tool)
-13.2  Auto-installer (boots ISO → installs OmniOS with one confirmation)
-13.3  First-run setup wizard (pick GPU driver, set username, pick theme)
+13.2  Installer (boots ISO → installs OmniOS, typed confirmation before erasing)
+13.3  First-run setup (account and time zone are in the installer; GPU driver, theme)
 13.4  Test on real hardware
 13.5  Release OmniOS v0.1
 ```
+
+### 13.1 The USB boot menu
+
+| Entry | Does |
+|---|---|
+| Try OmniOS | Live Desktop Mode (the default, after 10 seconds) |
+| Install OmniOS | Live desktop with the installer already open — closing it leaves an ordinary live session |
+| Try OmniOS in Game Mode | Live Game Mode |
+| Safe graphics (BIOS only), Console only | Troubleshooting |
+| Reboot, Power off (BIOS only) | — |
+
+### 13.2 Installer
+
+`omni-install` does the work; the installer screen (`omni-launcher-qml --install`, from the boot menu, the live desktop or Game Mode's menu) only starts it and shows its progress, so exactly one place decides which disks may be erased.
+
+```
+Choose disk → Account → Time zone → Confirm → Installing → Done
+```
+
+- **Whole disk only.** It installs beside nothing and resizes nothing: GPT, a 1 GiB EFI system partition, ext4 for the rest. OmniOS goes on its own disk, picked from the firmware's boot menu.
+- **What is installed is what was tried:** the live squashfs, unpacked onto the disk, then configured for that machine.
+- **Both boot loaders** — systemd-boot for UEFI, extlinux for BIOS — so the disk starts in either kind of machine.
+- **Disk safety.** Every disk is inspected read-only before it is offered. An OS on it is named (Windows, or a Linux system from its `os-release`) and such disks are listed last and flagged. Erasing a disk that holds anything takes `erase` typed out, and `omni-install` itself refuses a disk with an OS on it unless told which OS.
+- **Account.** Name, username, password, hostname, and *sign in automatically*. The account is the live `omni` user renamed, so groups carry over. The password travels over stdin, never argv, and never reaches the log. *Skip* keeps a passwordless `omni` account for a controller-only console.
+- **Hardening.** On the installed system ssh is off and root is locked, because the live image's password is public.
+
+### 13.3 Sign-in screen
+
+With *sign in automatically* off, tty1 runs greetd instead of auto-login, and greetd shows the OmniOS sign-in screen (`omni-launcher-qml --greeter`, full screen under the `cage` kiosk compositor, as greetd's unprivileged user). PAM decides whether the password is right; the screen never does.
+
+- Pick the user, type the password, pick **Desktop** or **Game Mode**
+- Restart and Shut down
+- Controller works the same as in the launcher
+- Signing out returns to it; switching modes does not
 
 ---
 
@@ -733,10 +789,11 @@ Checklist:
 ### Full stack overview
 
 ```
-USER picks a game in the launcher
+USER picks a game in the launcher (Game Mode) or opens it from the desktop
         │
 LAUNCHER SHELL
-  Wayland compositor + OmniOS game library UI
+  Game Mode:    OmniOS game library UI, over Plasma
+  Desktop Mode: KDE Plasma (Wayland)
         │
 COMPATIBILITY ENGINE
   Detector → Router → Layer Selector
@@ -1001,7 +1058,7 @@ gamemoderun mangohud <launcher> <game>
 
 | Layer | Component | Technology |
 |---|---|---|
-| Shell | Launcher + compositor | Hyprland + Qt6/QML |
+| Shell | Launcher + compositor | Qt6/QML on KDE Plasma (KWin) |
 | Compat engine | Detector + Router | Custom C++ |
 | Windows | NT API layer | Wine / Proton + DXVK |
 | PS4/PS5 | Orbis API layer | Shadps4 |
@@ -1024,7 +1081,7 @@ gamemoderun mangohud <launcher> <game>
 |---|---|
 | Arch Linux | archlinux.org |
 | Arch Wiki | wiki.archlinux.org |
-| Hyprland docs | wiki.hyprland.org |
+| KWin scripting | develop.kde.org/docs/plasma/kwin |
 | ProtonDB | protondb.com |
 | Shadps4 | github.com/shadps4-emu/shadPS4 |
 | Ryujinx | ryujinx.org |

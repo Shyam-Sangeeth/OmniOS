@@ -153,6 +153,7 @@ Window {
 
         Field {
             id: passwordField
+            keyboard: fieldKeyboard
             width: parent.width
             secret: true
             label: qsTr("Password")
@@ -161,6 +162,7 @@ Window {
             tabTo: window.desktopChoice
             onEdited: Greeter.clearError()
             onSubmitted: window.signIn()
+            doneMovesOn: false
         }
 
         // Which session to start in: the same two the boot menu offers.
@@ -266,5 +268,11 @@ Window {
             KeyNavigation.tab: passwordField.input
             Keys.onEscapePressed: passwordField.input.forceActiveFocus()
         }
+    }
+
+    // Typing with a controller: the fields above open this on A (✕).
+    FieldKeyboard {
+        id: fieldKeyboard
+        inputMode: Greeter.input
     }
 }

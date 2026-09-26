@@ -1,6 +1,8 @@
 #include "SystemStatus.h"
 
+#include <QDir>
 #include <QProcess>
+#include <QTemporaryFile>
 #include <QVariantMap>
 
 namespace {
@@ -17,12 +19,42 @@ QString run(const QString& program, const QStringList& arguments, int timeoutMs 
     QProcess process;
     process.setProcessChannelMode(QProcess::SeparateChannels);
     process.start(program, arguments);
+    // Nothing to say to any of them, and a tool that falls back to reading a
+    // prompt should see end-of-file rather than wait for one.
+    process.closeWriteChannel();
     if (!process.waitForFinished(timeoutMs)) {
         process.kill();
         process.waitForFinished(500);
         return {};
     }
     return QString::fromUtf8(process.readAllStandardOutput());
+}
+
+// bluetoothctl never returns when there is no bluetoothd to talk to, and on a
+// machine with no adapter bluetoothd is never started — its unit is conditional
+// on /sys/class/bluetooth. Each call then sat out the whole timeout above, on
+// the UI thread: four seconds before Game Mode first drew, and four seconds of
+// dead controller out of every eight after that, on any PC without Bluetooth.
+// So no adapter means no bluetoothctl at all, and a shorter leash for the case
+// that is left — an adapter whose daemon is not answering.
+// A string as one shell word, whatever is in it: single quotes, with any single
+// quote inside closed, escaped and reopened. For names that are not ours to
+// trust, such as a network's SSID, which is whatever an access point says.
+QString shellQuote(const QString& text) {
+    QString quoted = text;
+    quoted.replace(QLatin1Char('\''), QStringLiteral("'\\''"));
+    return QLatin1Char('\'') + quoted + QLatin1Char('\'');
+}
+
+bool hasBluetoothAdapter() {
+    return !QDir(QStringLiteral("/sys/class/bluetooth"))
+                .entryList(QDir::AllEntries | QDir::System | QDir::NoDotAndDotDot)
+                .isEmpty();
+}
+
+QString bluetoothctl(const QStringList& arguments) {
+    if (!hasBluetoothAdapter()) return {};
+    return run(QStringLiteral("bluetoothctl"), arguments, 1500);
 }
 
 // nmcli --terse escapes a colon inside a value as "\:", so a plain split would
@@ -163,7 +195,7 @@ void SystemStatus::pollAudio() {
 }
 
 void SystemStatus::pollBluetooth() {
-    const QString show = run(QStringLiteral("bluetoothctl"), {QStringLiteral("show")});
+    const QString show = bluetoothctl({QStringLiteral("show")});
     bluetoothAvailable_ = show.contains(QLatin1String("Powered:"));
     bluetoothPowered_   = show.contains(QLatin1String("Powered: yes"));
 
@@ -173,7 +205,7 @@ void SystemStatus::pollBluetooth() {
         bluetoothLabel_ = tr("Off");
     } else {
         int connected = 0;
-        const QString paired = run(QStringLiteral("bluetoothctl"),
+        const QString paired = bluetoothctl(
                                    {QStringLiteral("devices"), QStringLiteral("Connected")});
         for (const QString& line : paired.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
             if (line.startsWith(QLatin1String("Device "))) ++connected;
@@ -211,6 +243,7 @@ QVariantList SystemStatus::networkEntries() {
                              8000);
 
     QStringList seen;
+    wifiSecurity_.clear();
     for (const QString& line : list.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
         const QStringList fields = terseFields(line);
         if (fields.size() < 4) continue;
@@ -223,6 +256,7 @@ QVariantList SystemStatus::networkEntries() {
         // it off a list, and the same network is often seen on several bands.
         if (ssid.isEmpty() || seen.contains(ssid)) continue;
         seen << ssid;
+        wifiSecurity_.insert(ssid, security);
         if (inUse) continue;  // already the one on the status line above
 
         const QString lock = security.isEmpty() || security == QLatin1String("--")
@@ -251,9 +285,9 @@ QVariantList SystemStatus::bluetoothEntries() {
 
     entries << entry(QStringLiteral("bt:pair"), tr("Pair a controller"));
 
-    const QString paired = run(QStringLiteral("bluetoothctl"),
+    const QString paired = bluetoothctl(
                                {QStringLiteral("devices"), QStringLiteral("Paired")});
-    const QString connected = run(QStringLiteral("bluetoothctl"),
+    const QString connected = bluetoothctl(
                                   {QStringLiteral("devices"), QStringLiteral("Connected")});
 
     for (const QString& line : paired.split(QLatin1Char('\n'), Qt::SkipEmptyParts)) {
@@ -359,7 +393,7 @@ void SystemStatus::act(const QString& action) {
     if (action == QLatin1String("bt:on") || action == QLatin1String("bt:off")) {
         const QString state = action.endsWith(QLatin1String("on")) ? QStringLiteral("on")
                                                                    : QStringLiteral("off");
-        run(QStringLiteral("bluetoothctl"), {QStringLiteral("power"), state});
+        bluetoothctl({QStringLiteral("power"), state});
         pollBluetooth();
         emit changed();
         emit message(state == QLatin1String("on") ? tr("Bluetooth on") : tr("Bluetooth off"));
@@ -372,19 +406,23 @@ void SystemStatus::act(const QString& action) {
         return;
     }
 
+    // Every name below reaches a shell, and names are not ours to trust: a
+    // network's name is whatever the nearest access point broadcasts, and a
+    // Bluetooth device names itself. So each one is quoted.
     if (action.startsWith(QLatin1String("bt:connect:")) ||
         action.startsWith(QLatin1String("bt:disconnect:"))) {
         const bool connecting = action.startsWith(QLatin1String("bt:connect:"));
         const QString mac = action.section(QLatin1Char(':'), 2);
         emit runRequested(QStringLiteral("bluetoothctl %1 %2")
                               .arg(connecting ? QStringLiteral("connect")
-                                              : QStringLiteral("disconnect"), mac),
+                                              : QStringLiteral("disconnect"),
+                                   shellQuote(mac)),
                           connecting ? tr("Connecting ...") : tr("Disconnecting ..."));
         return;
     }
 
     if (action == QLatin1String("wifi:disconnect")) {
-        emit runRequested(QStringLiteral("nmcli device disconnect %1").arg(wifiDevice_),
+        emit runRequested(QStringLiteral("nmcli device disconnect %1").arg(shellQuote(wifiDevice_)),
                           tr("Disconnecting ..."));
         return;
     }
@@ -393,22 +431,85 @@ void SystemStatus::act(const QString& action) {
         const QString ssid = action.mid(QStringLiteral("wifi:connect:").size());
 
         // A network this machine already knows comes up without anyone typing
-        // anything, and so does an open one. A new secured network needs a
-        // password, and there is nowhere on a console to type one — saying so
-        // is better than a connection that fails with no explanation.
+        // anything, and so does an open one. A new secured one asks for its
+        // password — see joinWifi.
         const QString saved = run(QStringLiteral("nmcli"),
                                   {QStringLiteral("-t"), QStringLiteral("-f"),
                                    QStringLiteral("NAME"), QStringLiteral("connection"),
                                    QStringLiteral("show")});
         const bool known = saved.split(QLatin1Char('\n')).contains(ssid);
+        const QString security = wifiSecurity_.value(ssid);
+        const bool open = security.isEmpty() || security == QLatin1String("--");
 
-        emit runRequested(
-            known ? QStringLiteral("nmcli connection up id %1").arg(ssid)
-                  : QStringLiteral("nmcli device wifi connect %1 || "
-                                   "{ echo \"error: %1 needs a password, and there is no "
-                                   "keyboard flow for one yet\"; exit 1; }")
-                        .arg(ssid),
-            tr("Connecting to %1 ...").arg(ssid));
+        if (known || open) {
+            emit runRequested(
+                known ? QStringLiteral("nmcli connection up id %1").arg(shellQuote(ssid))
+                      : QStringLiteral("nmcli device wifi connect %1").arg(shellQuote(ssid)),
+                tr("Connecting to %1 ...").arg(ssid));
+            return;
+        }
+
+        // A password is one thing to type; a certificate and an identity are
+        // not something to ask for with a controller.
+        if (security.contains(QLatin1String("802.1X"))) {
+            emit message(tr("%1 needs a work or school sign-in — join it from the desktop")
+                             .arg(ssid));
+            return;
+        }
+
+        wifiPasswordFor_ = ssid;
+        emit wifiPasswordChanged();
         return;
     }
+}
+
+void SystemStatus::cancelWifiPassword() {
+    if (wifiPasswordFor_.isEmpty()) return;
+    wifiPasswordFor_.clear();
+    emit wifiPasswordChanged();
+}
+
+void SystemStatus::joinWifi(const QString& ssid, const QString& password) {
+    wifiPasswordFor_.clear();
+    emit wifiPasswordChanged();
+    if (ssid.isEmpty() || password.isEmpty()) return;
+
+    // The password file. In the runtime directory, which only this user can
+    // enter and which lives in memory, and readable by this user alone. nmcli
+    // reads it and the script deletes it straight after, worked or not.
+    QTemporaryFile secret(QDir(qEnvironmentVariable("XDG_RUNTIME_DIR", QDir::tempPath()))
+                              .filePath(QStringLiteral("omnios-wifi-XXXXXX")));
+    secret.setAutoRemove(false);
+    if (!secret.open()) {
+        emit message(tr("Could not join %1: nowhere to put the password").arg(ssid));
+        return;
+    }
+    secret.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+    QByteArray line = QByteArrayLiteral("802-11-wireless-security.psk:") + password.toUtf8() + '\n';
+    secret.write(line);
+    line.fill('\0');
+    secret.close();
+
+    // WPA3-only networks take SAE; everything that also speaks WPA2 or WPA1
+    // takes a pre-shared key, and so does WPA3 in transition mode.
+    const QString security = wifiSecurity_.value(ssid);
+    const bool saeOnly = security.contains(QLatin1String("WPA3")) &&
+                         !security.contains(QLatin1String("WPA2")) &&
+                         !security.contains(QLatin1String("WPA1"));
+    const QString keyMgmt = saeOnly ? QStringLiteral("sae") : QStringLiteral("wpa-psk");
+
+    // A profile first, with no secret in it, then brought up with the secret
+    // from the file. A wrong password leaves nothing behind: the half-made
+    // profile is deleted, so the next try asks again rather than failing on a
+    // profile that remembers the wrong one.
+    const QString name = shellQuote(ssid);
+    const QString script =
+        QStringLiteral(
+            "f=%1; "
+            "nmcli connection add type wifi con-name %2 ssid %2 wifi-sec.key-mgmt %3 >/dev/null "
+            "&& nmcli connection up id %2 passwd-file \"$f\"; rc=$?; rm -f \"$f\"; "
+            "if [ $rc -ne 0 ]; then nmcli connection delete id %2 >/dev/null 2>&1; "
+            "printf 'error: could not join %s - check the password\\n' %2; fi; exit $rc")
+            .arg(shellQuote(secret.fileName()), name, keyMgmt);
+    emit runRequested(script, tr("Joining %1 ...").arg(ssid));
 }

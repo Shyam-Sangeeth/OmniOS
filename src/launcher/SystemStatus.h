@@ -11,6 +11,7 @@
 // that serves a tile's menu serves these too.
 #pragma once
 
+#include <QHash>
 #include <QObject>
 #include <QString>
 #include <QTimer>
@@ -34,6 +35,10 @@ class SystemStatus : public QObject {
     Q_PROPERTY(bool bluetoothPowered READ bluetoothPowered NOTIFY changed)
     Q_PROPERTY(QString bluetoothLabel READ bluetoothLabel NOTIFY changed)
 
+    // A secured Wi-Fi network this machine has not joined before, waiting for
+    // its password. Empty when nothing is being asked.
+    Q_PROPERTY(QString wifiPasswordFor READ wifiPasswordFor NOTIFY wifiPasswordChanged)
+
 public:
     explicit SystemStatus(QObject* parent = nullptr);
 
@@ -48,6 +53,7 @@ public:
     bool    bluetoothAvailable() const { return bluetoothAvailable_; }
     bool    bluetoothPowered() const { return bluetoothPowered_; }
     QString bluetoothLabel() const { return bluetoothLabel_; }
+    QString wifiPasswordFor() const { return wifiPasswordFor_; }
 
     // Menu entries: {action, label, enabled}. Built on demand, because a list
     // of nearby networks is stale the moment it is cached.
@@ -61,6 +67,13 @@ public:
     // Re-reads everything now, rather than waiting for the next poll.
     Q_INVOKABLE void refresh();
 
+    // Joins a new secured network with the password typed for it. The password
+    // goes to NetworkManager in a file only this user can read, deleted as
+    // soon as nmcli has it — never on a command line, where every process on
+    // the machine could read it.
+    Q_INVOKABLE void joinWifi(const QString& ssid, const QString& password);
+    Q_INVOKABLE void cancelWifiPassword();
+
 signals:
     void changed();
     // Something long enough to be worth saying out loud while it happens.
@@ -68,6 +81,7 @@ signals:
     void runRequested(const QString& script, const QString& verb);
     // Something short that has already happened.
     void message(const QString& text);
+    void wifiPasswordChanged();
 
 private:
     // Split because they are asked for at very different rates. Turning the
@@ -89,4 +103,7 @@ private:
     bool    bluetoothAvailable_ = false;
     bool    bluetoothPowered_   = false;
     QString bluetoothLabel_;
+    QString wifiPasswordFor_;
+    // SSID -> security, as the last network list showed it, for joining.
+    QHash<QString, QString> wifiSecurity_;
 };

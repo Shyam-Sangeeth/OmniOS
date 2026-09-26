@@ -126,6 +126,38 @@ TEST("desktop: an entry for a program that is not installed is skipped") {
     CHECK(!parseDesktopEntry(file, app));
 }
 
+TEST("desktop: OnlyShowIn keeps an entry to the desktops it names") {
+    // The shape of the Plasma desktop's "Game Mode" shortcut: it belongs on the
+    // desktop and would be a pointless tile inside Game Mode itself.
+    const fs::path file = writeEntry("kde-only",
+                                     "[Desktop Entry]\n"
+                                     "Type=Application\n"
+                                     "Name=KDE Only\n"
+                                     "OnlyShowIn=KDE;\n"
+                                     "Exec=sh -c true\n");
+    DesktopApp app;
+    CHECK(parseDesktopEntry(file, app, {"KDE"}));
+    CHECK(!parseDesktopEntry(file, app, {"Hyprland"}));
+    // Nothing declared: shown nowhere, which is how glib reads it too.
+    CHECK(!parseDesktopEntry(file, app, {}));
+    // XDG_CURRENT_DESKTOP can list several; any one of them is enough.
+    CHECK(parseDesktopEntry(file, app, {"Hyprland", "KDE"}));
+}
+
+TEST("desktop: NotShowIn hides an entry only where it says") {
+    const fs::path file = writeEntry("not-hypr",
+                                     "[Desktop Entry]\n"
+                                     "Type=Application\n"
+                                     "Name=Not Here\n"
+                                     "NotShowIn=Hyprland;GNOME;\n"
+                                     "Exec=sh -c true\n");
+    DesktopApp app;
+    CHECK(!parseDesktopEntry(file, app, {"Hyprland"}));
+    CHECK(!parseDesktopEntry(file, app, {"GNOME"}));
+    CHECK(parseDesktopEntry(file, app, {"KDE"}));
+    CHECK(parseDesktopEntry(file, app, {}));
+}
+
 TEST("desktop: the search path puts the user ahead of the system") {
     const std::vector<fs::path> dirs = applicationDirs();
     CHECK(!dirs.empty());

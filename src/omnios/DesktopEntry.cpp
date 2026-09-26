@@ -30,6 +30,28 @@ std::string envOr(const char* name, const std::string& fallback) {
     return (value != nullptr && *value != '\0') ? std::string(value) : fallback;
 }
 
+// Splits "KDE;GNOME;" or "KDE:GNOME" into its parts, dropping empties — the
+// spec ends lists with a separator, and the trailing one is not a desktop.
+std::vector<std::string> splitList(const std::string& text, char separator) {
+    std::vector<std::string> parts;
+    std::size_t start = 0;
+    while (start <= text.size()) {
+        const std::size_t end = text.find(separator, start);
+        const std::string part =
+            trim(text.substr(start, end == std::string::npos ? std::string::npos : end - start));
+        if (!part.empty()) parts.push_back(part);
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return parts;
+}
+
+bool anyIn(const std::vector<std::string>& wanted, const std::vector<std::string>& have) {
+    for (const std::string& desktop : have)
+        if (std::find(wanted.begin(), wanted.end(), desktop) != wanted.end()) return true;
+    return false;
+}
+
 // Splits an Exec line the way the spec asks: quoted arguments stay whole, and
 // the field codes are dropped rather than passed through as literal "%U".
 //
@@ -153,7 +175,16 @@ std::vector<fs::path> applicationDirs() {
     return dirs;
 }
 
+std::vector<std::string> currentDesktops() {
+    return splitList(envOr("XDG_CURRENT_DESKTOP", ""), ':');
+}
+
 bool parseDesktopEntry(const fs::path& file, DesktopApp& out) {
+    return parseDesktopEntry(file, out, currentDesktops());
+}
+
+bool parseDesktopEntry(const fs::path& file, DesktopApp& out,
+                       const std::vector<std::string>& desktops) {
     std::ifstream in(file);
     if (!in) return false;
 
@@ -163,6 +194,8 @@ bool parseDesktopEntry(const fs::path& file, DesktopApp& out) {
     bool inMainGroup = false;
     std::string name, comment, exec, tryExec, icon, type;
     bool noDisplay = false, hidden = false, terminal = false;
+    std::string onlyShowIn, notShowIn;
+    bool hasOnlyShowIn = false;
 
     std::string line;
     while (std::getline(in, line)) {
@@ -190,10 +223,19 @@ bool parseDesktopEntry(const fs::path& file, DesktopApp& out) {
         else if (key == "NoDisplay") noDisplay = isTrue(value);
         else if (key == "Hidden") hidden = isTrue(value);
         else if (key == "Terminal") terminal = isTrue(value);
+        else if (key == "OnlyShowIn") { onlyShowIn = value; hasOnlyShowIn = true; }
+        else if (key == "NotShowIn") notShowIn = value;
     }
 
     if (type != "Application") return false;
     if (noDisplay || hidden || terminal) return false;
+
+    // An entry that names the desktops it belongs to is shown only there, and
+    // with no desktop declared at all it is shown nowhere — the same reading
+    // glib gives it. Without this a KDE-only panel or the desktop's own "Game
+    // Mode" shortcut becomes a tile in Game Mode that does nothing useful.
+    if (hasOnlyShowIn && !anyIn(splitList(onlyShowIn, ';'), desktops)) return false;
+    if (anyIn(splitList(notShowIn, ';'), desktops)) return false;
     if (name.empty() || exec.empty()) return false;
 
     std::vector<std::string> argv = parseExec(exec);

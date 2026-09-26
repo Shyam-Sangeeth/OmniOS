@@ -59,8 +59,22 @@ std::vector<std::filesystem::path> applicationDirs();
 const std::vector<std::string>& baselineApps();
 std::filesystem::path baselineAppsFile();
 
+// The desktops this session calls itself, from XDG_CURRENT_DESKTOP — a
+// colon-separated list such as "KDE" or "Hyprland". Empty when unset.
+std::vector<std::string> currentDesktops();
+
 // Parses one desktop entry. Returns false when the file is not a visible
 // application. Exposed for testing.
+//
+// OnlyShowIn and NotShowIn are judged against currentDesktops(). That matters
+// now that the image has two sessions: an entry written for one of them — the
+// Plasma desktop's "Game Mode" shortcut, the dozens of KDE panels marked
+// OnlyShowIn=KDE — must not turn up as a tile in the other.
 bool parseDesktopEntry(const std::filesystem::path& file, DesktopApp& out);
+
+// Same, judged against the given desktops instead of the environment's, so the
+// tests can ask "would this show under KDE?" without setting variables.
+bool parseDesktopEntry(const std::filesystem::path& file, DesktopApp& out,
+                       const std::vector<std::string>& desktops);
 
 }  // namespace omnios

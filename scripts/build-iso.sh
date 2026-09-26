@@ -181,6 +181,13 @@ if [[ $found -eq 0 ]]; then
     echo "    warning: none found; the Apps tab will show every desktop entry" >&2
 fi
 
+# The desktop's application launcher: Plasma's own, with the OmniOS mark in the
+# corner and a Game Mode button beside Shut Down. Built from the source of the
+# exact Plasma release being installed; see the script for why. Never fatal —
+# on any failure it removes what it wrote and the desktop keeps the stock one.
+step "building the desktop's application launcher"
+bash "$REPO/scripts/make-desktop-launcher.sh" "$PROFILE/airootfs" "$PROFILE/pacman.conf"     || echo "    warning: the launcher step failed; the desktop keeps Plasma's own" >&2
+
 # --- 4. the image -----------------------------------------------------------
 step "running mkarchiso (this pulls a few GB and takes a while)"
 rm -rf "$WORK"

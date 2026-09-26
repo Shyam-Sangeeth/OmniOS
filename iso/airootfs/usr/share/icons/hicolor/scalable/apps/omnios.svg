@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- The OmniOS mark: an orbit ring around a play triangle. The same shapes
+       and colours as src/launcher/OmniLogo.qml, which draws it for Game Mode;
+       this is the file the desktop uses, starting with the application
+       launcher in the panel's corner. Every coordinate here is OmniLogo's
+       fraction of the width, multiplied out at 64. -->
+  <defs>
+    <linearGradient id="omni" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="64" y2="64">
+      <stop offset="0" stop-color="#6C63FF"/>
+      <stop offset="1" stop-color="#3A8FFF"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#omni)" stroke-linecap="round">
+    <!-- Outer ring, open at the lower right: from 0.62pi round to 0.30pi. -->
+    <path stroke-width="5.44" d="M 21.634 58.183 A 28.16 28.16 0 1 1 48.553 54.782"/>
+    <!-- Inner counterweight: 1.58pi to 1.98pi. -->
+    <path stroke-width="3.52" d="M 36.775 13.403 A 19.2 19.2 0 0 1 51.162 30.794"/>
+  </g>
+  <!-- Play triangle, nudged right a whisker as OmniLogo does. -->
+  <path fill="url(#omni)" d="M 24.525 19.84 L 45.44 32 L 24.525 44.16 Z"/>
+</svg>

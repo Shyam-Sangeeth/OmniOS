@@ -21,3 +21,7 @@ iso/airootfs/usr/local/bin/omnictl
 iso/airootfs/usr/local/bin/omni-launcher-qml
 iso/airootfs/usr/share/omnios/
 iso/airootfs/etc/localtime
+# The desktop's application launcher, assembled from Plasma's own source by
+# scripts/make-desktop-launcher.sh for whichever release the image installs.
+iso/airootfs/usr/share/plasma/plasmoids/org.omnios.kickoff/
+iso/airootfs/usr/local/share/plasma/

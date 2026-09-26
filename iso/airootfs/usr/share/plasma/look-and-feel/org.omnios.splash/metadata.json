@@ -1,0 +1,15 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "OmniOS"
+            }
+        ],
+        "Description": "The OmniOS mark while the desktop starts",
+        "Id": "org.omnios.splash",
+        "License": "GPL-2.0+",
+        "Name": "OmniOS"
+    },
+    "X-Plasma-APIVersion": "2"
+}

@@ -1,0 +1,6 @@
+[KSplash]
+# The OmniOS splash while the desktop starts, instead of KDE's. It lives in
+# /usr/share/plasma/look-and-feel/org.omnios.splash and continues the boot
+# splash exactly.
+Engine=KSplashQML
+Theme=org.omnios.splash

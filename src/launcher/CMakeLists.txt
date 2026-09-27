@@ -15,6 +15,7 @@ qt_add_executable(omni-launcher
     KeyDelivery.cpp
     InputMode.cpp
     PadGlyphs.cpp
+    MpvItem.cpp
     TvController.cpp)
 
 # The QML forms a module named "omnios". The files sit beside this file rather
@@ -57,6 +58,7 @@ qt_add_qml_module(omni-launcher
         KeyDelivery.h
         InputMode.h
         PadGlyphs.h
+        MpvItem.h
         TvController.h)
 
 # SDL3 for the controller. Optional on purpose: without it the shell still
@@ -76,9 +78,16 @@ endif()
 # offer it, and Qt6::Core needs it on Arch anyway, so it is always there.
 find_package(ZLIB REQUIRED)
 
+# libmpv, TV's player (see MpvItem.h), drawing through OpenGL.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
+find_package(Qt6 REQUIRED COMPONENTS OpenGL)
+
 target_link_libraries(omni-launcher PRIVATE
     omnios_core
     ZLIB::ZLIB
+    PkgConfig::MPV
+    Qt6::OpenGL
     Qt6::Core
     Qt6::Gui
     Qt6::Quick

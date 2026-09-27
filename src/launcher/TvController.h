@@ -1,20 +1,16 @@
 // OmniOS TV: free-to-air channels from iptv-org.
 //
 // The window filters — country, category, language, and a search, all at
-// once — and plays in the window itself, under OmniOS's own controls (Qt
-// Multimedia, over FFmpeg; see TvWindow.qml). A stream that answers only a
-// particular browser or referring page cannot be played that way — Qt's player
-// has no way to send either — and goes to mpv instead, full screen, in a
-// process of its own; the controller is then a remote through this class.
-// Either way: up and down change channel, B stops. See omnios/Iptv.h for where
-// the channels come from, and omnios/Epg.h for what is on them.
+// once — and plays every channel in the window itself, under OmniOS's own
+// controls (libmpv; see MpvItem.h and TvPlayer.qml). Up and down are volume,
+// LB and RB change channel, B stops. See omnios/Iptv.h for where the channels
+// come from, and omnios/Epg.h for what is on them.
 #pragma once
 
 #include <QElapsedTimer>
 #include <QHash>
 #include <QNetworkAccessManager>
 #include <QObject>
-#include <QProcess>
 #include <QSet>
 #include <QStringList>
 #include <QThreadPool>
@@ -60,8 +56,8 @@ class TvController : public QObject {
     Q_PROPERTY(bool playing READ playing NOTIFY stateChanged)
     Q_PROPERTY(QString playingName READ playingName NOTIFY stateChanged)
     Q_PROPERTY(int playingIndex READ playingIndex NOTIFY stateChanged)
-    // The stream for the window's own player; empty when nothing plays there
-    // (nothing at all, or mpv has it).
+    // The stream for the window's player; empty when nothing plays, or while
+    // the channel's playlist is still being read.
     Q_PROPERTY(QString playingUrl READ playingUrl NOTIFY stateChanged)
     // The window's player is up: tuning in (the URL may not be known yet,
     // while the playlist is read) or playing.
@@ -89,7 +85,7 @@ public:
     QVariantList channels() const { return channels_; }
     bool loading() const { return pending_ > 0; }
     QString message() const { return message_; }
-    bool playing() const { return player_ != nullptr || inWindow_; }
+    bool playing() const { return inWindow_; }
     bool playingInWindow() const { return inWindow_; }
     QString playingName() const { return playingName_; }
     int playingIndex() const { return playingIndex_; }
@@ -154,7 +150,6 @@ private:
     // Recomputes channels_ and every filter's choices from entries_.
     void applyFilters();
     void setMessage(const QString& text);
-    void remote(int key);
     void startPlaying(int index);
     // To the next channel, pressed or skipped to.
     void zap(int direction);
@@ -190,16 +185,12 @@ private:
     int          pending_ = 0;
     QString      message_;
 
-    QProcess*     player_ = nullptr;  // mpv, for a stream that needs headers
     QString       playingUrl_;        // the window's player
     bool          inWindow_ = false;
     int           tuning_ = 0;         // which channel a playlist read is for
     QString       playError_;
     int           playingIndex_ = -1;
     QString       playingName_;
-    QElapsedTimer playingFor_;
-    QElapsedTimer playerClosed_;  // since mpv last closed
-    bool          stopping_ = false;
     // Channel surfing: the direction of the last up or down on the remote, and
     // how many dead channels in a row have been skipped since. A channel
     // chosen from the grid resets both, so it reports failing rather than

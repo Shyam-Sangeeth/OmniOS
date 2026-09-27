@@ -1,19 +1,23 @@
-// The channel playing, inside TV's own window (Qt Multimedia over FFmpeg).
+// The channel playing, inside TV's own window (libmpv; see MpvItem.h).
 //
 // A bar along the top — Back, the channel, its audio and subtitles, the
 // volume, favourite — shows when the mouse moves or a key is pressed, and
 // fades after a few seconds of neither.
 //
 //   Up / Down               volume          M        mute
-//   Left / Right, PgUp/PgDn  channel         Enter    into the bar
-//   LB / RB on a pad         channel         Esc, B, Backspace, right-click: back
+//   PgUp / PgDn, LB / RB    channel         Enter    into the bar
+//   Esc, B, Backspace, right-click: back
+//
+// Left and Right do not change channel. A stick held to one side repeats
+// its direction several times a second, and each repeat was a channel: a
+// nudge sent the picture racing through the list. Channel is the shoulder
+// buttons, which never repeat, and one press is one channel.
 //
 // In the bar, Left and Right move between its controls and Enter uses one;
 // Esc goes back to the picture. A channel that will not play says so here,
 // with the next one and the way back as buttons, rather than leaving a black
 // screen; surfing skips it instead — TvController decides which.
 import QtQuick
-import QtMultimedia
 import omnios
 
 FocusScope {
@@ -30,9 +34,7 @@ FocusScope {
     // What is on it, from the guide; empty where there is none.
     readonly property var guide: channel && Tv.guideRevision >= 0 ? Tv.guideFor(channel.url) : ({})
     readonly property bool hasGuide: guide.now !== undefined || guide.next !== undefined
-    readonly property bool loading: active && !failed
-        && media.mediaStatus !== MediaPlayer.BufferedMedia
-        && media.mediaStatus !== MediaPlayer.EndOfMedia
+    readonly property bool loading: active && !failed && (media.status !== "playing" || media.buffering)
 
     anchors.fill: parent
     visible: active
@@ -42,10 +44,10 @@ FocusScope {
         hideTimer.restart()
     }
 
-    // The volume, in steps of 5%, kept across channels: it is one AudioOutput.
+    // The volume, in steps of 5%, kept across channels: it is one player.
     function changeVolume(step) {
-        audio.muted = false
-        audio.volume = Math.max(0, Math.min(1, Math.round((audio.volume + step) * 20) / 20))
+        media.muted = false
+        media.volume = Math.max(0, Math.min(100, Math.round((media.volume + step * 100) / 5) * 5))
         showControls()
     }
 
@@ -62,37 +64,35 @@ FocusScope {
 
     Rectangle { anchors.fill: parent; color: "black" }
 
-    MediaPlayer {
+    // The picture, and the sound: every channel, whatever it needs (MpvItem.h).
+    MpvItem {
         id: media
+        anchors.fill: parent
+        visible: !player.failed
         source: Tv.playingUrl
-        audioOutput: AudioOutput { id: audio; volume: 0.8 }
-        videoOutput: video
+        userAgent: player.channel && player.channel.userAgent ? player.channel.userAgent : ""
+        referrer: player.channel && player.channel.referrer ? player.channel.referrer : ""
         onSourceChanged: {
             player.played = false
             player.retries = 0
-            if (source.toString() === "") { stop(); return }
-            watchdog.restart()
-            play()
+            if (source !== "") watchdog.restart()
         }
-        onErrorOccurred: player.trouble()
-        onMediaStatusChanged: {
-            if (mediaStatus === MediaPlayer.BufferedMedia) {
+        onStatusChanged: {
+            if (status === "playing") {
                 watchdog.stop()
                 player.played = true
                 if (player.retries > 0) steady.restart()
             }
             // A live channel does not end; one that does has stopped sending.
-            else if (mediaStatus === MediaPlayer.EndOfMedia || mediaStatus === MediaPlayer.InvalidMedia)
-                player.trouble()
+            else if (status === "failed") player.trouble()
         }
     }
 
-    // Live streams hiccup: a corrupt frame at an ad break, a segment that came
-    // late. Qt's player stops at the first, where FFmpeg on its own carries on
-    // — Sony Yay played for half a minute, then was called unavailable over a
-    // few bad audio frames. So a channel that has played is reconnected, a few
-    // times, before it is given up on; one that never started is given up on
-    // at once, since that is what a dead channel looks like.
+    // Live streams hiccup: a server that drops the connection at an ad break,
+    // a playlist that stops for a moment. A channel that has played is
+    // reconnected, a few times, before it is given up on; one that never
+    // started is given up on at once, since that is what a dead channel looks
+    // like.
     property bool played: false
     property int retries: 0
     // A minute of playing after a reconnect: the next hiccup gets its three
@@ -105,8 +105,7 @@ FocusScope {
             ++retries
             played = false
             watchdog.restart()
-            media.stop()
-            media.play()
+            media.reload()
             return
         }
         Tv.playerFailed()
@@ -126,12 +125,6 @@ FocusScope {
         }
     }
 
-    VideoOutput {
-        id: video
-        anchors.fill: parent
-        visible: !player.failed
-    }
-
     // The mouse: moving shows the controls, a right-click goes back.
     MouseArea {
         anchors.fill: parent
@@ -147,14 +140,20 @@ FocusScope {
     }
 
     // ---- tracks ---------------------------------------------------------------------
+    // A language by its code, as mpv gives it ("hin", "en"), in its own
+    // words: हिन्दी, English. A code nothing knows is shown as it is.
+    function languageName(code) {
+        if (!code || code === "und") return ""
+        var locale = Qt.locale(code)
+        if (locale.name === "C") return code
+        var name = locale.nativeLanguageName
+        return name ? name.charAt(0).toUpperCase() + name.slice(1) : code
+    }
     // What a track is called: its title and language where it has them. One
-    // with neither is the channel's own sound — which Qt calls "Default", the
-    // name of no language at all.
+    // with neither is the channel's own sound.
     function trackName(track) {
-        var title = track ? track.stringValue(MediaMetaData.Title) : ""
-        var language = track ? track.stringValue(MediaMetaData.Language) : ""
-        if (language === "Default" || language === "C") language = ""
-        if (title === "Default") title = ""
+        var title = track && track.title ? track.title : ""
+        var language = track ? languageName(track.language) : ""
         if (title && language && title !== language) return title + " (" + language + ")"
         return title || language || qsTr("Main audio")
     }
@@ -165,15 +164,15 @@ FocusScope {
     function openTracks(kind, anchor) {
         trackOpener = anchor.activeFocus ? anchor : null
         var tracks = kind === "audio" ? media.audioTracks : media.subtitleTracks
-        var current = kind === "audio" ? media.activeAudioTrack : media.activeSubtitleTrack
+        var current = kind === "audio" ? media.audioTrack : media.subtitleTrack
         var entries = []
         if (kind === "subtitles")
-            entries.push({ action: "-1", label: (current < 0 ? "✓  " : "     ") + qsTr("Off"), enabled: true })
+            entries.push({ action: "0", label: (current <= 0 ? "✓  " : "     ") + qsTr("Off"), enabled: true })
         // One entry per name. A stream offered in several qualities carries
         // a copy of its sound in each, and a list of eight "Main audio"s is
         // one choice written eight times. The entry stands for the copy being
         // played when it is one of them, the first otherwise.
-        var groups = []   // [{ name, index, ticked }], in first-seen order
+        var groups = []   // [{ name, id, ticked }], in first-seen order
         var byName = {}
         for (var i = 0; i < tracks.length; ++i) {
             var name = trackName(tracks[i])
@@ -182,15 +181,15 @@ FocusScope {
             if (kind === "subtitles" && name === qsTr("Main audio")) name = qsTr("Subtitles %1").arg(i + 1)
             if (!(name in byName)) {
                 byName[name] = groups.length
-                groups.push({ name: name, index: i, ticked: false })
+                groups.push({ name: name, id: tracks[i].id, ticked: false })
             }
-            if (i === current) {
-                groups[byName[name]].index = i
+            if (tracks[i].id === current) {
+                groups[byName[name]].id = tracks[i].id
                 groups[byName[name]].ticked = true
             }
         }
         for (var n = 0; n < groups.length; ++n)
-            entries.push({ action: String(groups[n].index),
+            entries.push({ action: String(groups[n].id),
                            label: (groups[n].ticked ? "✓  " : "     ") + groups[n].name, enabled: true })
         // Always opens, and says what there is: a list that does nothing when
         // pressed reads as broken, not as "this channel has one".
@@ -368,7 +367,7 @@ FocusScope {
                 }
                 BarButton {
                     id: subtitleButton
-                    text: media.activeSubtitleTrack >= 0 ? qsTr("Subtitles: on ▾") : qsTr("Subtitles ▾")
+                    text: media.subtitleTrack > 0 ? qsTr("Subtitles: on ▾") : qsTr("Subtitles ▾")
                     onActivated: player.openTracks("subtitles", subtitleButton)
                 }
                 Item { width: 8; height: 1 }
@@ -376,9 +375,9 @@ FocusScope {
                 BarButton {
                     id: volumeLevel
                     // Muted, or how loud; pressing it mutes and unmutes.
-                    text: audio.muted ? qsTr("Muted") : qsTr("Volume %1%").arg(Math.round(audio.volume * 100))
-                    lit: audio.muted
-                    onActivated: audio.muted = !audio.muted
+                    text: media.muted ? qsTr("Muted") : qsTr("Volume %1%").arg(Math.round(media.volume))
+                    lit: media.muted
+                    onActivated: media.muted = !media.muted
                 }
                 BarButton { id: louder; text: "+"; onActivated: player.changeVolume(0.05) }
                 Item { width: 8; height: 1 }
@@ -488,10 +487,10 @@ FocusScope {
                                       .arg(player.buttons.south).arg(player.buttons.east)
                                 : qsTr("[←] [→] Move    [Enter] Choose    [Esc] Back to the picture"))
                   : player.pad
-                    ? qsTr("▲ ▼ Volume    ◀ ▶ or %1 %2 Channel    %3 More    %4 Back")
+                    ? qsTr("▲ ▼ Volume    %1 %2 Channel    %3 More    %4 Back")
                           .arg(player.buttons.l1).arg(player.buttons.r1)
                           .arg(player.buttons.south).arg(player.buttons.east)
-                    : qsTr("[↑] [↓] Volume    [←] [→] Channel    [M] Mute    [Enter] More    [Esc] Back"))
+                    : qsTr("[↑] [↓] Volume    [PgUp] [PgDn] Channel    [M] Mute    [Enter] More    [Esc] Back"))
             color: "#CCFFFFFF"
             font.pixelSize: 13
             style: Text.Outline
@@ -518,8 +517,8 @@ FocusScope {
         panelColor: "#A61A1826"
         idleTimeout: 8000
         onChosen: (action, context) => {
-            if (context === "audio") media.activeAudioTrack = Number(action)
-            else if (context === "subtitles") media.activeSubtitleTrack = Number(action)
+            if (context === "audio") media.audioTrack = Number(action)
+            else if (context === "subtitles") media.subtitleTrack = Number(action)
         }
         onClosed: {
             if (player.trackOpener) player.trackOpener.forceActiveFocus()
@@ -540,15 +539,15 @@ FocusScope {
         case Qt.Key_Down:
             player.changeVolume(-0.05); break
         case Qt.Key_M:
-            audio.muted = !audio.muted; player.showControls(); break
-        case Qt.Key_Left:
+            media.muted = !media.muted; player.showControls(); break
         case Qt.Key_PageUp:
         case Qt.Key_Backtab:
-            Tv.changeChannel(-1); player.showControls(); break
-        case Qt.Key_Right:
         case Qt.Key_PageDown:
         case Qt.Key_Tab:
-            Tv.changeChannel(1); player.showControls(); break
+            // A key held down repeats; the channel changes once per press.
+            if (!event.isAutoRepeat)
+                Tv.changeChannel(event.key === Qt.Key_PageDown || event.key === Qt.Key_Tab ? 1 : -1)
+            player.showControls(); break
         case Qt.Key_Return:
         case Qt.Key_Enter:
             // Into the bar, on Back, so the whole of it is a press away.

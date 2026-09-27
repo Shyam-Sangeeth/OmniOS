@@ -351,7 +351,7 @@ the desktop's application menu) plays free-to-air channels from
 [iptv-org](https://github.com/iptv-org/iptv): a public list of publicly
 available streams — news, public broadcasters and the like — published as M3U
 playlists by country and by category. Nothing is hosted by OmniOS or by
-iptv-org; a channel is a name, a logo and a stream address that mpv plays.
+iptv-org; a channel is a name, a logo and a stream address that TV plays.
 
 One row across the top holds every filter: *Country*, *Category* and
 *Language* — each a list with its own search, closest match first, where any
@@ -367,45 +367,59 @@ iptv-org publishes its whole list grouped each of those three ways; the three
 are merged by stream (`TvCatalog` in [Iptv.cpp](src/omnios/Iptv.cpp)), so each
 channel carries all three. The channels fill the screen below as tiles with
 their logos. A plays full screen; Y keeps a channel in favourites. While a
-channel plays the controller is a remote: up and down change channel, and a
-channel that turns out to be dead is skipped (up to five in a row), as a TV
-skips an empty one. B stops.
+channel plays the controller is a remote: up and down are volume, LB and RB
+change channel, and a channel that turns out to be dead is skipped (up to five
+in a row), as a TV skips an empty one. B stops.
 
 Many of the streams are offline on a given day or only answer inside their own
 country — iptv-org marks the ones it knows are geo-blocked — so a channel that
 will not play says so rather than leaving a black screen. The three lists (about
 8 MB together) are cached for a day in `~/.cache/omnios/tv`, and cached lists
 are shown, marked as such, when the network is down. [Iptv.cpp](src/omnios/Iptv.cpp) reads the playlists, and
-only ever hands mpv an http(s) address, after a `--` so no address can be read
-as an option.
+only ever hands the player an http(s) address.
 
-Channels play inside TV's own window ([TvPlayer.qml](src/launcher/TvPlayer.qml),
-Qt Multimedia over FFmpeg), under a bar of OmniOS's controls — *Back*, the
+Every channel plays inside TV's own window ([TvPlayer.qml](src/launcher/TvPlayer.qml)),
+under a bar of OmniOS's controls — *Back*, the
 channel's name, *Audio* and *Subtitles* (the stream's
 tracks, and *Off*; each says what there is even when there is one or none),
 volume down, level (press to mute) and up, and ★ — shown on any key or mouse
 movement and faded after a few seconds; eight with something in the bar
 chosen, after which the keys go back to the picture, as on a TV. An Audio or
 Subtitles list closes itself after eight seconds untouched. Up and down (or the wheel) are volume,
-left and right (PgUp/PgDn, the pad's shoulders) change channel, M mutes, and
-Enter goes into the bar, where left and right move between its controls. Esc,
+the pad's shoulders (PgUp/PgDn) change channel, M mutes, and
+Enter goes into the bar, where left and right move between its controls. Left and
+right on the picture do nothing: a stick held to one side repeats its
+direction, and when they changed channel a nudge raced through the list; a
+shoulder never repeats, and one press is one channel. Esc,
 Backspace, B on a pad, a right-click or *Back* all leave. While a stream connects it says so; one that will
 not play — an error, an end, or 25 seconds of nothing — shows a card with
 *Next channel* and *Back to channels* instead of a black screen. One that has
-played and then hiccups — a corrupt frame at an ad break — is reconnected up to
-three times first: Qt's player stops at the first bad frame where FFmpeg on its
-own carries on.
+played and then drops — a server that closes the connection at an ad break —
+is reconnected up to three times first.
 
-A channel's playlist is often a choice of qualities. Handed that, FFmpeg
-downloads every one of them at once and the player shows the first it meets,
-often the smallest — eight downloads for Sony Yay, which then never started in
-the VM, and each copy of its sound listed as a separate "Default" track. So TV
-reads the playlist first and hands the player one: the tallest picture up to
-the screen's height and never below 1080p, since the best copy is often the
-only one with the extra languages (`pickHlsVariant` in
-[Iptv.cpp](src/omnios/Iptv.cpp); a playlist with separate audio renditions is
-passed on whole). The audio list names each track once — *Main audio* for the
-channel's own sound, then its languages.
+**The player is mpv**, as a library: [MpvItem](src/launcher/MpvItem.cpp) has
+libmpv draw each frame with OpenGL into TV's own scene (its render API), so the
+bar, the lists and the guide sit over the picture, and the window is OpenGL
+whatever Qt would have chosen — with no GPU, Mesa's software OpenGL, which
+plays 1080p in the VM. It was Qt Multimedia first, and three things moved it:
+Qt's player cannot send a user agent or a referrer, which about one stream in
+eight needs; its FFmpeg refuses an HLS segment whose address has no file
+extension, which is every segment of amagi's channels (Samsung TV Plus, many of
+them Indian — 9X Jhakaas, for one), with no setting to allow it; and it stopped
+dead at a corrupt frame where mpv carries on. Those channels had been handed to
+mpv as a separate full-screen program, without OmniOS's bar; now there is one
+player, and every channel has the same controls. mpv's own keys, on-screen
+controls and scripts are off; its warnings go to TV's log (the journal, when
+the launcher opened it), and `OMNIOS_MPV_DEBUG=1` makes them verbose.
+
+A channel's playlist is often a choice of qualities, and TV reads it first and
+hands the player one: the tallest picture up to the screen's height and never
+below 1080p, since the best copy is often the only one with the extra
+languages (`pickHlsVariant` in [Iptv.cpp](src/omnios/Iptv.cpp); a playlist with
+separate audio renditions is passed on whole), asked for with the channel's
+user agent and referrer, as the player will ask. The audio list names each
+language once, in its own script — हिन्दी, తెలుగు, বাংলা for Sony Yay — and
+*Main audio* for a track with no language.
 
 **What is on.** A tile shows the programme on now under the channel's name,
 with a thin bar for how far into it; the player shows it too, with the bar
@@ -429,16 +443,8 @@ Everything above works from a controller: the D-pad and A in the filters and
 their lists, A on a search box for the on-screen keyboard, Y for favourites,
 and in the player the D-pad and shoulders as listed, X to mute and B to leave.
 Every program reading the pad sees every press, so TV acts on one only while
-it is the window in front (or mpv, its player, is): after the Guide button
-brings the launcher back, TV behind it stays still.
-
-About one stream in eight answers only a particular browser or referring page,
-which Qt's player has no way to send; those go to mpv, full screen, told the
-same ways out (Esc, Backspace, Q, a right-click) and saying so when it starts.
-mpv is also told its video outputs — the GPU through Wayland, then Wayland's
-plain software output: left to choose, on a machine with no usable GPU it goes
-on to try X11 through XWayland and crashes on an assertion there, which in the
-VM made every channel look dead.
+it is the window in front: after the Guide button brings the launcher back, TV
+behind it stays still.
 
 ### Updates
 

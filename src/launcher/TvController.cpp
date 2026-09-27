@@ -32,16 +32,6 @@ namespace {
 QString cacheDir() { return QDir::homePath() + QStringLiteral("/.cache/omnios/tv"); }
 QString favoritesFile() { return QDir::homePath() + QStringLiteral("/.local/share/omnios/tv-favorites.json"); }
 
-// mpv's keys, for the channels only it can play: every obvious way out
-// leaves (mpv's own Esc only leaves full screen, which on a TV is nothing
-// anyone wants, and it has no button for it at all).
-const char kInputConf[] =
-    "ESC quit\n"
-    "BS quit\n"
-    "q quit\n"
-    "MBTN_RIGHT quit\n"
-    "MBTN_BACK quit\n";
-
 constexpr omnios::TvFacet kFacets[3] = {omnios::TvFacet::Country, omnios::TvFacet::Category,
                                         omnios::TvFacet::Language};
 const char* const kCacheNames[3] = {"index-country.m3u", "index-category.m3u", "index-language.m3u"};
@@ -84,23 +74,17 @@ constexpr qint64 kGuideRefreshMs = 12LL * 3600 * 1000;
 }  // namespace
 
 TvController::TvController(QObject* parent) : QObject(parent) {
-    // The pad: a remote while something plays, the keyboard's arrows and
-    // Enter while browsing.
+    // The pad: the keyboard's arrows and Enter, delivered to whatever has
+    // focus, as the launcher does.
     connect(&gamepad_, &GamepadInput::keyPressed, this, [this](int key) {
-        if (player_ != nullptr) { remote(key); return; }
         // Every program reading the pad sees every press. With another window
         // in front (the launcher, after the Guide button) the press is that
-        // window's, and TV behind it must not act on it too. The exception is
-        // the moment after mpv closes, before TV has been given focus back.
-        if (QGuiApplication::applicationState() != Qt::ApplicationActive
-            && !(playerClosed_.isValid() && playerClosed_.elapsed() < 3000))
-            return;
+        // window's, and TV behind it must not act on it too.
+        if (QGuiApplication::applicationState() != Qt::ApplicationActive) return;
         deliverKey(key, [this] { emit focusWanted(); });
     });
 
     QDir().mkpath(cacheDir());
-    QFile conf(cacheDir() + QStringLiteral("/input.conf"));
-    if (conf.open(QIODevice::WriteOnly | QIODevice::Truncate)) conf.write(kInputConf);
 
     // Where the viewer is, so their own country's channels open first: from
     // the language setting (the installer's choice), then from the time zone.
@@ -141,13 +125,7 @@ TvController::TvController(QObject* parent) : QObject(parent) {
     loadCatalog();
 }
 
-TvController::~TvController() {
-    if (player_ != nullptr) {
-        player_->disconnect(this);
-        player_->terminate();
-        player_->waitForFinished(1000);
-    }
-}
+TvController::~TvController() = default;
 
 void TvController::setMessage(const QString& text) {
     if (message_ == text) return;
@@ -400,16 +378,6 @@ void TvController::startPlaying(int index) {
     const QString url = channel.value(QStringLiteral("url")).toString();
     if (!url.startsWith(QLatin1String("http://")) && !url.startsWith(QLatin1String("https://"))) return;
 
-    // One channel at a time: the old one goes first, quietly.
-    if (player_ != nullptr) {
-        QProcess* old = player_;
-        player_ = nullptr;
-        old->disconnect(this);
-        old->terminate();
-        if (!old->waitForFinished(1500)) old->kill();
-        old->deleteLater();
-    }
-
     playingIndex_ = index;
     playingName_ = channel.value(QStringLiteral("name")).toString();
     playError_.clear();
@@ -418,111 +386,50 @@ void TvController::startPlaying(int index) {
 
     const QString agent = channel.value(QStringLiteral("userAgent")).toString();
     const QString referrer = channel.value(QStringLiteral("referrer")).toString();
-    // Most channels play in the window, under OmniOS's own controls. Only one
-    // that has to be asked for as a particular browser or from a particular
-    // page goes to mpv, which can say so; Qt's player cannot.
-    if (agent.isEmpty() && referrer.isEmpty()) {
-        inWindow_ = true;
-        playingUrl_.clear();
-        const int token = ++tuning_;
+    inWindow_ = true;
+    playingUrl_.clear();
+    const int token = ++tuning_;
+    emit stateChanged();
+    // An HLS playlist may be a choice of qualities; the player is given one
+    // (see omnios::pickHlsVariant). Anything else, as it is.
+    if (!QUrl(url).path().endsWith(QLatin1String(".m3u8"), Qt::CaseInsensitive)) {
+        playingUrl_ = url;
         emit stateChanged();
-        // An HLS playlist may be a choice of qualities; the player is given
-        // one (see omnios::pickHlsVariant). Anything else, as it is.
-        if (!QUrl(url).path().endsWith(QLatin1String(".m3u8"), Qt::CaseInsensitive)) {
-            playingUrl_ = url;
-            emit stateChanged();
-            return;
-        }
-        QNetworkRequest request{QUrl(url)};
-        request.setTransferTimeout(10000);
-        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                             QNetworkRequest::NoLessSafeRedirectPolicy);
-        QNetworkReply* reply = network_.get(request);
-        connect(reply, &QNetworkReply::finished, this, [this, reply, url, token]() {
-            reply->deleteLater();
-            // Another channel since, or back to the list: not ours any more.
-            if (token != tuning_ || !inWindow_) return;
-            QString chosen = url;
-            if (reply->error() == QNetworkReply::NoError) {
-                // Up to the screen's height, and never below 1080p: a 4K copy
-                // would only be scaled down on a 1080p screen, but a smaller
-                // screen still gets 1080p, because the best copy is often the
-                // only one with the extra languages (Sony Yay's Hindi, Telugu
-                // and the rest are in its 1080p stream alone).
-                const QScreen* screen = QGuiApplication::primaryScreen();
-                const int height = screen
-                    ? int(screen->size().height() * screen->devicePixelRatio()) : 1080;
-                const std::string variant =
-                    omnios::pickHlsVariant(reply->readAll().toStdString(), std::max(1080, height));
-                // Relative to where the playlist came from, after redirects.
-                if (!variant.empty())
-                    chosen = reply->url().resolved(QUrl(QString::fromStdString(variant))).toString();
-            }
-            // Could not read it: the player may still manage, and says so if not.
-            playingUrl_ = chosen;
-            emit stateChanged();
-        });
         return;
     }
-    inWindow_ = false;
-    playingUrl_.clear();
-
-    QStringList args{
-        // The GPU where there is one, through Wayland only; and Wayland's plain
-        // software output where there is not. Left to itself, mpv on a machine
-        // without a usable GPU (a VM, a broken driver) goes on to try X11
-        // through XWayland and crashes on an assertion there — seen as every
-        // channel being "not available".
-        QStringLiteral("--vo=gpu-next,wlshm"),
-        QStringLiteral("--gpu-context=waylandvk,wayland"),
-        // Hardware decoding where it is known to be safe: a console decoding
-        // 1080p on the CPU is a warm console.
-        QStringLiteral("--hwdec=auto-safe"),
-        QStringLiteral("--fs"),
-        // A window at once, while the stream connects, rather than nothing.
-        QStringLiteral("--force-window=immediate"),
-        QStringLiteral("--no-terminal"),
-        QStringLiteral("--keep-open=no"),
-        QStringLiteral("--network-timeout=20"),
-        QStringLiteral("--input-conf=") + cacheDir() + QStringLiteral("/input.conf"),
-        QStringLiteral("--force-media-title=") + playingName_,
-        // Said on screen, since this window has no Back button of its own.
-        QStringLiteral("--osd-playing-msg=${media-title}\nEsc: back to channels"),
-        QStringLiteral("--osd-duration=4000"),
-    };
-    if (!agent.isEmpty()) args << QStringLiteral("--user-agent=") + agent;
-    if (!referrer.isEmpty()) args << QStringLiteral("--referrer=") + referrer;
-    // "--" first: a URL is never read as an option, whatever it starts with.
-    args << QStringLiteral("--") << url;
-
-    auto* process = new QProcess(this);
-    player_ = process;
-    playingFor_.start();
-    connect(process, &QProcess::finished, this, [this, process](int code, QProcess::ExitStatus) {
-        process->deleteLater();
-        if (process != player_) return;
-        player_ = nullptr;
-        playerClosed_.start();
-        const QString name = playingName_;
-        playingName_.clear();
-        // mpv exits 2 when it could not play what it was given. Many streams
-        // are offline on any given day, or only answer inside their country.
-        const bool failed = !stopping_ && code != 0;
-        stopping_ = false;
-        if (failed && !channelFailed(name)) return;
-        QProcess::startDetached(QStringLiteral("omni-kwin-activate"), {QStringLiteral("omnios-tv")});
+    QNetworkRequest request{QUrl(url)};
+    request.setTransferTimeout(10000);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    // Asked for as the player will ask: a stream that answers only a
+    // particular browser or page answers its playlist the same way.
+    if (!agent.isEmpty()) request.setHeader(QNetworkRequest::UserAgentHeader, agent);
+    if (!referrer.isEmpty()) request.setRawHeader("Referer", referrer.toUtf8());
+    QNetworkReply* reply = network_.get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, url, token]() {
+        reply->deleteLater();
+        // Another channel since, or back to the list: not ours any more.
+        if (token != tuning_ || !inWindow_) return;
+        QString chosen = url;
+        if (reply->error() == QNetworkReply::NoError) {
+            // Up to the screen's height, and never below 1080p: a 4K copy
+            // would only be scaled down on a 1080p screen, but a smaller
+            // screen still gets 1080p, because the best copy is often the
+            // only one with the extra languages (Sony Yay's Hindi, Telugu
+            // and the rest are in its 1080p stream alone).
+            const QScreen* screen = QGuiApplication::primaryScreen();
+            const int height = screen
+                ? int(screen->size().height() * screen->devicePixelRatio()) : 1080;
+            const std::string variant =
+                omnios::pickHlsVariant(reply->readAll().toStdString(), std::max(1080, height));
+            // Relative to where the playlist came from, after redirects.
+            if (!variant.empty())
+                chosen = reply->url().resolved(QUrl(QString::fromStdString(variant))).toString();
+        }
+        // Could not read it: the player may still manage, and says so if not.
+        playingUrl_ = chosen;
         emit stateChanged();
     });
-    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
-        if (error != QProcess::FailedToStart || process != player_) return;
-        player_ = nullptr;
-        playingName_.clear();
-        process->deleteLater();
-        setMessage(tr("Could not start the video player (mpv)"));
-        emit stateChanged();
-    });
-    process->start(QStringLiteral("mpv"), args);
-    emit stateChanged();
 }
 
 void TvController::stop() {
@@ -533,11 +440,7 @@ void TvController::stop() {
         playingName_.clear();
         playError_.clear();
         emit stateChanged();
-        return;
     }
-    if (player_ == nullptr) return;
-    stopping_ = true;
-    player_->terminate();
 }
 
 bool TvController::channelFailed(const QString& name) {
@@ -562,21 +465,6 @@ void TvController::playerFailed() {
     if (channelFailed(playingName_)) {
         playError_ = message_;
         emit stateChanged();
-    }
-}
-
-void TvController::remote(int key) {
-    const int count = static_cast<int>(channels_.size());
-    if (key == Qt::Key_Escape) {
-        stop();
-    } else if ((key == Qt::Key_Up || key == Qt::Key_Down) && count > 1) {
-        changeChannel(key == Qt::Key_Down ? 1 : -1);
-    } else if ((key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Tab || key == Qt::Key_Backtab)
-               && count > 1) {
-        // As in TV's own player: left and right, and the shoulders.
-        changeChannel(key == Qt::Key_Right || key == Qt::Key_Tab ? 1 : -1);
-    } else if (key == Qt::Key_F5) {
-        toggleFavorite(playingIndex_);
     }
 }
 

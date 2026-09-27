@@ -38,7 +38,7 @@ QtObject {
     // keycap. Only names of keys the hints use are read that way, so a game
     // or channel called "Something [Beta]" in a hint stays as it is.
     function hint(text) {
-        text = text.replace(/\[(Enter|Esc|Tab|Space|Backspace|F\d{1,2}|[A-Z]|↑|↓|←|→)\]/g,
+        text = text.replace(/\[(Enter|Esc|Tab|Space|Backspace|PgUp|PgDn|F\d{1,2}|[A-Z]|↑|↓|←|→)\]/g,
                             function (all, key) { return PadGlyphs.key(key) })
         if (text.indexOf("<img") < 0) return text
         return text.replace(/ {2,}/g, function (run) { return "&nbsp;".repeat(run.length - 1) + " " })

@@ -112,15 +112,13 @@ libretro-core-info
 qt6-base
 qt6-declarative
 qt6-svg
-# TV's built-in player (Qt Multimedia over FFmpeg, the decoder mpv uses too).
-qt6-multimedia
-qt6-multimedia-ffmpeg
 cmake
 ninja
 gcc
 
 ## The desktop's browser and media player: Plasma's panel pins the browser,
-## and mpv opens video and music from Dolphin. Game Mode's Apps tab no longer
+## and mpv opens video and music from Dolphin. mpv is also TV's player: the
+## launcher links its library, libmpv, which comes in the same package. Game Mode's Apps tab no longer
 ## has tiles for either — Game Mode runs in the Plasma session, and these are a
 ## switch to the desktop away. Comments stay on their own lines: the rest of
 ## this file does the same, and it avoids depending on how mkarchiso strips

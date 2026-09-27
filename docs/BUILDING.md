@@ -75,7 +75,7 @@ wsl --install archlinux
 Then inside the Arch shell:
 
 ```bash
-sudo pacman -Syu --noconfirm archiso cmake ninja gcc qt6-base qt6-declarative qt6-tools qt6-multimedia sdl3
+sudo pacman -Syu --noconfirm archiso cmake ninja gcc pkgconf qt6-base qt6-declarative qt6-tools sdl3 mpv
 cd /mnt/c/Users/shyam/OneDrive/Documents/Projects/OmniOS
 sudo ./scripts/build-iso.sh
 ```
@@ -87,7 +87,7 @@ window) or on Windows against the same file (`.\scripts\run-qemu.ps1`).
 ## Route C — an actual Arch machine
 
 ```bash
-sudo pacman -S archiso qemu-full edk2-ovmf cmake ninja gcc qt6-base qt6-declarative qt6-tools qt6-multimedia sdl3
+sudo pacman -S archiso qemu-full edk2-ovmf cmake ninja gcc pkgconf qt6-base qt6-declarative qt6-tools sdl3 mpv
 sudo ./scripts/build-iso.sh
 ./scripts/run-qemu.sh --uefi
 ```
@@ -168,7 +168,7 @@ Compile-check launcher changes in a container before building an image:
 
 ```bash
 docker run --rm -v "//c/path/to/OmniOS:/src:ro" archlinux:latest bash -c '
-  pacman -Sy --noconfirm --needed cmake ninja gcc qt6-base qt6-declarative >/dev/null 2>&1
+  pacman -Sy --noconfirm --needed cmake ninja gcc pkgconf qt6-base qt6-declarative qt6-svg sdl3 zlib mpv >/dev/null 2>&1
   cp -r /src /work && cd /work && rm -rf build
   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null 2>&1
   cmake --build build 2>&1 | grep -Ev "^\[" | head -30'

@@ -2,8 +2,8 @@
 //
 // One row of filters along the top — country, category, language, a search,
 // and favourites — and the channels they leave as tiles below. A plays the
-// channel full screen in mpv; while it plays the controller is a remote (up
-// and down change channel, B stops). Maximised on the desktop; in Game Mode
+// channel full screen (TvPlayer.qml, libmpv); while it plays the controller is
+// a remote (up and down volume, LB and RB channel, B stops). Maximised on the desktop; in Game Mode
 // KWin makes it full screen, as it does every window opened over the launcher.
 import QtQuick
 import QtQuick.Window
@@ -301,10 +301,10 @@ Window {
         anchors { left: parent.left; leftMargin: Theme.gutter; bottom: parent.bottom; bottomMargin: 14 }
         height: 22
         text: Theme.hint(window.pad
-              ? qsTr("%1 Watch    %2 Favourite    %3 Back    ·    While watching:  ◀ ▶ or %4 %5 Channel    ▲ ▼ Volume    %3 Stop")
+              ? qsTr("%1 Watch    %2 Favourite    %3 Back    ·    While watching:  %4 %5 Channel    ▲ ▼ Volume    %3 Stop")
                     .arg(window.buttons.south).arg(window.buttons.north).arg(window.buttons.east)
                     .arg(window.buttons.l1).arg(window.buttons.r1)
-              : qsTr("[Enter] Watch    [F5] Favourite    [Esc] Back    [↑] Filters    ·    While watching:  [←] [→] Channel    [↑] [↓] Volume    [Esc] Stop"))
+              : qsTr("[Enter] Watch    [F5] Favourite    [Esc] Back    [↑] Filters    ·    While watching:  [PgUp] [PgDn] Channel    [↑] [↓] Volume    [Esc] Stop"))
         color: Theme.textSecondary
         font.pixelSize: 12
     }

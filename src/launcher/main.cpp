@@ -6,6 +6,8 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <cstdlib>
 
 #include "GreeterController.h"
@@ -73,6 +75,10 @@ int main(int argc, char* argv[]) {
     if (QCoreApplication::arguments().contains(QStringLiteral("--tv"))) {
         QGuiApplication::setApplicationName(QStringLiteral("omnios-tv"));
         QGuiApplication::setDesktopFileName(QStringLiteral("omnios-tv"));
+        // The picture is mpv's, drawn with OpenGL into the scene (MpvItem),
+        // so the window is OpenGL whatever Qt would have picked. With no GPU
+        // that is Mesa's software OpenGL, which works, slowly.
+        QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
 
         TvController tv;
         QQmlApplicationEngine engine;

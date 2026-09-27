@@ -45,6 +45,9 @@ struct Game {
     std::vector<std::string> tags;
 
     std::uint64_t sizeBytes = 0;
+    // When it was last played, in seconds since 1970; 0 for never, or not
+    // known. Only Steam records it today (its manifest's LastPlayed).
+    std::int64_t  lastPlayed = 0;
     // Cover art in ~/.omnios/library/<id>/; empty until bundled art is
     // extracted or SteamGridDB fills it in (Phase 7.4).
     std::filesystem::path coverPath;

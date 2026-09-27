@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
@@ -215,4 +216,78 @@ TEST("steam: the library stamp follows the tiles, not every write") {
 
     fs::remove(dir / "appmanifest_730.acf");
     CHECK_EQ(steamLibraryStamp({dir}), before);
+}
+
+TEST("steam: when a game was last played comes from its manifest, and survives the cache") {
+    // Steam writes LastPlayed as seconds since 1970, and 0 until the first run.
+    const fs::path dir = freshDir("played");
+    writeFile(dir / "appmanifest_570.acf",
+              "\"AppState\"\n{\n\t\"appid\"\t\t\"570\"\n\t\"name\"\t\t\"Dota 2\"\n"
+              "\t\"StateFlags\"\t\t\"4\"\n\t\"LastPlayed\"\t\t\"1790000000\"\n}\n");
+    writeFile(dir / "appmanifest_730.acf", manifest("730", "Counter-Strike 2"));
+
+    Game played, never;
+    CHECK(readSteamManifest(dir / "appmanifest_570.acf", played));
+    CHECK(readSteamManifest(dir / "appmanifest_730.acf", never));
+    CHECK_EQ(played.lastPlayed, std::int64_t{1790000000});
+    CHECK_EQ(never.lastPlayed, std::int64_t{0});
+
+    CHECK_EQ(Game::fromJson(played.toJson()).lastPlayed, std::int64_t{1790000000});
+    CHECK_EQ(Game::fromJson(never.toJson()).lastPlayed, std::int64_t{0});
+}
+
+TEST("steam: a running game is found by its reaper, and nothing else is") {
+    // A fake /proc: the reaper Steam starts a game under, the Steam client
+    // itself, a process whose game command mentions AppId, and a non-process.
+    const fs::path proc = freshDir("proc");
+    const auto cmdline = [&](const std::string& pid, const std::vector<std::string>& args) {
+        std::string body;
+        for (const std::string& a : args) body += a + '\0';
+        writeFile(proc / pid / "cmdline", body);
+    };
+    cmdline("4242", {"/home/me/.local/share/Steam/ubuntu12_32/reaper", "SteamLaunch",
+                     "AppId=570", "--", "/home/me/Games/steam/common/dota 2 beta/game/dota.sh"});
+    cmdline("100", {"/home/me/.local/share/Steam/ubuntu12_32/steam", "steam://rungameid/570"});
+    cmdline("200", {"/usr/bin/python", "--", "SteamLaunch", "AppId=999"});
+    writeFile(proc / "self" / "cmdline", std::string("reaper\0SteamLaunch\0AppId=1\0", 26));
+
+    const std::vector<SteamGameProcess> games = runningSteamGames(proc);
+    CHECK_EQ(games.size(), std::size_t{1});
+    CHECK_EQ(games.at(0).pid, 4242);
+    CHECK_EQ(games.at(0).appId, "570");
+
+    CHECK(runningSteamGames(proc / "missing").empty());
+}
+
+TEST("steam: stopping a game reaches everything under its reaper") {
+    // reaper 10 -> wrapper 11 -> game 12 -> helper 13; 20 is unrelated. The
+    // game's name has a space and a parenthesis, as comm can.
+    const fs::path proc = freshDir("tree");
+    const auto stat = [&](int pid, const std::string& comm, int ppid) {
+        writeFile(proc / std::to_string(pid) / "stat",
+                  std::to_string(pid) + " (" + comm + ") S " + std::to_string(ppid) + " 1 1 0\n");
+    };
+    stat(10, "reaper", 1);
+    stat(11, "steam-launch-wr", 10);
+    stat(12, "Game (x64) main", 11);
+    stat(13, "helper", 12);
+    stat(20, "kwin_wayland", 1);
+
+    std::vector<int> below = descendantsOf(10, proc);
+    std::sort(below.begin(), below.end());
+    CHECK_EQ(below.size(), std::size_t{3});
+    CHECK_EQ(below.at(0), 11);
+    CHECK_EQ(below.at(2), 13);
+    CHECK(descendantsOf(20, proc).empty());
+}
+
+TEST("steam: a process is recognised by its start time, not its number alone") {
+    // Field 22 of stat. A game that ignored being asked to stop is finished
+    // off only if the same process still holds the number.
+    const fs::path proc = freshDir("start");
+    writeFile(proc / "77" / "stat",
+              "77 (Game (x64) main) S 1 77 77 0 -1 4194304 100 0 0 0 5 3 0 0 20 0 4 0 "
+              "123456 1000000 500 18446744073709551615\n");
+    CHECK_EQ(processStartTime(77, proc), std::uint64_t{123456});
+    CHECK_EQ(processStartTime(78, proc), std::uint64_t{0});
 }

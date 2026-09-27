@@ -12,6 +12,7 @@
 // parser for a format nothing else in OmniOS uses.
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -50,6 +51,35 @@ std::filesystem::path steamCover(const std::filesystem::path& client, const std:
 
 // The same, looked up in the Steam clients in their default places.
 std::filesystem::path steamCover(const std::string& appId);
+
+// A game Steam is running now. Steam starts every game under its reaper,
+// whose command line names it — "reaper SteamLaunch AppId=570 -- <game>" —
+// and which ends when the game and everything it started has ended. So the
+// reaper is both how to tell the game is running and how to stop it.
+struct SteamGameProcess {
+    int         pid = 0;   // the reaper's
+    std::string appId;
+};
+
+// Every game Steam is running, from the command lines under `proc`. Empty
+// where there is no /proc, as on Windows.
+std::vector<SteamGameProcess> runningSteamGames(
+    const std::filesystem::path& proc = std::filesystem::path("/proc"));
+
+// Every process below `pid` — children, their children, and on — from the
+// parent ids under `proc`. What has to be stopped to stop a game: the reaper
+// cleans up after a game that exits, and nothing says it does the same when it
+// is the one told to stop.
+std::vector<int> descendantsOf(int pid,
+                               const std::filesystem::path& proc = std::filesystem::path("/proc"));
+
+// When a process started, in clock ticks since boot (field 22 of its stat); 0
+// when there is no such process. A process id can be reused once its owner
+// has gone; the pair (pid, start time) cannot, so it is how a process noted
+// earlier is recognised later — to finish off a game that ignored being asked
+// to stop, and nothing that has taken its number since.
+std::uint64_t processStartTime(int pid,
+                               const std::filesystem::path& proc = std::filesystem::path("/proc"));
 
 // The Steam games in `libraries` as the Games tab would show them: ids,
 // titles, covers. It changes when a game finishes installing, is uninstalled,

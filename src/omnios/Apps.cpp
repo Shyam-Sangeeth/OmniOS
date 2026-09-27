@@ -13,7 +13,7 @@ namespace {
 // The app registry: the tiles on Game Mode's Apps tab that are not found from
 // desktop entries.
 //
-// Only Steam. Game Mode runs inside the Plasma session, so a browser, a file
+// Steam, and TV. Game Mode runs inside the Plasma session, so a browser, a file
 // manager, a video player, a store and settings are all a switch to the
 // desktop away, where they are Plasma's own; on the library they were tiles
 // that opened desktop apps full screen. Steam stays because it is a library in
@@ -31,6 +31,14 @@ const std::vector<App> kApps = {
     {"steam", "Steam", "steam", "", "steam", "steam",
      "Your Steam library, and the store",
      "#1B2838", false},
+
+    // OmniOS's own TV app (omni-launcher-qml --tv): free-to-air channels from
+    // iptv-org, played with mpv. Part of OmniOS, so it cannot be removed from
+    // its tile, and its package is mpv — the one it cannot play without, and
+    // so the one that removing would break it.
+    {"tv", "TV", "omni-launcher-qml", "--tv", "mpv", "omnios-tv",
+     "Free-to-air channels from around the world",
+     "#E4572E", true},
 };
 
 }  // namespace
@@ -93,6 +101,13 @@ std::string iconPathFor(std::string_view icon) {
             const fs::path png = root / "hicolor" / size / "apps" / (name + ".png");
             if (fs::exists(png, ec)) return png.generic_string();
         }
+    }
+
+    // Then a scalable one. Qt draws SVG at any size, and some apps — OmniOS's
+    // own among them, and plenty from Flathub — ship nothing else.
+    for (const fs::path& root : roots) {
+        const fs::path svg = root / "hicolor" / "scalable" / "apps" / (name + ".svg");
+        if (fs::exists(svg, ec)) return svg.generic_string();
     }
 
     // Loose icons, which is where a package with no theme integration puts one.

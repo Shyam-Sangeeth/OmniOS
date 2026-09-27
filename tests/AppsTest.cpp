@@ -100,6 +100,19 @@ TEST("apps: an empty package name is refused rather than passed to pacman") {
     CHECK(packageIsProtected(""));
 }
 
+TEST("apps: TV is OmniOS's own, and keeps its player") {
+    const App* tv = findApp("tv");
+    CHECK(tv != nullptr);
+    if (tv == nullptr) return;
+    const std::vector<std::string> argv = appArgv(*tv);
+    CHECK_EQ(argv.size(), std::size_t(2));
+    CHECK_EQ(argv.front(), std::string("omni-launcher-qml"));
+    CHECK_EQ(argv.back(), std::string("--tv"));
+    // Removing mpv from some other tile's menu would leave TV unable to play.
+    CHECK(tv->system);
+    CHECK(packageIsProtected("mpv"));
+}
+
 TEST("apps: nothing a user installs is protected") {
     // Protection exists to keep the console working, not to make packages
     // permanent. Anything not backing a system tile has to be removable.

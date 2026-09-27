@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <sstream>
 
 namespace omnios {
 namespace {
@@ -99,7 +100,7 @@ bool readSteamManifest(const fs::path& file, Game& game) {
     std::ifstream in(file);
     if (!in) return false;
 
-    std::string appId, name, installDir, sizeOnDisk, stateFlags;
+    std::string appId, name, installDir, sizeOnDisk, stateFlags, lastPlayed;
     std::string line, key, value;
     while (std::getline(in, line)) {
         if (!keyValue(line, key, value)) continue;
@@ -109,6 +110,7 @@ bool readSteamManifest(const fs::path& file, Game& game) {
         else if (lower == "installdir") installDir = value;
         else if (lower == "sizeondisk") sizeOnDisk = value;
         else if (lower == "stateflags") stateFlags = value;
+        else if (lower == "lastplayed") lastPlayed = value;
     }
 
     // The app id is the only part a launch cannot do without: everything else
@@ -143,6 +145,15 @@ bool readSteamManifest(const fs::path& file, Game& game) {
         if (fs::exists(common, ec)) game.path = common;
     }
     if (game.path.empty()) game.path = file;
+
+    // Steam writes 0 until the game has been started once.
+    if (!lastPlayed.empty()) {
+        try {
+            game.lastPlayed = std::stoll(lastPlayed);
+        } catch (const std::exception&) {
+            // Unknown, which is what 0 already says.
+        }
+    }
 
     if (!sizeOnDisk.empty()) {
         try {
@@ -244,6 +255,110 @@ fs::path steamCover(const std::string& appId) {
         if (fs::path cover = steamCover(client, appId); !cover.empty()) return cover;
     }
     return {};
+}
+
+std::vector<SteamGameProcess> runningSteamGames(const fs::path& proc) {
+    std::vector<SteamGameProcess> games;
+    std::error_code ec;
+    if (!fs::is_directory(proc, ec)) return games;
+
+    for (const fs::directory_entry& entry :
+         fs::directory_iterator(proc, fs::directory_options::skip_permission_denied, ec)) {
+        const std::string name = entry.path().filename().string();
+        if (name.empty() || !std::all_of(name.begin(), name.end(),
+                                         [](unsigned char c) { return std::isdigit(c) != 0; }))
+            continue;
+
+        // One argument per NUL. A process can vanish between the listing and
+        // the read; it then reads as empty and is skipped.
+        std::ifstream in(entry.path() / "cmdline", std::ios::binary);
+        if (!in) continue;
+        std::vector<std::string> args;
+        std::string arg;
+        while (std::getline(in, arg, '\0')) args.push_back(arg);
+
+        // "SteamLaunch" then "AppId=<n>", both before the "--" that starts
+        // the game's own command, which could contain anything.
+        bool launch = false;
+        for (const std::string& a : args) {
+            if (a == "--") break;
+            if (a == "SteamLaunch") launch = true;
+            else if (launch && a.rfind("AppId=", 0) == 0 && isAppId(a.substr(6))) {
+                SteamGameProcess game;
+                try {
+                    game.pid = std::stoi(name);
+                } catch (const std::exception&) {
+                    break;
+                }
+                game.appId = a.substr(6);
+                games.push_back(std::move(game));
+                break;
+            }
+        }
+    }
+    return games;
+}
+
+std::vector<int> descendantsOf(int pid, const fs::path& proc) {
+    // Parent of every process, from /proc/<pid>/stat: "pid (comm) state ppid".
+    // comm can hold spaces and parentheses, so the fields are read after the
+    // last ')'.
+    std::vector<std::pair<int, int>> parents;  // {pid, ppid}
+    std::error_code ec;
+    if (!fs::is_directory(proc, ec)) return {};
+    for (const fs::directory_entry& entry :
+         fs::directory_iterator(proc, fs::directory_options::skip_permission_denied, ec)) {
+        const std::string name = entry.path().filename().string();
+        if (name.empty() || !std::all_of(name.begin(), name.end(),
+                                         [](unsigned char c) { return std::isdigit(c) != 0; }))
+            continue;
+        std::ifstream in(entry.path() / "stat");
+        std::string stat;
+        if (!in || !std::getline(in, stat)) continue;
+        const std::size_t close = stat.rfind(')');
+        if (close == std::string::npos) continue;
+        std::istringstream rest(stat.substr(close + 1));
+        std::string state;
+        int ppid = 0;
+        if (!(rest >> state >> ppid)) continue;
+        try {
+            parents.emplace_back(std::stoi(name), ppid);
+        } catch (const std::exception&) {
+        }
+    }
+
+    std::vector<int> found;
+    std::vector<int> frontier{pid};
+    while (!frontier.empty()) {
+        const int parent = frontier.back();
+        frontier.pop_back();
+        for (const auto& [child, ppid] : parents) {
+            if (ppid != parent) continue;
+            if (std::find(found.begin(), found.end(), child) != found.end()) continue;
+            found.push_back(child);
+            frontier.push_back(child);
+        }
+    }
+    return found;
+}
+
+std::uint64_t processStartTime(int pid, const fs::path& proc) {
+    std::ifstream in(proc / std::to_string(pid) / "stat");
+    std::string stat;
+    if (!in || !std::getline(in, stat)) return 0;
+    const std::size_t close = stat.rfind(')');
+    if (close == std::string::npos) return 0;
+    // After "(comm)": state is field 3, so start time (22) is the 20th here.
+    std::istringstream rest(stat.substr(close + 1));
+    std::string field;
+    for (int i = 3; i <= 22; ++i) {
+        if (!(rest >> field)) return 0;
+    }
+    try {
+        return std::stoull(field);
+    } catch (const std::exception&) {
+        return 0;
+    }
 }
 
 std::string steamLibraryStamp(const std::vector<fs::path>& libraries) {

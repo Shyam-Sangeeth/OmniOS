@@ -73,6 +73,7 @@ Json Game::toJson() const {
     if (!publisher.empty())   out.set("publisher", Json(publisher));
     if (!description.empty()) out.set("description", Json(description));
     out.set("size_bytes", Json(static_cast<double>(sizeBytes)));
+    if (lastPlayed > 0) out.set("last_played", Json(static_cast<double>(lastPlayed)));
     if (!coverPath.empty()) out.set("cover", Json(coverPath.generic_string()));
     out.set("detection_source", Json(std::string(detectionSourceName(detectionSource))));
     if (!format.empty())         out.set("format", Json(format));
@@ -99,6 +100,7 @@ Game Game::fromJson(const Json& value) {
     game.publisher   = value["publisher"].asString();
     game.description = value["description"].asString();
     game.sizeBytes   = static_cast<std::uint64_t>(value["size_bytes"].asNumber(0.0));
+    game.lastPlayed  = static_cast<std::int64_t>(value["last_played"].asNumber(0.0));
     if (value.contains("cover")) game.coverPath = fs::path(value["cover"].asString());
     game.detectionSource =
         detectionSourceFromName(value["detection_source"].asString());

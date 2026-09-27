@@ -1,5 +1,5 @@
 // Built-in apps — the non-game tiles that are not found from desktop entries.
-// Today that is Steam alone; see Apps.cpp for why.
+// Today that is Steam and TV; see Apps.cpp for why.
 //
 // Structured exactly like the platform and engine registries: one table, and
 // adding an app means adding a row.

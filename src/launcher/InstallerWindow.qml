@@ -49,10 +49,10 @@ Window {
     property bool usernameEdited: false
     property bool hostnameEdited: false
     property string accountProblem: ""
-    property string timezone: "UTC"
+    property string timezone: "Asia/Kolkata"
     // The installed system's language, and its keyboard layout (an xkb id).
     // The layout starts as whatever the live session has.
-    property string language: "en_US.UTF-8"
+    property string language: "en_IN"
     property string keyboard: Installer.currentKeyboard
     // Chosen by hand, after which picking a language stops suggesting one.
     property bool keyboardPicked: false
@@ -106,6 +106,13 @@ Window {
         } else if (page === "account") {
             nameField.input.forceActiveFocus()
         } else if (page === "timezone") {
+            // On the zone already chosen (India's, unless changed), so A
+            // there keeps it and moves on rather than picking whatever row
+            // happens to be first.
+            zoneSearch.text = ""
+            for (var i = 0; i < zonePage.zones.length; ++i) {
+                if (zonePage.zones[i].id === timezone) { zoneList.currentIndex = i; break }
+            }
             zoneList.forceActiveFocus()
             zoneList.positionViewAtIndex(zoneList.currentIndex, ListView.Center)
         } else if (page === "confirm") {

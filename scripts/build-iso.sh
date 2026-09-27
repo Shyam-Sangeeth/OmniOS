@@ -101,8 +101,9 @@ fi
 
 # /etc/localtime is a symlink into the zoneinfo database. Git on Windows cannot
 # check one out, so it is made here rather than committed — without it systemd
-# has no timezone and asks for one interactively on first boot.
-ln -sfn /usr/share/zoneinfo/UTC "$PROFILE/airootfs/etc/localtime"
+# has no timezone and asks for one interactively on first boot. India's: the
+# image's default region (etc/timezone and etc/locale.conf say the same).
+ln -sfn /usr/share/zoneinfo/Asia/Kolkata "$PROFILE/airootfs/etc/localtime"
 
 # --- 3. data the running system needs ---------------------------------------
 install -Dm644 "$PROFILE/packages.aur.txt" \

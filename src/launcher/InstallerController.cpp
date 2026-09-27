@@ -185,9 +185,13 @@ QVariantList InstallerController::languages() const {
             // no @modifier variants (sr_RS@latin, ca_ES@valencia), which Qt
             // cannot name and which are rare enough to leave to Settings.
             if (parts.size() != 2 || parts.at(1) != QLatin1String("UTF-8")) continue;
+            // Named either way: "de_DE.UTF-8", or — for a locale that has
+            // no other encoding — plain "hi_IN". Most of India's are the
+            // second kind, and a list that wanted the suffix had none of them.
             const QString id = parts.at(0);
-            if (!id.endsWith(QLatin1String(".UTF-8")) || id.contains(QLatin1Char('@'))) continue;
-            const QString code = id.left(id.size() - 6);
+            if (id.contains(QLatin1Char('@'))) continue;
+            const QString code = id.endsWith(QLatin1String(".UTF-8")) ? id.left(id.size() - 6) : id;
+            if (code.contains(QLatin1Char('.'))) continue;
             const QLocale locale(code);
             // A code Qt does not know comes back as some other locale; it
             // could not be named, so it is left out rather than mislabelled.

@@ -17,9 +17,8 @@
 
 .PARAMETER Disk
     Attach a 40 GB qcow2 disk to install onto. It lives in
-    %LOCALAPPDATA%\OmniOS\vm, not in the repo: the repo is inside OneDrive,
-    and a disk image that changes by gigabytes on every install is exactly what
-    a sync client should never see.
+    %LOCALAPPDATA%\OmniOS\vm, not in the repo: a disk image that changes by
+    gigabytes on every install has no business in the working tree.
 
 .PARAMETER BlankDisk
     Start from an empty test disk, throwing away whatever the last install left
@@ -268,7 +267,7 @@ if ($Disk) {
     # is not silently traded for an empty disk.
     $oldPath = Join-Path $out 'omnios-test.qcow2'
     if ((Test-Path $oldPath) -and -not (Test-Path $diskPath)) {
-        Write-Host "==> moving the test disk out of the repo (and out of OneDrive) to $diskPath"
+        Write-Host "==> moving the test disk out of the repo to $diskPath"
         Move-Item $oldPath $diskPath
     }
 

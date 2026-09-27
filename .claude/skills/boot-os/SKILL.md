@@ -112,7 +112,8 @@ screenshot:
 
 `-Disk` attaches a 40 GB qcow2 at `%LOCALAPPDATA%\OmniOS\vm\omnios-test.qcow2`,
 created when missing and kept between boots; `-BlankDisk` starts it empty. It
-is outside the repo because the repo is in OneDrive. It is attached with
+is outside the repo so a file that grows by gigabytes on every install stays
+out of the working tree. It is attached with
 discard, so a reinstall reuses the space the last one freed: two installs in a
 row measured 8.76 then 8.84 GB, where without discard the file had crept to
 16.5 GB and was heading for 40. It never shrinks, though; `-BlankDisk` is how

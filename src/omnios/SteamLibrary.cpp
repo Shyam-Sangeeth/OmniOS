@@ -191,7 +191,7 @@ std::vector<fs::path> defaultSteamLibraries() {
 
     // Then every other library the client knows. The file has lived in both
     // places over the years. Reached through two clients, or through the
-    // ~/Games/steam symlink, one library can be listed twice; the scanner
+    // ~/Games/Steam symlink, one library can be listed twice; the scanner
     // keeps one tile per game, so the duplicates only cost a directory read.
     const std::size_t clientLibraries = roots.size();
     for (std::size_t i = 0; i < clientLibraries; ++i) {

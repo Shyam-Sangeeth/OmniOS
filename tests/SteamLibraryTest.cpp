@@ -246,7 +246,7 @@ TEST("steam: a running game is found by its reaper, and nothing else is") {
         writeFile(proc / pid / "cmdline", body);
     };
     cmdline("4242", {"/home/me/.local/share/Steam/ubuntu12_32/reaper", "SteamLaunch",
-                     "AppId=570", "--", "/home/me/Games/steam/common/dota 2 beta/game/dota.sh"});
+                     "AppId=570", "--", "/home/me/Games/Steam/common/dota 2 beta/game/dota.sh"});
     cmdline("100", {"/home/me/.local/share/Steam/ubuntu12_32/steam", "steam://rungameid/570"});
     cmdline("200", {"/usr/bin/python", "--", "SteamLaunch", "AppId=999"});
     writeFile(proc / "self" / "cmdline", std::string("reaper\0SteamLaunch\0AppId=1\0", 26));

@@ -22,8 +22,9 @@ const std::vector<PlatformInfo> kPlatforms = {
     {Platform::Android,  "android",  "android",  "Android",   Tier::Jit,      "#888888"},
     {Platform::Retro,    "retro",    "retro",    "Retro",     Tier::Emulator, "#888888"},
     // Native because Steam ships the runtime a game needs; OmniOS only asks it
-    // to start one.
-    {Platform::Steam,    "steam",    "steam",    "Steam",     Tier::Native,   "#1B2838"},
+    // to start one. Its folder is ~/Games/Steam, capitalised as Steam spells
+    // itself: it is the one folder named after a store rather than a machine.
+    {Platform::Steam,    "steam",    "Steam",    "Steam",     Tier::Native,   "#1B2838"},
 };
 
 const PlatformInfo kUnknown = {

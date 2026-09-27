@@ -544,9 +544,13 @@ RAM rather than a fixed number, because opening Steam once fills 2 GB by itself.
 
 Steam installs into `~/.local/share/Steam/steamapps`, and games installed through
 it never appeared on the Games tab. `omni-steam-library` symlinks that directory
-to `~/Games/steam` before either session starts, so Steam keeps its own layout
-while living where the rest of the library does. It will not move an existing
-library that has anything in it.
+to `~/Games/Steam` before either session starts, so Steam keeps its own layout
+while living where the rest of the library does: a game installed through Steam
+is in `~/Games/Steam/common`, whatever Steam's own screens call the drive (they
+show `~/.local/share/Steam`, not knowing about the link). It will not move an
+existing library that has anything in it. The folder was `~/Games/steam` until
+2026-09-28; at sign-in a home from before then has it renamed, games and all,
+and the link pointed at the new name.
 
 [SteamLibrary.cpp](src/omnios/SteamLibrary.cpp) reads Steam's own
 `appmanifest_<appid>.acf` records rather than guessing from directory names —

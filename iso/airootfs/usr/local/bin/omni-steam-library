@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Point Steam at ~/Games/steam.
+# Point Steam at ~/Games/Steam.
 #
 # Steam installs into ~/.local/share/Steam/steamapps and nothing about that
 # path says "games" to anyone looking at their own machine. OmniOS keeps every
@@ -16,9 +16,28 @@
 set -uo pipefail
 
 readonly GAMES="${OMNIOS_GAMES_DIR:-$HOME/Games}"
-readonly TARGET="$GAMES/steam"
+readonly TARGET="$GAMES/Steam"
 readonly STEAM_ROOT="$HOME/.local/share/Steam"
 readonly STEAMAPPS="$STEAM_ROOT/steamapps"
+
+# It was ~/Games/steam until 2026-09-28. A home from before then keeps its
+# games: the folder is renamed, whole, and the link below is pointed at the new
+# name. This runs at sign-in, before anything can have Steam open.
+readonly OLD="$GAMES/steam"
+if [[ -d $OLD && ! -L $OLD ]]; then
+    if [[ ! -e $TARGET ]]; then
+        mv "$OLD" "$TARGET" || exit 0
+    elif [[ -z "$(ls -A "$TARGET" 2>/dev/null)" ]]; then
+        rmdir "$TARGET" && mv "$OLD" "$TARGET" || exit 0
+    elif [[ -z "$(ls -A "$OLD" 2>/dev/null)" ]]; then
+        rmdir "$OLD" 2>/dev/null
+    else
+        # Both have games in them: not something to decide by guessing. Steam
+        # keeps the one it has, and the launcher reads it through Steam's path.
+        echo "omni-steam-library: both $OLD and $TARGET have content; leaving Steam where it is" >&2
+        exit 0
+    fi
+fi
 
 mkdir -p "$TARGET" || exit 0
 

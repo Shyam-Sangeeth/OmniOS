@@ -160,7 +160,7 @@ GameScanner::GameScanner() : root_(gamesDir()) {}
 GameScanner::GameScanner(fs::path gamesRoot) : root_(std::move(gamesRoot)) {}
 
 std::vector<fs::path> GameScanner::steamLibraries() const {
-    std::vector<fs::path> libraries{root_ / "steam"};
+    std::vector<fs::path> libraries{root_ / std::string(platformFolder(Platform::Steam))};
     for (fs::path& library : defaultSteamLibraries()) libraries.push_back(std::move(library));
     return libraries;
 }
@@ -294,7 +294,7 @@ ScanReport GameScanner::scan(GameLibrary& library) const {
     {
         for (const fs::path& steamapps : steamLibraries()) {
             for (Game& game : readSteamLibrary(steamapps)) {
-                // A library reachable by two paths — ~/Games/steam being a
+                // A library reachable by two paths — ~/Games/Steam being a
                 // symlink to the real one is exactly how this is set up — must
                 // not produce the game twice.
                 if (seen.count(game.id) != 0) continue;
@@ -320,7 +320,7 @@ ScanReport GameScanner::scan(GameLibrary& library) const {
     for (const auto& hint : folderHints()) {
         // Handled above, and its contents are Steam's business rather than a
         // tree of game files.
-        if (hint.first == "steam") continue;
+        if (hint.first == platformFolder(Platform::Steam)) continue;
 
         const fs::path folder = root_ / hint.first;
         if (!fs::is_directory(folder, ec)) continue;

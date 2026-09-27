@@ -191,7 +191,7 @@ omni_start_desktop() {
     fi
 }
 
-# Point Steam's library at ~/Games/steam before anything can open Steam — from
+# Point Steam's library at ~/Games/Steam before anything can open Steam — from
 # either session, so it happens here rather than in one of them. Never fatal:
 # a machine that cannot arrange its folders must still start.
 if command -v omni-steam-library >/dev/null 2>&1; then

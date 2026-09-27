@@ -13,7 +13,9 @@ qt_add_executable(omni-launcher
     InstallerController.cpp
     GreeterController.cpp
     KeyDelivery.cpp
-    InputMode.cpp)
+    InputMode.cpp
+    PadGlyphs.cpp
+    TvController.cpp)
 
 # The QML forms a module named "omnios". The files sit beside this file rather
 # than in a qml/ subdirectory: types in a subdirectory are not registered as
@@ -39,6 +41,10 @@ qt_add_qml_module(omni-launcher
         OnScreenKeyboard.qml
         FieldKeyboard.qml
         ChoiceList.qml
+        TvWindow.qml
+        FilterDropdown.qml
+        FilterPopup.qml
+        TvPlayer.qml
         PromptPanel.qml
     SOURCES
         GameListModel.h
@@ -49,7 +55,9 @@ qt_add_qml_module(omni-launcher
         InstallerController.h
         GreeterController.h
         KeyDelivery.h
-        InputMode.h)
+        InputMode.h
+        PadGlyphs.h
+        TvController.h)
 
 # SDL3 for the controller. Optional on purpose: without it the shell still
 # builds and still works, it is simply keyboard-only. Qt6 has no gamepad module
@@ -64,8 +72,13 @@ else()
     message(WARNING "SDL3 not found - the launcher will be keyboard-only")
 endif()
 
+# zlib, for TV's guides, which come gzipped. Qt has it inside but does not
+# offer it, and Qt6::Core needs it on Arch anyway, so it is always there.
+find_package(ZLIB REQUIRED)
+
 target_link_libraries(omni-launcher PRIVATE
     omnios_core
+    ZLIB::ZLIB
     Qt6::Core
     Qt6::Gui
     Qt6::Quick

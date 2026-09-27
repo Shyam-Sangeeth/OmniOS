@@ -6,29 +6,36 @@
 
 #include "GamepadInput.h"
 #include "KeyDelivery.h"
+#include "PadGlyphs.h"
 
 QVariantMap buttonNamesFor(const QString& kind) {
     // By position, the way the presses are read: south confirms, east goes
     // back, and so on — only the names differ. A Nintendo pad's south button
     // is B, which is why its row looks shuffled.
+    //
+    // Each is a badge (see PadGlyphs.h), shown inline wherever a hint names it.
     QStringList names;
     if (kind == QLatin1String("playstation"))
-        names = {QStringLiteral("✕"), QStringLiteral("○"), QStringLiteral("□"), QStringLiteral("△"),
-                 QStringLiteral("L1"), QStringLiteral("R1"), QStringLiteral("Options"), QStringLiteral("PS")};
+        names = {QStringLiteral("ps:cross"), QStringLiteral("ps:circle"), QStringLiteral("ps:square"),
+                 QStringLiteral("ps:triangle"), QStringLiteral("pill:L1"), QStringLiteral("pill:R1"),
+                 QStringLiteral("pill:Options"), QStringLiteral("pill:PS")};
     else if (kind == QLatin1String("xbox"))
-        names = {QStringLiteral("A"), QStringLiteral("B"), QStringLiteral("X"), QStringLiteral("Y"),
-                 QStringLiteral("LB"), QStringLiteral("RB"), QStringLiteral("Menu"), QStringLiteral("Xbox")};
+        names = {QStringLiteral("xbox:A"), QStringLiteral("xbox:B"), QStringLiteral("xbox:X"),
+                 QStringLiteral("xbox:Y"), QStringLiteral("pill:LB"), QStringLiteral("pill:RB"),
+                 QStringLiteral("pill:Menu"), QStringLiteral("pill:Xbox")};
     else if (kind == QLatin1String("nintendo"))
-        names = {QStringLiteral("B"), QStringLiteral("A"), QStringLiteral("Y"), QStringLiteral("X"),
-                 QStringLiteral("L"), QStringLiteral("R"), QStringLiteral("+"), QStringLiteral("Home")};
+        names = {QStringLiteral("plain:B"), QStringLiteral("plain:A"), QStringLiteral("plain:Y"),
+                 QStringLiteral("plain:X"), QStringLiteral("pill:L"), QStringLiteral("pill:R"),
+                 QStringLiteral("pill:+"), QStringLiteral("pill:Home")};
     else
-        names = {QStringLiteral("A"), QStringLiteral("B"), QStringLiteral("X"), QStringLiteral("Y"),
-                 QStringLiteral("L1"), QStringLiteral("R1"), QStringLiteral("Start"), QStringLiteral("Guide")};
+        names = {QStringLiteral("plain:A"), QStringLiteral("plain:B"), QStringLiteral("plain:X"),
+                 QStringLiteral("plain:Y"), QStringLiteral("pill:L1"), QStringLiteral("pill:R1"),
+                 QStringLiteral("pill:Start"), QStringLiteral("pill:Guide")};
     const QStringList roles = {QStringLiteral("south"), QStringLiteral("east"), QStringLiteral("west"),
                                QStringLiteral("north"), QStringLiteral("l1"), QStringLiteral("r1"),
                                QStringLiteral("start"), QStringLiteral("guide")};
     QVariantMap map;
-    for (int i = 0; i < roles.size(); ++i) map.insert(roles.at(i), names.at(i));
+    for (int i = 0; i < roles.size(); ++i) map.insert(roles.at(i), padGlyphMarkup(names.at(i)));
     return map;
 }
 

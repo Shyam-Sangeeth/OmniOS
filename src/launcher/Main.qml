@@ -90,6 +90,20 @@ Window {
         height: 1
     }
 
+    // Updates waiting, or a restart to finish one: there until dealt with, and
+    // giving way to a transient status while that has something to say.
+    Text {
+        anchors { right: parent.right; rightMargin: Theme.gutter; verticalCenter: tabBar.verticalCenter
+                  verticalCenterOffset: -4 }
+        text: Launcher.restartRequired
+              ? qsTr("Restart to finish updating")
+              : Launcher.updateCount > 0 ? qsTr("%1 available").arg(window.updatesText(Launcher.updateCount)) : ""
+        color: Theme.accent
+        font.pixelSize: 13
+        opacity: window.transientStatus === "" && text !== "" ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.focusDuration } }
+    }
+
     // "The disk is full", "Steam could not start": for a few seconds, then gone.
     Text {
         anchors { right: parent.right; rightMargin: Theme.gutter; verticalCenter: tabBar.verticalCenter
@@ -193,11 +207,21 @@ Window {
                     badgeColor: model.badgeColor
                     cover: model.cover
                     playable: model.playable
+                    // Steam games have things only Steam can do with them;
+                    // other titles have nothing to put in a menu yet.
+                    hasMenu: model.platformId === "steam"
                     selected: gamesGrid.activeFocus && parent.GridView.isCurrentItem
                               && !detailLoader.active
 
+                    onMenuRequested: function (anchorItem) {
+                        gamesGrid.currentIndex = index
+                        window.openGameMenu(anchorItem)
+                    }
+
+                    // Below the menu button, as on the Apps tab.
                     MouseArea {
                         anchors.fill: parent
+                        z: -1
                         onClicked: { gamesGrid.currentIndex = index; window.openDetail() }
                     }
                 }
@@ -207,6 +231,10 @@ Window {
             Keys.onEnterPressed: window.openDetail()
             Keys.onTabPressed: window.selectTab(1)
             Keys.onBacktabPressed: window.selectTab(1)
+            Keys.onMenuPressed: window.openGameMenu(currentItem)
+            Keys.onPressed: function (event) {
+                if (event.key === Qt.Key_M) { window.openGameMenu(currentItem); event.accepted = true }
+            }
         }
 
         // Only covers the games tab; the other tabs are useful with no games.
@@ -223,13 +251,13 @@ Window {
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: qsTr("Copy games into %1 and press F5").arg(Launcher.gamesPath)
+                text: Theme.hint(qsTr("Copy games into %1 and press [F5]").arg(Launcher.gamesPath))
                 color: Theme.textSecondary
                 font.pixelSize: 14
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: qsTr("Tab  ·  switch to Apps")
+                text: Theme.hint(qsTr("[Tab]  ·  Switch to Apps"))
                 color: Theme.accent
                 font.pixelSize: 13
             }
@@ -320,18 +348,25 @@ Window {
             // The controller's own button names when a controller is in
             // use — ✕ and ○ on a DualSense — and the keyboard's otherwise.
             readonly property var b: Launcher.buttonNames
-            text: Launcher.gameRunning
-                  ? qsTr("%1  library    ·    %2 is running").arg(Launcher.usingController ? b.guide : qsTr("Guide button"))
-                                                               .arg(Launcher.runningTitle)
+            text: Theme.hint(Launcher.gameRunning
+                  ? qsTr("%1  Library    %2  Resume or quit    ·    %3 is running")
+                        .arg(Launcher.usingController ? b.guide : qsTr("Guide button"))
+                        .arg(Launcher.usingController ? b.start : "[F10]")
+                        .arg(Launcher.runningTitle)
                   : Launcher.usingController
                     ? (window.currentTab === 0
-                       ? qsTr("%1 open    %2 back    %3 %4 switch tab    %5 menu    %6 rescan")
-                             .arg(b.south).arg(b.east).arg(b.l1).arg(b.r1).arg(b.start).arg(b.north)
-                       : qsTr("%1 open    %2 back    %3 app menu    %4 %5 switch tab    %6 menu")
+                       ? (window.currentGame && window.currentGame.platformId === "steam"
+                          ? qsTr("%1 Open    %2 Back    %3 Game menu    %4 %5 Switch tab    %6 Menu    %7 Rescan")
+                                .arg(b.south).arg(b.east).arg(b.west).arg(b.l1).arg(b.r1).arg(b.start).arg(b.north)
+                          : qsTr("%1 Open    %2 Back    %3 %4 Switch tab    %5 Menu    %6 Rescan")
+                                .arg(b.south).arg(b.east).arg(b.l1).arg(b.r1).arg(b.start).arg(b.north))
+                       : qsTr("%1 Open    %2 Back    %3 App menu    %4 %5 Switch tab    %6 Menu")
                              .arg(b.south).arg(b.east).arg(b.west).arg(b.l1).arg(b.r1).arg(b.start))
                     : window.currentTab === 0
-                      ? qsTr("↑↓←→ move    Enter open    Tab switch tab    F10 menu    F5 rescan")
-                      : qsTr("↑↓←→ move    Enter open    M app menu    Tab switch tab    F10 menu")
+                      ? (window.currentGame && window.currentGame.platformId === "steam"
+                         ? qsTr("[↑][↓][←][→] Move    [Enter] Open    [M] Game menu    [Tab] Switch tab    [F10] Menu    [F5] Rescan")
+                         : qsTr("[↑][↓][←][→] Move    [Enter] Open    [Tab] Switch tab    [F10] Menu    [F5] Rescan"))
+                      : qsTr("[↑][↓][←][→] Move    [Enter] Open    [M] App menu    [Tab] Switch tab    [F10] Menu"))
             color: Theme.textSecondary
             font.pixelSize: 12
             elide: Text.ElideRight
@@ -367,7 +402,18 @@ Window {
         onChosen: function (action, context) {
             // Two of the system menu's entries are doors into another menu
             // rather than actions of their own.
-            if (context === "power" && action === "sound") window.openAudioMenu()
+            if (context === "power" && action === "resume") Launcher.resumeRunningGame()
+            else if (context === "power" && action === "sysupdate") window.confirmUpdate()
+            else if (context === "power" && action === "syscheck") {
+                Launcher.checkSystemUpdates(true)
+                window.showStatus(qsTr("Looking for updates ..."))
+            }
+            else if (context === "sysupdate" && action === "go") Launcher.updateSystem()
+            else if (context === "sysupdate") {}
+            else if (action === "quit") window.confirmQuit()
+            else if (context === "quit" && action === "quit-confirmed") Launcher.quitRunningGame()
+            else if (context === "quit") {}
+            else if (context === "power" && action === "sound") window.openAudioMenu()
             else if (context === "power" && action === "desktop") Launcher.switchToDesktop()
             else if (context === "power" && action === "install") Launcher.installOmniOS()
             else if (context === "power" && action === "network") window.openNetworkMenu()
@@ -379,6 +425,7 @@ Window {
             else if (context === "network" || context === "bluetooth") System.act(action)
             else if (action === "pair") Launcher.pairController()
             else if (context === "power") Launcher.powerAction(action)
+            else if (context === "game") window.runGameAction(action)
             else window.runTileAction(action)
         }
         onClosed: window.activeGrid.forceActiveFocus()
@@ -518,7 +565,23 @@ Window {
     }
 
     function openPowerMenu() {
-        menuPanel.openFor(menuAnchor, qsTr("OMNIOS %1").arg(Launcher.version), [
+        // While something runs, the way back into it and the way out of it
+        // come first: they are why the menu was opened.
+        // Updating is for an installed system only; the live image runs from
+        // RAM and starts afresh every boot.
+        var updates = Launcher.liveImage ? [] : Launcher.restartRequired ? [
+            { action: "reboot", label: qsTr("Restart to finish updating"), enabled: true }
+        ] : Launcher.updateCount > 0 ? [
+            { action: "sysupdate", label: qsTr("Update system  ·  %1").arg(window.updatesText(Launcher.updateCount)),
+              enabled: !Launcher.packageBusy }
+        ] : [
+            { action: "syscheck", label: qsTr("Check for updates"), enabled: true }
+        ]
+        var running = Launcher.gameRunning ? [
+            { action: "resume", label: qsTr("Resume %1").arg(Launcher.runningTitle), enabled: true },
+            { action: "quit",   label: qsTr("Quit %1").arg(Launcher.runningTitle),   enabled: true }
+        ] : []
+        menuPanel.openFor(menuAnchor, qsTr("OMNIOS %1").arg(Launcher.version), running.concat(updates, [
             // Plasma's panel has these a pointer away, and a console often has
             // no pointer. Everything they offer is reachable from here too, so
             // the keyboard and the controller are not second-class.
@@ -535,7 +598,7 @@ Window {
             { action: "suspend",  label: qsTr("Sleep"),     enabled: true },
             { action: "reboot",   label: qsTr("Restart"),   enabled: true },
             { action: "poweroff", label: qsTr("Shut down"), enabled: true }
-        ].filter(function (entry) { return entry.live !== true || Launcher.liveImage }), "power")
+        ]).filter(function (entry) { return entry.live !== true || Launcher.liveImage }), "power")
     }
 
     function runTileAction(action) {
@@ -544,6 +607,54 @@ Window {
         else if (action === "check")     Launcher.checkForUpdate(id)
         else if (action === "update")    Launcher.updateApp(id)
         else if (action === "uninstall") Launcher.removeApp(id)
+    }
+
+    // A Steam game's menu: play it, or hand it to Steam for the rest.
+    function openGameMenu(anchorItem) {
+        var game = currentGame
+        if (!game || game.platformId !== "steam" || !anchorItem) return
+        var isRunning = Launcher.runningGameId === game.gameId
+        var first = isRunning
+            ? [{ action: "resume", label: qsTr("Resume"),    enabled: true },
+               { action: "quit",   label: qsTr("Quit game"), enabled: true }]
+            : [{ action: "play",   label: qsTr("Play"),      enabled: game.playable }]
+        menuPanel.openFor(anchorItem, game.title, first.concat([
+            { action: "details",   label: qsTr("Open in Steam"),      enabled: true },
+            { action: "validate",  label: qsTr("Verify game files"),  enabled: true },
+            { action: "uninstall", label: qsTr("Uninstall"),          enabled: true }
+        ]), "game", game.gameId)
+    }
+
+    // No translations ship yet, so plural forms are done here rather than
+    // with qsTr's %n, which without one prints "update(s)".
+    function updatesText(n) {
+        return n === 1 ? qsTr("1 update") : qsTr("%1 updates").arg(n)
+    }
+
+    // An update is minutes of downloading and the whole system changing, so it
+    // is asked once, saying so, with "Not now" under the cursor.
+    function confirmUpdate() {
+        menuPanel.openFor(menuAnchor, qsTr("UPDATE THE SYSTEM?"), [
+            { action: "later", label: qsTr("Not now"), enabled: true },
+            { action: "go",    label: qsTr("Update now  ·  %1, may take a while").arg(window.updatesText(Launcher.updateCount)),
+              enabled: true }
+        ], "sysupdate")
+    }
+
+    // Quitting loses whatever was not saved, so it is asked once more, with
+    // "Keep playing" first: the safe answer is the one under the cursor.
+    function confirmQuit() {
+        menuPanel.openFor(menuAnchor, qsTr("QUIT %1?").arg(Launcher.runningTitle.toUpperCase()), [
+            { action: "keep",           label: qsTr("Keep playing"),                        enabled: true },
+            { action: "quit-confirmed", label: qsTr("Quit  ·  unsaved progress is lost"),   enabled: true }
+        ], "quit")
+    }
+
+    function runGameAction(action) {
+        var id = menuPanel.subject
+        if (action === "play") Launcher.launch(id)
+        else if (action === "resume") Launcher.resumeRunningGame()
+        else Launcher.steamAction(id, action)
     }
 
     function openDetail() {

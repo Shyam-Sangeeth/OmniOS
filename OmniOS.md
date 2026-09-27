@@ -734,6 +734,15 @@ Checklist:
 12.4  One-click update from settings screen
 ```
 
+**As built:** `omni-update check|apply`, behind Game Mode's system menu (there is
+no settings screen; the menu is where settings live). A full `pacman -Syu` after
+the keyring, then Flatpak apps — never one package on its own, which on Arch is
+a partial upgrade. The top bar says *N updates available* after a background
+check (a minute in, then every six hours); *Update system* confirms, asks for
+the password, and shows progress; a replaced kernel adds *Restart to finish
+updating*. 12.2 needs no channel of its own: the emulators are pacman or
+Flathub packages, so the system update covers them.
+
 ---
 
 ## 15. Phase 13 — Distribution

@@ -14,6 +14,15 @@ ListView {
     id: list
 
     property string chosen
+    // Several can be chosen: each entry's own `checked` says which, and rows
+    // show a checkbox rather than a tick.
+    property bool multi: false
+    // Where a row's tick and detail come from, when they change more often
+    // than the rows do: function(id) -> value. A new model resets the list's
+    // highlight to the top, so a list whose ticks and counts change on every
+    // pick reads them live through these instead of being given a new model.
+    property var checkedOf: null
+    property var detailOf: null
     property string detailRole: ""
     // The Field above the list that filters it.
     property Item search: null
@@ -68,7 +77,9 @@ ListView {
         required property var modelData
         required property int index
         readonly property bool current: ListView.isCurrentItem
-        readonly property bool picked: modelData.id === list.chosen
+        readonly property bool picked: !list.multi ? modelData.id === list.chosen
+                                     : list.checkedOf ? list.checkedOf(modelData.id)
+                                     : !!modelData.checked
         width: list.width
         height: 40
         radius: 6
@@ -83,7 +94,8 @@ ListView {
                 verticalCenter: parent.verticalCenter
             }
             elide: Text.ElideRight
-            text: (row.picked ? "✓  " : "") + row.modelData.name
+            text: (list.multi ? (row.picked ? "☑  " : "☐  ")
+                              : (row.picked ? "✓  " : "")) + row.modelData.name
             color: row.picked ? Theme.textPrimary : "#C8C8D8"
             font.pixelSize: 15
             font.weight: row.picked ? Font.DemiBold : Font.Normal
@@ -93,7 +105,8 @@ ListView {
             anchors { right: parent.right; rightMargin: 14; verticalCenter: parent.verticalCenter }
             width: Math.min(implicitWidth, row.width * 0.45)
             elide: Text.ElideRight
-            text: list.detailRole ? row.modelData[list.detailRole] : ""
+            text: list.detailOf ? list.detailOf(row.modelData.id)
+                  : list.detailRole ? row.modelData[list.detailRole] : ""
             color: Theme.textSecondary
             font.pixelSize: 13
         }

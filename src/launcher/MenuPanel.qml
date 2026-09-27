@@ -18,6 +18,12 @@ Item {
 
     // Set together by openFor().
     property string heading: ""
+    // The panel's colour. Nearly opaque by default; a menu over moving video
+    // (TV's audio and subtitles) is lighter, so the picture shows through.
+    property color panelColor: "#F21A1826"
+    // Closes by itself after this many milliseconds untouched; 0 never does.
+    // A menu over a playing channel goes, as a TV's does; the launcher's wait.
+    property int idleTimeout: 0
     // [{ action: "open", label: "Open", enabled: true }, …]
     property var entries: []
     // Free tag so the caller can tell which menu answered.
@@ -37,6 +43,7 @@ Item {
         entries = menuEntries
         context = menuContext
         subject = menuSubject === undefined ? null : menuSubject
+        fitWidth()
 
         // Anchor under the item's bottom-right, then pull back inside the
         // window: an item near an edge would otherwise open a panel that runs
@@ -61,11 +68,23 @@ Item {
         // the menu came up broken.
         list.currentIndex = Math.max(0, firstEnabled(0, 1))
         list.forceActiveFocus()
+        touched()
     }
 
     function close() {
+        idle.stop()
         visible = false
         closed()
+    }
+
+    // Something was done in the menu: the idle time starts again.
+    function touched() {
+        if (idleTimeout > 0 && visible) idle.restart()
+    }
+    Timer {
+        id: idle
+        interval: menu.idleTimeout
+        onTriggered: if (menu.visible) menu.close()
     }
 
     // Catches the click that dismisses the menu, and stops it reaching whatever
@@ -75,12 +94,28 @@ Item {
         onClicked: menu.close()
     }
 
+    // Measures the longest label at the rows' font, so an entry that needs
+    // the room (a game's full title, a warning) gets it instead of an ellipsis.
+    TextMetrics { id: labelMetrics; font.pixelSize: 13 }
+    // Set once per list of entries, not bound: measuring writes the metrics'
+    // text, and a binding that reads what it writes loops.
+    function fitWidth() {
+        var widest = 0
+        for (var i = 0; i < entries.length; ++i) {
+            labelMetrics.text = entries[i].label
+            widest = Math.max(widest, labelMetrics.advanceWidth)
+        }
+        // The label's 14 + 12 of margin, and a little air.
+        panel.width = Math.min(menu.width - 16, Math.max(210, Math.ceil(widest) + 34))
+    }
+
     Rectangle {
         id: panel
+        // 210, or wider for a long entry; set by fitWidth when entries arrive.
         width: 210
         height: header.y + header.height + list.contentHeight + 10
         radius: 8
-        color: "#F21A1826"
+        color: menu.panelColor
         border.width: 1
         border.color: "#26FFFFFF"
 
@@ -140,7 +175,7 @@ Item {
                     anchors.fill: parent
                     enabled: modelData.enabled
                     hoverEnabled: true
-                    onEntered: list.currentIndex = index
+                    onEntered: { list.currentIndex = index; menu.touched() }
                     onClicked: menu.choose(index)
                 }
             }
@@ -168,6 +203,7 @@ Item {
     function step(dir) {
         var next = firstEnabled(list.currentIndex + dir, dir)
         if (next >= 0) list.currentIndex = next
+        touched()
     }
 
     // Replaces the entries without losing the highlight, so a menu that stays

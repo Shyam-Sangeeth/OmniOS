@@ -31,6 +31,13 @@ class LauncherController : public QObject {
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(bool gameRunning READ gameRunning NOTIFY gameRunningChanged)
     Q_PROPERTY(QString runningTitle READ runningTitle NOTIFY gameRunningChanged)
+    // The library id of the game running now; empty for none, or for an app.
+    Q_PROPERTY(QString runningGameId READ runningGameId NOTIFY gameRunningChanged)
+    // How many packages and apps a system update would change; -1 until a
+    // check has answered (or on the live image, which is never updated).
+    Q_PROPERTY(int updateCount READ updateCount NOTIFY updatesChanged)
+    // An update replaced the running kernel; a restart finishes it.
+    Q_PROPERTY(bool restartRequired READ restartRequired NOTIFY updatesChanged)
     Q_PROPERTY(bool packageBusy READ packageBusy NOTIFY packageBusyChanged)
     Q_PROPERTY(QString packageStatus READ packageStatus NOTIFY packageStatusChanged)
     // True when the running system is a live image, where anything installed
@@ -72,8 +79,11 @@ public:
     QString version() const;
     bool    scanning() const { return scanning_; }
     QString status() const { return status_; }
-    bool    gameRunning() const { return running_ != nullptr; }
-    QString runningTitle() const { return runningTitle_; }
+    bool    gameRunning() const { return running_ != nullptr || !steamGame_.appId.isEmpty(); }
+    QString runningTitle() const { return steamGame_.appId.isEmpty() ? runningTitle_ : steamGame_.title; }
+    QString runningGameId() const { return steamGame_.appId.isEmpty() ? runningGameId_ : steamGame_.gameId; }
+    int     updateCount() const { return updateCount_; }
+    bool    restartRequired() const { return restartRequired_; }
     // A prompt waiting for a password counts: the operation behind it has been
     // asked for, and a second one started meanwhile would race it for the lock.
     bool    packageBusy() const { return package_ != nullptr || pendingRoot_.active; }
@@ -101,6 +111,12 @@ public:
     // silently.
     Q_INVOKABLE bool launch(const QString& gameId);
 
+    // Hands a Steam game to Steam for what only Steam can do with it, through
+    // its steam:// links: "details" (its library page, where Properties is),
+    // "validate" (verify the game's files) or "uninstall" (Steam asks to
+    // confirm). Steam's window opens over the launcher; Guide comes back.
+    Q_INVOKABLE void steamAction(const QString& gameId, const QString& action);
+
     // Starts a built-in app (video player, file manager). Same contract as
     // launch(): false plus a status message when it cannot run.
     Q_INVOKABLE bool launchApp(const QString& appId);
@@ -111,7 +127,23 @@ public:
     // Install hint for a game whose engine is missing; empty otherwise.
     Q_INVOKABLE QString installHint(const QString& gameId) const;
 
+    // Ends whatever is running and comes back to the library. The system menu
+    // asks first: whatever was not saved is lost.
     Q_INVOKABLE void quitRunningGame();
+
+    // Asks omni-update what an update would change, in the background; nothing
+    // is changed. Done by itself a minute after starting and every six hours.
+    // `announce` says what was found, even "up to date" or "could not
+    // check" — for a check someone asked for; the timed ones stay quiet.
+    Q_INVOKABLE void checkSystemUpdates(bool announce = false);
+    // Updates the whole system — pacman, then Flatpak apps — behind the
+    // password prompt when the account has one. See omni-update.
+    Q_INVOKABLE void updateSystem();
+
+    // Back into what is running, from the launcher: its window to the front.
+    // Found by process, since a game's window class is whatever its engine
+    // chose; see omni-kwin-activate --pid.
+    Q_INVOKABLE void resumeRunningGame();
 
     // ---- managing what is installed ---------------------------------------
     // Installing is GNOME Software's job; OmniOS only launches it. What is left
@@ -163,6 +195,7 @@ signals:
     void scanningChanged();
     void statusChanged();
     void gameRunningChanged();
+    void updatesChanged();
     void packageBusyChanged();
     void packageStatusChanged();
     void storageChanged();
@@ -224,6 +257,21 @@ private:
     // What to hand "pacman -Qoq" to find the package behind an app.
     QString packagePathFor(const QString& appId) const;
 
+    // A Steam game is not a process of ours: `steam steam://rungameid/<id>`
+    // hands the id to the client and exits at once, or, with no client
+    // running, becomes the client and stays. Neither says when the game ends.
+    // Steam's reaper does (omnios::runningSteamGames); this follows it — seen
+    // appearing, then gone, is the game ending.
+    void watchSteamGame();
+    // Forgets the Steam game being watched, saying `said`; the launcher comes
+    // to the front only when `returnHome`.
+    void endSteamGame(const QString& said, bool returnHome);
+
+    // The pad drives the launcher unless something runs over it. With a game
+    // running but the launcher brought to the front (Guide), it drives the
+    // launcher again: nothing else is listening then.
+    void updatePadRouting();
+
     // Rescans when the Steam games the tab would show have changed since the
     // last scan: a game finished installing, or was uninstalled, in Steam. Checked when
     // the launcher comes back to the front and every few seconds while it is
@@ -254,8 +302,25 @@ private:
     // Steam's games as of the last scan (omnios::steamLibraryStamp).
     std::string    steamStamp_;
     QTimer         steamPoll_;
+    // The Steam game started from a tile, while it is starting or running.
+    struct SteamGame {
+        QString       appId;   // empty: none
+        QString       gameId;  // the library's, "steam.<appId>"
+        QString       title;
+        bool          seen = false;
+        QElapsedTimer since;
+    };
+    SteamGame      steamGame_;
+    QTimer         steamGamePoll_;
+
+    int            updateCount_ = -1;
+    bool           restartRequired_ = false;
+    bool           updating_ = false;
+    QProcess*      updateCheck_ = nullptr;
+    QTimer         updateTimer_;
     QProcess*     running_ = nullptr;
     QString       runningTitle_;
+    QString       runningGameId_;
     QString       status_;
     bool          scanning_ = false;
 };

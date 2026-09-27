@@ -38,6 +38,11 @@ whether the shell still compiles. `docs/BUILDING.md` has the one-liner.
   `omni` / `omnios`). Note 2222 does not work: Windows reserves port ranges for
   Hyper-V and QEMU then refuses the whole netdev with "Could not set up host
   forwarding rule", with nothing listening to explain why.
+  The monitor port can fall into those ranges too, and they move: after Docker
+  Desktop restarted on 2026-09-27, 4351–4450 was reserved and every boot with
+  `-MonitorPort 4444` died at once ("QEMU exited immediately with code 1"; run
+  without `-Detach` to see "Failed to bind socket"). `netsh interface ipv4 show
+  excludedportrange protocol=tcp` lists them; pick a port outside.
 - `-Fresh` kills any running QEMU and clears the hypervisor. **This stops Docker
   Desktop**, so start it again before the next build and wait for `docker info`
   to answer.
@@ -243,6 +248,16 @@ screenshots. `wsl --shutdown` on its own does not clear it — Docker Desktop's
 processes keep holding it after the WSL backend is down, which is why `-Fresh`
 stops those too and then waits 20 seconds. Three boots in a row wedged before
 that was understood.
+
+The same signature came back on 2026-09-27 with `-Fresh` not curing it: five
+visible boots in a row froze near 7 CPU-seconds, with the QEMU window "not
+responding", while a headless boot started between them ran normally. Half an
+hour later none of the suspects reproduced it: not Docker running, not
+`-Fresh` straight after Docker, not the display switched off (idle or during
+boot), not the monitor or serial log. So the cause is unknown. What to do is
+known: check `(Get-Process qemu-system-x86_64).Responding` and whether CPU time
+is still rising, and if it has stopped, kill QEMU and boot again. Headless
+carries on in the meantime if a result cannot wait.
 
 **A wedged VM that *does* screenshot is a guest panic.** Look at it before
 theorising — the text is on screen. `-cpu max` is the other one: it

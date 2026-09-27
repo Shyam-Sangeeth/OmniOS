@@ -93,6 +93,7 @@ Item {
                     // emulated title is not going to feel like a native one.
                     var line = qsTr("Execution: %1  ·  %2").arg(detail.game.engineName).arg(detail.game.tierName)
                     if (detail.game.sizeText !== "") line += "  ·  " + detail.game.sizeText
+                    if (detail.game.lastPlayed !== "") line += "  ·  " + detail.game.lastPlayed
                     return line
                 }
                 color: Theme.textSecondary

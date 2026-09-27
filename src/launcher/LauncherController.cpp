@@ -10,9 +10,13 @@
 #include <QMap>
 #include <QWindow>
 #include <QProcessEnvironment>
+#include <QRegularExpression>
 
 #include <filesystem>
+#include <memory>
 #include <system_error>
+
+#include <signal.h>
 
 #include "InputMode.h"
 #include "KeyDelivery.h"
@@ -53,6 +57,24 @@ void captureOutput(QProcess* process) {
 //
 // Detached and unchecked: the launcher must still work under another
 // compositor, or none, just without being raised.
+// Asks these processes to stop, and three seconds on ends any that ignored
+// it — a hung game does. Each is recognised by its start time as well as its
+// number, so nothing that has taken a number since is ever hit.
+void stopProcesses(QObject* context, const std::vector<int>& pids) {
+    std::vector<std::pair<int, std::uint64_t>> noted;
+    for (const int pid : pids) {
+        if (const std::uint64_t start = omnios::processStartTime(pid)) noted.emplace_back(pid, start);
+    }
+    for (const auto& process : noted) ::kill(process.first, SIGTERM);
+    if (noted.empty()) return;
+    QTimer::singleShot(3000, context, [noted]() {
+        for (const auto& process : noted) {
+            if (omnios::processStartTime(process.first) == process.second)
+                ::kill(process.first, SIGKILL);
+        }
+    });
+}
+
 void focusLauncherWindow() {
     QProcess::startDetached(QStringLiteral("omni-kwin-activate"), {QStringLiteral("omni-launcher")});
 }
@@ -118,8 +140,23 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
     steamPoll_.start();
     connect(qGuiApp, &QGuiApplication::applicationStateChanged, this,
             [this](Qt::ApplicationState state) {
+                updatePadRouting();
                 if (state == Qt::ApplicationActive) refreshIfSteamChanged();
             });
+
+    steamGamePoll_.setInterval(2000);
+    connect(&steamGamePoll_, &QTimer::timeout, this, &LauncherController::watchSteamGame);
+
+    // Updates: looked for a minute in — not at once, when the network may not
+    // be up yet and the session is busy starting — and every six hours after.
+    // Never on the live image, which is not updated.
+    restartRequired_ = QFile::exists(QStringLiteral("/run/omnios/reboot-required"));
+    if (!liveImage()) {
+        QTimer::singleShot(60 * 1000, this, [this]() { checkSystemUpdates(); });
+        updateTimer_.setInterval(6 * 60 * 60 * 1000);
+        connect(&updateTimer_, &QTimer::timeout, this, [this]() { checkSystemUpdates(); });
+        updateTimer_.start();
+    }
 
     refresh();
 }
@@ -288,6 +325,36 @@ bool LauncherController::launch(const QString& gameId) {
 
     stopRunning(false);
 
+    if (game->platform == omnios::Platform::Steam) {
+        // Detached, and never running_: stopping running_ terminates it, and
+        // that process may be the Steam client itself.
+        QProcess steam;
+        QProcessEnvironment steamEnv = QProcessEnvironment::systemEnvironment();
+        for (const auto& variable : plan.environment)
+            steamEnv.insert(QString::fromStdString(variable.first),
+                            QString::fromStdString(variable.second));
+        steam.setProcessEnvironment(steamEnv);
+        steam.setProgram(QString::fromStdString(plan.argv.front()));
+        QStringList steamArgs;
+        for (std::size_t i = 1; i < plan.argv.size(); ++i)
+            steamArgs << QString::fromStdString(plan.argv[i]);
+        steam.setArguments(steamArgs);
+        if (!steam.startDetached()) {
+            setStatus(tr("Could not start Steam"));
+            return false;
+        }
+        steamGame_.appId = QString::fromStdString(game->launchId);
+        steamGame_.title = QString::fromStdString(game->title);
+        steamGame_.gameId = gameId;
+        steamGame_.seen = false;
+        steamGame_.since.start();
+        steamGamePoll_.start();
+        updatePadRouting();
+        setStatus(tr("Starting %1 in Steam …").arg(steamGame_.title));
+        emit gameRunningChanged();
+        return true;
+    }
+
     auto* process = new QProcess(this);
     captureOutput(process);
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
@@ -302,6 +369,7 @@ bool LauncherController::launch(const QString& gameId) {
         args << QString::fromStdString(plan.argv[i]);
 
     runningTitle_ = QString::fromStdString(game->title);
+    runningGameId_ = gameId;
 
     // Phase 9.4: when the game exits, the grid comes back. Without this the
     // shell would be left staring at whatever the game left on screen.
@@ -313,8 +381,9 @@ bool LauncherController::launch(const QString& gameId) {
                               : tr("%1 exited with code %2  —  see %3")
                                     .arg(runningTitle_).arg(code).arg(kAppLog));
                 running_ = nullptr;
-                gamepad_.setAppRunning(false);
+                updatePadRouting();
                 runningTitle_.clear();
+                runningGameId_.clear();
                 process->deleteLater();
                 emit gameRunningChanged();
             });
@@ -323,15 +392,16 @@ bool LauncherController::launch(const QString& gameId) {
                 focusLauncherWindow();
                 setStatus(tr("%1 could not start: %2").arg(runningTitle_, process->errorString()));
                 running_ = nullptr;
-                gamepad_.setAppRunning(false);
+                updatePadRouting();
                 runningTitle_.clear();
+                runningGameId_.clear();
                 process->deleteLater();
                 emit gameRunningChanged();
             });
 
     process->start(QString::fromStdString(plan.argv.front()), args);
     running_ = process;
-    gamepad_.setAppRunning(true);
+    updatePadRouting();
     setStatus(tr("Starting %1 …").arg(runningTitle_));
     emit gameRunningChanged();
     return true;
@@ -400,8 +470,9 @@ bool LauncherController::startApp(const QString& title, const QString& program,
                 }
                 emit storageChanged();
                 running_ = nullptr;
-                gamepad_.setAppRunning(false);
+                updatePadRouting();
                 runningTitle_.clear();
+                runningGameId_.clear();
                 process->deleteLater();
                 emit gameRunningChanged();
             });
@@ -410,15 +481,16 @@ bool LauncherController::startApp(const QString& title, const QString& program,
                 focusLauncherWindow();
                 setStatus(tr("%1 could not start: %2").arg(runningTitle_, process->errorString()));
                 running_ = nullptr;
-                gamepad_.setAppRunning(false);
+                updatePadRouting();
                 runningTitle_.clear();
+                runningGameId_.clear();
                 process->deleteLater();
                 emit gameRunningChanged();
             });
 
     process->start(program, args);
     running_ = process;
-    gamepad_.setAppRunning(true);
+    updatePadRouting();
     setStatus(tr("Opening %1 ...").arg(runningTitle_));
     emit gameRunningChanged();
     return true;
@@ -614,11 +686,32 @@ void LauncherController::startSystemCommand(const QString& script, const QString
     auto* process = new QProcess(this);
     process->setProcessChannelMode(QProcess::MergedChannels);
 
+    // Read as it comes, so a long pacman run can say how far it has got —
+    // a system update is hundreds of packages, and "Updating ..." for twenty
+    // minutes looks like a hang. Kept, for the summary at the end.
+    auto collected = std::make_shared<QByteArray>();
+    connect(process, &QProcess::readyReadStandardOutput, this, [this, process, collected, verb]() {
+        const QByteArray chunk = process->readAllStandardOutput();
+        collected->append(chunk);
+        static const QRegularExpression kStep(
+            QStringLiteral("^\\(\\s*(\\d+)/(\\d+)\\) (?:upgrading|installing|reinstalling|removing) (\\S+)"));
+        static const QRegularExpression kDownload(QStringLiteral("^\\s*(\\S+) downloading\\.\\.\\."));
+        QString latest;
+        for (const QString& line : QString::fromUtf8(chunk).split(QLatin1Char('\n'))) {
+            if (const auto m = kStep.match(line); m.hasMatch())
+                latest = tr("%1  %2 of %3  ·  %4").arg(verb, m.captured(1), m.captured(2), m.captured(3));
+            else if (const auto d = kDownload.match(line); d.hasMatch())
+                latest = tr("%1  ·  downloading %2").arg(verb, d.captured(1));
+        }
+        if (!latest.isEmpty()) setPackageStatus(latest);
+    });
+
     // Output is read back rather than only written to the log: a user should not
     // have to open a log to find out that a mirror was unreachable.
     connect(process, &QProcess::finished, this,
-            [this, process, pastTense](int code, QProcess::ExitStatus) {
-                const QString output = QString::fromUtf8(process->readAll()).trimmed();
+            [this, process, pastTense, collected](int code, QProcess::ExitStatus) {
+                collected->append(process->readAll());
+                const QString output = QString::fromUtf8(*collected).trimmed();
                 const QString lastLine = output.section(QLatin1Char('\n'), -1).trimmed();
                 if (code != 0) {
                     // pacman's *last* line is its summary — "Errors occurred, no
@@ -646,6 +739,13 @@ void LauncherController::startSystemCommand(const QString& script, const QString
                 system_.refresh();
                 emit storageChanged();
                 emit packageBusyChanged();
+                if (updating_) {
+                    // What is left to update now, and whether the kernel moved.
+                    updating_ = false;
+                    restartRequired_ = QFile::exists(QStringLiteral("/run/omnios/reboot-required"));
+                    emit updatesChanged();
+                    checkSystemUpdates();
+                }
             });
     connect(process, &QProcess::errorOccurred, this,
             [this, process](QProcess::ProcessError) {
@@ -762,14 +862,58 @@ void LauncherController::updateApp(const QString& appId) {
         return;
     }
 
-    const QString script =
-        QStringLiteral("pkg=$(pacman -Qoq %1 2>/dev/null) || { echo \"error: no package owns %1\"; "
-                       "exit 1; }; sudo -S -p '' pacman -Sy --noconfirm \"$pkg\"")
-            .arg(packagePathFor(appId));
-    runSystemCommand(script, tr("Updating %1 ...").arg(ref.title),
-                      tr("%1 is up to date").arg(ref.title),
-                      tr("Updating %1 changes the system, so it needs your password.")
-                          .arg(ref.title));
+    // A pacman app is updated by updating the system. "pacman -Sy <pkg>", which
+    // this used to run, is a partial upgrade: the databases move on, one
+    // package follows them, and everything it links against stays behind —
+    // Arch's best-known way to end up with a system that does not start.
+    updateSystem();
+}
+
+void LauncherController::checkSystemUpdates(bool announce) {
+    if (updateCheck_ != nullptr || liveImage()) return;
+    auto* check = new QProcess(this);
+    updateCheck_ = check;
+    connect(check, &QProcess::finished, this, [this, check, announce](int code, QProcess::ExitStatus) {
+        const QStringList lines = QString::fromUtf8(check->readAllStandardOutput())
+                                      .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        updateCheck_ = nullptr;
+        check->deleteLater();
+        // Offline, or a mirror down: keep what was known. An error every six
+        // hours about a machine that is simply offline helps nobody; asked
+        // for, it is said.
+        if (code != 0) {
+            if (announce) setStatus(tr("Could not check for updates  -  is the network up?"));
+            return;
+        }
+        for (const QString& line : lines) {
+            if (!line.startsWith(QLatin1String("total "))) continue;
+            bool ok = false;
+            const int total = line.mid(6).trimmed().toInt(&ok);
+            if (!ok) continue;
+            if (total != updateCount_) {
+                updateCount_ = total;
+                emit updatesChanged();
+            }
+            if (announce) {
+                setStatus(total == 0 ? tr("The system is up to date")
+                          : total == 1 ? tr("1 update available")
+                                       : tr("%1 updates available").arg(total));
+            }
+        }
+    });
+    connect(check, &QProcess::errorOccurred, this, [this, check](QProcess::ProcessError) {
+        updateCheck_ = nullptr;
+        check->deleteLater();
+    });
+    check->start(QStringLiteral("omni-update"), {QStringLiteral("check")});
+}
+
+void LauncherController::updateSystem() {
+    if (packageBusy() || liveImage()) return;
+    updating_ = true;
+    runSystemCommand(QStringLiteral("sudo -S -p '' omni-update apply"),
+                     tr("Updating the system"), QString(),
+                     tr("Updating the system changes it, so it needs your password."));
 }
 
 void LauncherController::pairController() {
@@ -878,9 +1022,128 @@ void LauncherController::switchToDesktop() {
     process->start(QStringLiteral("omni-session-select"), {QStringLiteral("desktop")});
 }
 
+void LauncherController::steamAction(const QString& gameId, const QString& action) {
+    const omnios::Game* game = findGame(model_.library(), gameId);
+    if (game == nullptr || game->platform != omnios::Platform::Steam) return;
+    // The app id becomes part of a URL handed to Steam; the reader already
+    // refuses anything but digits, and this does not rely on that.
+    const QString appId = QString::fromStdString(game->launchId);
+    static const QRegularExpression kDigits(QStringLiteral("^[0-9]{1,12}$"));
+    if (!kDigits.match(appId).hasMatch()) return;
+
+    const QString title = QString::fromStdString(game->title);
+    QString url;
+    QString said;
+    if (action == QLatin1String("details")) {
+        url = QStringLiteral("steam://nav/games/details/") + appId;
+        said = tr("Opening %1 in Steam").arg(title);
+    } else if (action == QLatin1String("validate")) {
+        url = QStringLiteral("steam://validate/") + appId;
+        said = tr("Steam is checking %1's files").arg(title);
+    } else if (action == QLatin1String("uninstall")) {
+        // Steam's own dialog, which asks first. When it is done the tile goes
+        // by itself: the Games tab watches Steam's library (refreshIfSteamChanged).
+        url = QStringLiteral("steam://uninstall/") + appId;
+        said = tr("Steam will ask before uninstalling %1").arg(title);
+    } else {
+        return;
+    }
+    // Detached and not tracked as the running app: steam hands the link to the
+    // client already running, or starts it, and exits straight away.
+    if (!QProcess::startDetached(QStringLiteral("steam"), {url})) {
+        setPackageStatus(tr("Could not start Steam"));
+        return;
+    }
+    setPackageStatus(said);
+}
+
 void LauncherController::quitRunningGame() { stopRunning(true); }
 
+void LauncherController::resumeRunningGame() {
+    QStringList pids;
+    if (!steamGame_.appId.isEmpty()) {
+        const std::string appId = steamGame_.appId.toStdString();
+        for (const omnios::SteamGameProcess& game : omnios::runningSteamGames()) {
+            if (game.appId != appId) continue;
+            pids << QString::number(game.pid);
+            for (const int pid : omnios::descendantsOf(game.pid)) pids << QString::number(pid);
+        }
+    } else if (running_ != nullptr && running_->processId() > 0) {
+        // A wrapper script is common (Steam's own, emulators' launchers), so
+        // the window can belong to a child.
+        const int root = static_cast<int>(running_->processId());
+        pids << QString::number(root);
+        for (const int pid : omnios::descendantsOf(root)) pids << QString::number(pid);
+    }
+    if (pids.isEmpty()) {
+        setStatus(gameRunning() ? tr("%1 has no window yet").arg(runningTitle())
+                                : tr("Nothing is running"));
+        return;
+    }
+    QProcess::startDetached(QStringLiteral("omni-kwin-activate"),
+                            QStringList{QStringLiteral("--pid")} + pids);
+}
+
+void LauncherController::watchSteamGame() {
+    if (steamGame_.appId.isEmpty()) {
+        steamGamePoll_.stop();
+        return;
+    }
+    const std::string appId = steamGame_.appId.toStdString();
+    bool running = false;
+    for (const omnios::SteamGameProcess& game : omnios::runningSteamGames())
+        running = running || game.appId == appId;
+
+    if (running) {
+        if (!steamGame_.seen) {
+            steamGame_.seen = true;
+            setStatus(tr("%1 is running").arg(steamGame_.title));
+        }
+        return;
+    }
+    if (steamGame_.seen) {
+        // It was running and is not: the game has ended, and the library
+        // comes back, as it does for any other game.
+        endSteamGame(tr("%1 exited").arg(steamGame_.title), true);
+        return;
+    }
+    // Never seen. Steam may be updating itself or the game, installing Proton,
+    // or asking something first, all in its own window: the launcher stays
+    // out of the way, and after ten minutes stops waiting.
+    if (steamGame_.since.elapsed() > 10 * 60 * 1000)
+        endSteamGame(tr("%1 has not started  -  see Steam").arg(steamGame_.title), false);
+}
+
+void LauncherController::endSteamGame(const QString& said, bool returnHome) {
+    steamGame_ = SteamGame{};
+    steamGamePoll_.stop();
+    updatePadRouting();
+    if (returnHome) focusLauncherWindow();
+    setStatus(said);
+    emit gameRunningChanged();
+}
+
+void LauncherController::updatePadRouting() {
+    gamepad_.setAppRunning(gameRunning()
+                           && QGuiApplication::applicationState() != Qt::ApplicationActive);
+}
+
 void LauncherController::stopRunning(bool returnHome) {
+    if (!steamGame_.appId.isEmpty()) {
+        // The reaper and everything under it, which is the game and whatever
+        // it started. Not Steam: that stays, as it would on any PC.
+        // Listed in one pass, before anything is signalled: once the reaper
+        // goes, whatever it leaves behind is no longer below it.
+        const std::string appId = steamGame_.appId.toStdString();
+        std::vector<int> pids;
+        for (const omnios::SteamGameProcess& game : omnios::runningSteamGames()) {
+            if (game.appId != appId) continue;
+            pids.push_back(game.pid);
+            for (const int pid : omnios::descendantsOf(game.pid)) pids.push_back(pid);
+        }
+        stopProcesses(this, pids);
+        endSteamGame(tr("%1 closed").arg(steamGame_.title), returnHome);
+    }
     if (running_ == nullptr) return;
 
     QProcess* process = running_;
@@ -890,10 +1153,18 @@ void LauncherController::stopRunning(bool returnHome) {
     // raise the launcher again just as the new app arrives over it.
     process->disconnect(this);
     running_ = nullptr;
-    gamepad_.setAppRunning(false);
+    updatePadRouting();
     const QString previous = runningTitle_;
     runningTitle_.clear();
+    runningGameId_.clear();
 
+    // What it started too: a game behind a wrapper script is the script's
+    // child, and would outlive the script. Listed before anything is signalled,
+    // while they are all still its descendants.
+    const std::vector<int> children = process->processId() > 0
+        ? omnios::descendantsOf(static_cast<int>(process->processId()))
+        : std::vector<int>{};
+    stopProcesses(this, children);
     process->terminate();
     if (!process->waitForFinished(2000)) {
         // Some programs ignore SIGTERM. A console cannot sit waiting on one.

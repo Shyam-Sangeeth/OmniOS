@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=TV
+GenericName=Free-to-air TV
+Comment=Free-to-air channels from around the world, from iptv-org
+Exec=omni-launcher-qml --tv
+Icon=omnios-tv
+Categories=AudioVideo;Video;TV;Player;
+Keywords=television;iptv;channels;news;live;
+StartupWMClass=omnios-tv

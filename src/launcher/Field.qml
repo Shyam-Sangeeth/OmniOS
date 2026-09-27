@@ -76,7 +76,7 @@ Column {
             anchors { fill: box }
             verticalAlignment: Text.AlignVCenter
             visible: box.text === "" && box.activeFocus && field.controllerTyping
-            text: qsTr("%1  to type").arg(field.controllerTyping ? field.keyboard.buttons.south : "")
+            text: Theme.hint(qsTr("%1  Type").arg(field.controllerTyping ? field.keyboard.buttons.south : ""))
             color: Theme.textSecondary
             font.pixelSize: 15
         }

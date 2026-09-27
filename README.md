@@ -282,14 +282,14 @@ controller the same way.
 
 | Xbox | PlayStation | Does |
 |---|---|---|
-| D-pad / left stick | D-pad / left stick | move, with hold-to-repeat |
-| A | ✕ | open |
-| B | ○ | back, close a menu |
-| X | □ | that tile's menu |
-| Y | △ | rescan |
-| LB / RB | L1 / R1 | switch tab |
-| Menu | Options | the system menu |
-| Xbox | PS | back to the library, from anywhere |
+| D-pad / left stick | D-pad / left stick | Move, with hold-to-repeat |
+| A | ✕ | Open |
+| B | ○ | Back, close a menu |
+| X | □ | That tile's menu |
+| Y | △ | Rescan |
+| LB / RB | L1 / R1 | Switch tab |
+| Menu | Options | The system menu |
+| Xbox | PS | Back to the library, from anywhere |
 
 SDL3, because Qt 6 has no gamepad module and SDL carries the mapping database
 that makes a DualSense and an Xbox pad behave the same. CMake treats it as
@@ -304,7 +304,11 @@ no rule for it — so [60-omnios-controllers.rules](iso/airootfs/etc/udev/rules.
 hands it to whoever is signed in, and the launcher sets the light bar to OmniOS
 purple when the pad connects. What the screen calls the buttons follows the pad
 in hand: ✕ ○ □ △, L1 R1 and Options on a PlayStation pad; A B X Y, LB RB and Menu
-on an Xbox one. Wireless needs bluez, and *Pair a controller* in
+on an Xbox one. Each is drawn as a badge in the line, as consoles show them:
+the face buttons as a disc in the pad's own colours (a green A; PlayStation's
+blue cross and pink square), the rest as a small pill
+([PadGlyphs.cpp](src/launcher/PadGlyphs.cpp)). With the keyboard in use, the hints show
+keycaps the same way (Enter, Esc, F5, the arrows). Wireless needs bluez, and *Pair a controller* in
 the system menu holds a scan open long enough to walk to the console, then
 pairs, trusts and connects the first gamepad it sees.
 
@@ -339,6 +343,126 @@ clears the mark. A Wi-Fi password then goes to NetworkManager in a file only
 this user can read, deleted as soon as `nmcli` has it — never on a command line,
 where any process on the machine could read it. Network names, which are
 whatever an access point broadcasts, are quoted before they reach a shell.
+
+### TV
+
+OmniOS TV (`omni-launcher-qml --tv`, the *TV* tile on the Apps tab and *TV* in
+the desktop's application menu) plays free-to-air channels from
+[iptv-org](https://github.com/iptv-org/iptv): a public list of publicly
+available streams — news, public broadcasters and the like — published as M3U
+playlists by country and by category. Nothing is hosted by OmniOS or by
+iptv-org; a channel is a name, a logo and a stream address that mpv plays.
+
+One row across the top holds every filter: *Country*, *Category* and
+*Language* — each a list with its own search, closest match first, where any
+number of choices can be ticked — a search over channel names, and ★ for
+favourites only. Within a filter any ticked choice will do; across filters all
+must: India or Nepal, and News, and Hindi or Telugu. Each list counts what its
+choices would leave given the others, and leaves out the ones that would leave
+nothing. The open list is one overlay for the whole window, so a click on an
+option can never reach a channel behind it, a click outside closes it, and only
+one list is ever open.
+The country starts as your own (from the system language, else the time zone).
+iptv-org publishes its whole list grouped each of those three ways; the three
+are merged by stream (`TvCatalog` in [Iptv.cpp](src/omnios/Iptv.cpp)), so each
+channel carries all three. The channels fill the screen below as tiles with
+their logos. A plays full screen; Y keeps a channel in favourites. While a
+channel plays the controller is a remote: up and down change channel, and a
+channel that turns out to be dead is skipped (up to five in a row), as a TV
+skips an empty one. B stops.
+
+Many of the streams are offline on a given day or only answer inside their own
+country — iptv-org marks the ones it knows are geo-blocked — so a channel that
+will not play says so rather than leaving a black screen. The three lists (about
+8 MB together) are cached for a day in `~/.cache/omnios/tv`, and cached lists
+are shown, marked as such, when the network is down. [Iptv.cpp](src/omnios/Iptv.cpp) reads the playlists, and
+only ever hands mpv an http(s) address, after a `--` so no address can be read
+as an option.
+
+Channels play inside TV's own window ([TvPlayer.qml](src/launcher/TvPlayer.qml),
+Qt Multimedia over FFmpeg), under a bar of OmniOS's controls — *Back*, the
+channel's name, *Audio* and *Subtitles* (the stream's
+tracks, and *Off*; each says what there is even when there is one or none),
+volume down, level (press to mute) and up, and ★ — shown on any key or mouse
+movement and faded after a few seconds; eight with something in the bar
+chosen, after which the keys go back to the picture, as on a TV. An Audio or
+Subtitles list closes itself after eight seconds untouched. Up and down (or the wheel) are volume,
+left and right (PgUp/PgDn, the pad's shoulders) change channel, M mutes, and
+Enter goes into the bar, where left and right move between its controls. Esc,
+Backspace, B on a pad, a right-click or *Back* all leave. While a stream connects it says so; one that will
+not play — an error, an end, or 25 seconds of nothing — shows a card with
+*Next channel* and *Back to channels* instead of a black screen. One that has
+played and then hiccups — a corrupt frame at an ad break — is reconnected up to
+three times first: Qt's player stops at the first bad frame where FFmpeg on its
+own carries on.
+
+A channel's playlist is often a choice of qualities. Handed that, FFmpeg
+downloads every one of them at once and the player shows the first it meets,
+often the smallest — eight downloads for Sony Yay, which then never started in
+the VM, and each copy of its sound listed as a separate "Default" track. So TV
+reads the playlist first and hands the player one: the tallest picture up to
+the screen's height and never below 1080p, since the best copy is often the
+only one with the extra languages (`pickHlsVariant` in
+[Iptv.cpp](src/omnios/Iptv.cpp); a playlist with separate audio renditions is
+passed on whole). The audio list names each track once — *Main audio* for the
+channel's own sound, then its languages.
+
+**What is on.** A tile shows the programme on now under the channel's name,
+with a thin bar for how far into it; the player shows it too, with the bar
+(*Now*, its times, how far in, a two-line description, and what is *Next*).
+iptv-org hosts no guides — its epg project is a scraper for anyone to run, and
+the community copies it once listed are gone — so the guides come from
+[epgshare01](https://epgshare01.online/epgshare01/), which publishes XMLTV
+files per country, days ahead, rebuilt daily. Its channel ids are not
+iptv-org's, so channels are matched by name, reduced to what tells them apart
+("Sony Yay (1080p)" and "SONY YAY!" are both `sonyyay`), and only within the
+channel's own country, from the end of its iptv-org id (`.in`). Measured on
+India that covers 432 of 739 channels; the rest are small local channels no
+guide has. Guides are fetched for the countries ticked (your own when none
+is) and the channel playing: India's are three files, 5 MB packed and 80 MB
+unpacked, read on a worker thread in about 50 ms and then kept only for those
+channels, from three hours back to a day and a half ahead. They are cached for
+a day and read again every twelve hours. [Epg.cpp](src/omnios/Epg.cpp) does the
+matching and reading; a channel no guide covers simply shows none.
+
+Everything above works from a controller: the D-pad and A in the filters and
+their lists, A on a search box for the on-screen keyboard, Y for favourites,
+and in the player the D-pad and shoulders as listed, X to mute and B to leave.
+Every program reading the pad sees every press, so TV acts on one only while
+it is the window in front (or mpv, its player, is): after the Guide button
+brings the launcher back, TV behind it stays still.
+
+About one stream in eight answers only a particular browser or referring page,
+which Qt's player has no way to send; those go to mpv, full screen, told the
+same ways out (Esc, Backspace, Q, a right-click) and saying so when it starts.
+mpv is also told its video outputs — the GPU through Wayland, then Wayland's
+plain software output: left to choose, on a machine with no usable GPU it goes
+on to try X11 through XWayland and crashes on an assertion there, which in the
+VM made every channel look dead.
+
+### Updates
+
+[omni-update](iso/airootfs/usr/local/bin/omni-update) is the whole of it:
+`check` lists what an update would change, without root and without changing
+anything (pacman's side is `checkupdates`, which syncs a throwaway copy of the
+databases); `apply` updates the signing keys, then everything with
+`pacman -Syu`, then Flatpak apps, and says whether a restart is needed —
+when the running kernel's modules have gone, it has been replaced.
+
+Everything, always. Arch is released as one piece, and upgrading one package
+without the rest (`pacman -Sy foo`) is a partial upgrade: the classic way to a
+system whose programs no longer match their libraries. The Apps tab's per-app
+*Update* used to do exactly that for pacman apps; it now updates the system.
+Emulators are packages like any other, so this keeps them current too — there
+is no second update channel for them.
+
+Game Mode checks a minute after starting and every six hours, quietly — an
+offline machine is not an error worth repeating — and shows *N updates
+available* in the top bar. The system menu then offers *Update system*, which
+asks once ("Not now" under the cursor), then asks for the password, and
+narrates pacman's progress (*12 of 340 · mesa*) while it runs. After a kernel
+update the menu offers *Restart to finish updating*. It refuses on the live
+image, which runs from RAM, and while Discover holds pacman's lock.
 
 ### The system menu
 
@@ -428,6 +552,32 @@ launched by id:
 The client has to be running for DRM, the overlay and cloud saves, so the route
 is through Steam even when the binary is easy to find.
 
+That makes the `steam` process no measure of the game. With the client already
+running it hands the id over and exits at once, which the launcher used to take
+as the game ending — coming back over it as it started. With no client it
+becomes the client and stays, so the game "ran" as long as Steam did, and
+starting anything else terminated Steam. So a Steam game is followed through
+the process Steam runs every game under: its reaper, whose command line reads
+`reaper SteamLaunch AppId=<id> -- <game>`. Seen appearing and then gone is the
+game ending, and only then does the library come back. If it never appears —
+Steam updating, a first-run dialog — the launcher stays out of Steam's way and
+stops waiting after ten minutes. Starting something else stops the game by
+signalling the reaper and everything under it, never Steam itself.
+
+While anything runs, the pad leaves the launcher alone, so its presses reach
+the game. Once Guide has brought the launcher to the front it drives the
+launcher again: nothing else is listening then.
+
+From there, the system menu (Start, or F10) opens on *Resume* and *Quit* for
+what is running, and so does the running game's own tile menu. Resume raises
+the game's window through `omni-kwin-activate --pid`: a game's window class is
+whatever its engine picked, but its processes are known — the launcher's child
+and everything under it, or Steam's reaper and everything under that. Quit asks
+first, with *Keep playing* under the cursor, then sends SIGTERM to the whole
+tree and, three seconds on, SIGKILL to whatever ignored it — a hung game does.
+Each process is noted with its start time as well as its id, so nothing that
+has taken a freed id since is touched.
+
 Not every manifest is a game. Steam installs Proton, the Steam Linux Runtimes
 and its Windows redistributables the same way, and a first download writes its
 manifest long before there is anything to play; none of those get a tile (the
@@ -435,6 +585,13 @@ manifest long before there is anything to play; none of those get a tile (the
 drives, listed in `libraryfolders.vdf`, are read too. Covers are the ones Steam
 already caches for its own library view, under `appcache/librarycache` — the
 tall capsule, or the wide header when that is all there is.
+
+A Steam tile has a menu (M, or □/X on a pad): Play, and three things only Steam
+can do, handed to it through its own links — *Open in Steam*
+(`steam://nav/games/details/<id>`, the game's library page, where Properties
+is), *Verify game files* (`steam://validate/<id>`) and *Uninstall*
+(`steam://uninstall/<id>`, which Steam confirms itself). The detail screen adds
+when it was last played, from the manifest's `LastPlayed`.
 
 Games are installed in Steam's window, not through the launcher, so the Games
 tab watches for the result: when the launcher comes back to the front, and every
@@ -523,7 +680,6 @@ the boot-os skill.
 - **Real hardware.** Everything so far has run in QEMU only.
 - **Phase 6's `.opkg` installer** — extracting a package into `~/Games` with
   checksum verification — and **Phase 7.4 cover art**.
-- **System updates** (Phase 12).
 - **Sleep on real hardware** is untested. In QEMU the system resumes, but the
   VM's own faults — its watchdog, its virtual GPU, its ACPI timer under WHPX —
   get in the way; Desktop Mode's sleep works there with the workarounds in the

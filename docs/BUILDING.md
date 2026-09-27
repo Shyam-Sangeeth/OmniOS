@@ -75,7 +75,7 @@ wsl --install archlinux
 Then inside the Arch shell:
 
 ```bash
-sudo pacman -Syu --noconfirm archiso cmake ninja gcc qt6-base qt6-declarative qt6-tools sdl3
+sudo pacman -Syu --noconfirm archiso cmake ninja gcc qt6-base qt6-declarative qt6-tools qt6-multimedia sdl3
 cd /mnt/c/Users/shyam/OneDrive/Documents/Projects/OmniOS
 sudo ./scripts/build-iso.sh
 ```
@@ -87,7 +87,7 @@ window) or on Windows against the same file (`.\scripts\run-qemu.ps1`).
 ## Route C — an actual Arch machine
 
 ```bash
-sudo pacman -S archiso qemu-full edk2-ovmf cmake ninja gcc qt6-base qt6-declarative qt6-tools sdl3
+sudo pacman -S archiso qemu-full edk2-ovmf cmake ninja gcc qt6-base qt6-declarative qt6-tools qt6-multimedia sdl3
 sudo ./scripts/build-iso.sh
 ./scripts/run-qemu.sh --uefi
 ```

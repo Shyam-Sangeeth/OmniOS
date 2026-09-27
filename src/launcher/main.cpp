@@ -11,6 +11,8 @@
 #include "GreeterController.h"
 #include "InstallerController.h"
 #include "LauncherController.h"
+#include "PadGlyphs.h"
+#include "TvController.h"
 
 int main(int argc, char* argv[]) {
     // A VM has no GPU worth the name; Qt Quick's default RHI path on llvmpipe
@@ -38,6 +40,7 @@ int main(int argc, char* argv[]) {
 
         InstallerController installer;
         QQmlApplicationEngine engine;
+        engine.addImageProvider(QStringLiteral("pad"), new PadGlyphProvider);  // the engine owns it
         engine.rootContext()->setContextProperty(QStringLiteral("Installer"), &installer);
         QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                          []() { QCoreApplication::exit(1); }, Qt::QueuedConnection);
@@ -55,10 +58,29 @@ int main(int argc, char* argv[]) {
 
         GreeterController greeter;
         QQmlApplicationEngine engine;
+        engine.addImageProvider(QStringLiteral("pad"), new PadGlyphProvider);  // the engine owns it
         engine.rootContext()->setContextProperty(QStringLiteral("Greeter"), &greeter);
         QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                          []() { QCoreApplication::exit(1); }, Qt::QueuedConnection);
         engine.loadFromModule("omnios", "GreeterWindow");
+        if (engine.rootObjects().isEmpty()) return 1;
+        return app.exec();
+    }
+
+    // --tv is OmniOS TV: free-to-air channels from iptv-org. A window of its
+    // own, like the installer, opened from its tile on the Apps tab or from the
+    // desktop's application menu.
+    if (QCoreApplication::arguments().contains(QStringLiteral("--tv"))) {
+        QGuiApplication::setApplicationName(QStringLiteral("omnios-tv"));
+        QGuiApplication::setDesktopFileName(QStringLiteral("omnios-tv"));
+
+        TvController tv;
+        QQmlApplicationEngine engine;
+        engine.addImageProvider(QStringLiteral("pad"), new PadGlyphProvider);  // the engine owns it
+        engine.rootContext()->setContextProperty(QStringLiteral("Tv"), &tv);
+        QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
+                         []() { QCoreApplication::exit(1); }, Qt::QueuedConnection);
+        engine.loadFromModule("omnios", "TvWindow");
         if (engine.rootObjects().isEmpty()) return 1;
         return app.exec();
     }
@@ -71,6 +93,7 @@ int main(int argc, char* argv[]) {
     LauncherController controller;
 
     QQmlApplicationEngine engine;
+    engine.addImageProvider(QStringLiteral("pad"), new PadGlyphProvider);  // the engine owns it
     engine.rootContext()->setContextProperty(QStringLiteral("Launcher"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("GameLibrary"), controller.games());
     engine.rootContext()->setContextProperty(QStringLiteral("AppLibrary"), controller.apps());

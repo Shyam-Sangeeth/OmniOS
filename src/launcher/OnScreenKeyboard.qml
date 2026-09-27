@@ -229,9 +229,9 @@ Rectangle {
     Text {
         id: legend
         anchors { top: grid.bottom; topMargin: 10; horizontalCenter: parent.horizontalCenter }
-        text: qsTr("%1 type    %2 delete    %3 space    %4 shift    %5 symbols    %6 done    %7 cancel")
+        text: Theme.hint(qsTr("%1 Type    %2 Delete    %3 Space    %4 Shift    %5 Symbols    %6 Done    %7 Cancel")
                   .arg(osk.buttons.south).arg(osk.buttons.west).arg(osk.buttons.north)
-                  .arg(osk.buttons.l1).arg(osk.buttons.r1).arg(osk.buttons.start).arg(osk.buttons.east)
+                  .arg(osk.buttons.l1).arg(osk.buttons.r1).arg(osk.buttons.start).arg(osk.buttons.east))
         color: Theme.textSecondary
         font.pixelSize: 12
     }

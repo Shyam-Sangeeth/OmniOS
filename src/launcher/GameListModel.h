@@ -33,6 +33,8 @@ public:
         TierRole,
         DetectionRole,
         PlayableRole,
+        // "Played yesterday", "Never played", ... or empty when not known.
+        LastPlayedRole,
     };
     Q_ENUM(Role)
 

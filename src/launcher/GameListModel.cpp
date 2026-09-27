@@ -1,5 +1,7 @@
 #include "GameListModel.h"
 
+#include <QDateTime>
+#include <QLocale>
 #include <QUrl>
 
 #include "omnios/Router.h"
@@ -11,6 +13,22 @@ QString badgeColorFor(omnios::Platform platform) {
     // the badge colours cannot drift from the rest of the system.
     return QString::fromUtf8(omnios::platformInfo(platform).badgeColor.data(),
                              static_cast<int>(omnios::platformInfo(platform).badgeColor.size()));
+}
+
+// How long ago, the way a person would say it: recent days by name, older ones
+// by date.
+QString lastPlayedText(const omnios::Game& game) {
+    if (game.lastPlayed <= 0) {
+        // Only Steam keeps a record, so only for Steam does "none" mean never.
+        return game.platform == omnios::Platform::Steam
+                   ? GameListModel::tr("Never played") : QString();
+    }
+    const QDate played = QDateTime::fromSecsSinceEpoch(game.lastPlayed).date();
+    const qint64 days = played.daysTo(QDate::currentDate());
+    if (days <= 0) return GameListModel::tr("Played today");
+    if (days == 1) return GameListModel::tr("Played yesterday");
+    if (days < 7) return GameListModel::tr("Played %n days ago", nullptr, static_cast<int>(days));
+    return GameListModel::tr("Last played %1").arg(QLocale().toString(played, QLocale::ShortFormat));
 }
 
 }  // namespace
@@ -45,6 +63,7 @@ QVariant GameListModel::data(const QModelIndex& index, int role) const {
         case DescriptionRole: return QString::fromStdString(game.description);
         case DetectionRole:
             return QString::fromStdString(std::string(omnios::detectionSourceName(game.detectionSource)));
+        case LastPlayedRole: return lastPlayedText(game);
         default: break;
     }
 
@@ -81,6 +100,7 @@ QHash<int, QByteArray> GameListModel::roleNames() const {
         {TierRole, "tierName"},
         {DetectionRole, "detectionSource"},
         {PlayableRole, "playable"},
+        {LastPlayedRole, "lastPlayed"},
     };
 }
 

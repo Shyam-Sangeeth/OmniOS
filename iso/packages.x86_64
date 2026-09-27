@@ -112,6 +112,9 @@ libretro-core-info
 qt6-base
 qt6-declarative
 qt6-svg
+# TV's built-in player (Qt Multimedia over FFmpeg, the decoder mpv uses too).
+qt6-multimedia
+qt6-multimedia-ffmpeg
 cmake
 ninja
 gcc

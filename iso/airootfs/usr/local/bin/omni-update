@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# The system updater behind Game Mode's "Update system" — Phase 12.
+#
+#   omni-update check
+#       What an update would change, one line each:
+#           pacman NAME OLD NEW
+#           flatpak APP-ID
+#       then "total N". Needs no root and changes nothing: pacman's side is
+#       checkupdates, which syncs a throwaway copy of the databases. Exits 1,
+#       with an "error:" line, when it could not find out (offline, say).
+#
+#   omni-update apply
+#       As root: update everything, then say so in the last line — and whether
+#       a restart is needed to finish.
+#
+# Everything, always. Arch is released as one piece: upgrading some packages
+# and not others ("pacman -Sy foo") is a partial upgrade, and a partial upgrade
+# is how a system ends up with a library its programs were not built against.
+# So there is no per-package update here, and the launcher's per-app Update
+# comes here too.
+#
+# Emulators are packages like any other — pacman's or Flathub's — so this is
+# also how they stay current (12.2); there is no second channel for them.
+set -uo pipefail
+
+readonly REBOOT_MARKER=/run/omnios/reboot-required
+
+check() {
+    local out rc n=0 name old arrow new id
+    out="$(checkupdates 2>/dev/null)"
+    rc=$?
+    # 0: updates listed. 2: none. Anything else: it could not look.
+    if (( rc != 0 && rc != 2 )); then
+        echo "error: could not reach the package mirrors"
+        exit 1
+    fi
+    while read -r name old arrow new; do
+        [[ -n $name && $arrow == "->" ]] || continue
+        echo "pacman $name $old $new"
+        n=$((n + 1))
+    done <<<"$out"
+
+    if command -v flatpak >/dev/null 2>&1; then
+        while read -r id; do
+            [[ -n $id ]] || continue
+            echo "flatpak $id"
+            n=$((n + 1))
+        done < <(flatpak remote-ls --updates --columns=application 2>/dev/null)
+    fi
+    echo "total $n"
+}
+
+apply() {
+    if (( EUID != 0 )); then
+        echo "error: omni-update apply has to run as root"
+        exit 1
+    fi
+    # The live image runs from RAM: an update there fills the overlay, and is
+    # gone at the next boot anyway.
+    if [[ -d /run/archiso ]]; then
+        echo "error: this is the live image; install OmniOS to keep it updated"
+        exit 1
+    fi
+    # Discover updates through the same pacman. Two at once is refused by
+    # pacman itself, but only after a sync; saying so first is kinder.
+    if [[ -e /var/lib/pacman/db.lck ]]; then
+        echo "error: another update is running, perhaps in Discover; try again when it has finished"
+        exit 1
+    fi
+
+    local running
+    running="$(uname -r)"
+
+    # The keyring first. A system left alone for months can have packages
+    # signed by keys it has not heard of yet, and the whole upgrade then fails
+    # on the first of them. Syncing and then upgrading straight away, with
+    # nothing in between, is not a partial upgrade.
+    echo "==> Updating the signing keys"
+    if ! pacman -Sy --noconfirm --needed archlinux-keyring; then
+        echo "error: could not reach the package mirrors"
+        exit 1
+    fi
+
+    echo "==> Updating the system"
+    if ! pacman -Su --noconfirm; then
+        echo "error: the system update did not finish; see the log before restarting"
+        exit 1
+    fi
+
+    if command -v flatpak >/dev/null 2>&1; then
+        echo "==> Updating Flatpak apps"
+        flatpak update --system --noninteractive --assumeyes \
+            || echo "warning: some Flatpak apps could not be updated"
+    fi
+
+    # The running kernel's modules are replaced along with the kernel, so a new
+    # kernel shows as the old one's module directory having gone. Until a
+    # restart, a module that is not loaded yet cannot be — a USB device plugged
+    # in, say — so it is worth saying.
+    if [[ ! -d /usr/lib/modules/$running ]]; then
+        install -d /run/omnios
+        : >"$REBOOT_MARKER"
+        echo "Updated. Restart to finish: the kernel was updated"
+    else
+        echo "The system is up to date"
+    fi
+}
+
+case "${1:-}" in
+    check) check ;;
+    apply) apply ;;
+    *) echo "usage: omni-update check | apply" >&2; exit 2 ;;
+esac

@@ -29,6 +29,21 @@ QtObject {
 
     readonly property int gutter: 28
 
+    // A hint that names a controller's buttons shows them as badges, which
+    // are inline images (see PadGlyphs.h) and so make the line rich text. Rich
+    // text, like a web page, folds a run of spaces into one, and the runs are
+    // what space a hint's parts apart: "A open    B back". They are kept.
+    //
+    // A keyboard key is written in brackets, "[Enter] Open", and shown as a
+    // keycap. Only names of keys the hints use are read that way, so a game
+    // or channel called "Something [Beta]" in a hint stays as it is.
+    function hint(text) {
+        text = text.replace(/\[(Enter|Esc|Tab|Space|Backspace|F\d{1,2}|[A-Z]|↑|↓|←|→)\]/g,
+                            function (all, key) { return PadGlyphs.key(key) })
+        if (text.indexOf("<img") < 0) return text
+        return text.replace(/ {2,}/g, function (run) { return "&nbsp;".repeat(run.length - 1) + " " })
+    }
+
     // The native scan code a controller press arrives with (KeyDelivery.h,
     // kControllerScanCode — keep the two equal). No keyboard sends it.
     readonly property int controllerScanCode: 0x6F53

@@ -45,6 +45,10 @@ public:
 
     const std::filesystem::path& root() const { return root_; }
 
+    // Every Steam library the scan reads: ~/Games/steam, then Steam's own.
+    // Also what steamLibraryStamp is given to notice a change.
+    std::vector<std::filesystem::path> steamLibraries() const;
+
 private:
     std::filesystem::path root_;
 };

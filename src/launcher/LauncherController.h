@@ -6,10 +6,13 @@
 // quitting a game returns you to the grid rather than to a black screen.
 #pragma once
 
+#include <string>
+
 #include <QElapsedTimer>
 #include <QObject>
 #include <QProcess>
 #include <QString>
+#include <QTimer>
 #include <QVariantMap>
 
 #include "AppListModel.h"
@@ -221,6 +224,12 @@ private:
     // What to hand "pacman -Qoq" to find the package behind an app.
     QString packagePathFor(const QString& appId) const;
 
+    // Rescans when the Steam games the tab would show have changed since the
+    // last scan: a game finished installing, or was uninstalled, in Steam. Checked when
+    // the launcher comes back to the front and every few seconds while it is
+    // there, so a download finishing behind it still gets its tile.
+    void refreshIfSteamChanged();
+
     GamepadInput   gamepad_;
     SystemStatus   system_;
     GameListModel  model_;
@@ -242,6 +251,9 @@ private:
     QList<qint64>  passwordFailures_;
     bool           usingController_ = false;
     QElapsedTimer  activityPinged_;
+    // Steam's games as of the last scan (omnios::steamLibraryStamp).
+    std::string    steamStamp_;
+    QTimer         steamPoll_;
     QProcess*     running_ = nullptr;
     QString       runningTitle_;
     QString       status_;

@@ -20,6 +20,7 @@
 #include "omnios/GameScanner.h"
 #include "omnios/Paths.h"
 #include "omnios/Router.h"
+#include "omnios/SteamLibrary.h"
 
 namespace {
 
@@ -110,6 +111,24 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
                                  QStringLiteral("org.freedesktop.ScreenSaver.SimulateUserActivity")});
     });
 
+    // Steam installs and removes games in its own window, not through the
+    // shell, so the Games tab watches for the result rather than being told.
+    steamPoll_.setInterval(10000);
+    connect(&steamPoll_, &QTimer::timeout, this, &LauncherController::refreshIfSteamChanged);
+    steamPoll_.start();
+    connect(qGuiApp, &QGuiApplication::applicationStateChanged, this,
+            [this](Qt::ApplicationState state) {
+                if (state == Qt::ApplicationActive) refreshIfSteamChanged();
+            });
+
+    refresh();
+}
+
+void LauncherController::refreshIfSteamChanged() {
+    // Behind a game or Steam itself nobody is looking at the grid; the
+    // activation check catches up the moment the launcher is back.
+    if (QGuiApplication::applicationState() != Qt::ApplicationActive || scanning_) return;
+    if (omnios::steamLibraryStamp(omnios::GameScanner().steamLibraries()) == steamStamp_) return;
     refresh();
 }
 
@@ -198,6 +217,10 @@ void LauncherController::setStatus(const QString& text) {
 void LauncherController::refresh() {
     scanning_ = true;
     emit scanningChanged();
+
+    // Taken before the scan, so a change landing during it is seen next time
+    // rather than lost.
+    steamStamp_ = omnios::steamLibraryStamp(omnios::GameScanner().steamLibraries());
 
     omnios::GameLibrary library;
     std::string error;

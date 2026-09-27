@@ -100,3 +100,119 @@ TEST("steam: a game is launched by app id, not by a path") {
     CHECK_EQ(plan.argv[0], "steam");
     CHECK_EQ(plan.argv[1], "steam://rungameid/440");
 }
+
+namespace {
+
+// A fresh, empty directory of its own for a test that counts what it finds.
+fs::path freshDir(const std::string& name) {
+    const fs::path dir = fs::temp_directory_path() / "omnios-steam-test" / name;
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    return dir;
+}
+
+void writeFile(const fs::path& file, const std::string& body) {
+    fs::create_directories(file.parent_path());
+    std::ofstream out(file, std::ios::binary | std::ios::trunc);
+    out << body;
+}
+
+std::string manifest(const std::string& appId, const std::string& name,
+                     const std::string& stateFlags = "4") {
+    return "\"AppState\"\n{\n\t\"appid\"\t\t\"" + appId + "\"\n\t\"name\"\t\t\"" + name +
+           "\"\n\t\"StateFlags\"\t\t\"" + stateFlags + "\"\n}\n";
+}
+
+}  // namespace
+
+TEST("steam: Proton, the runtimes and the redistributables are not games") {
+    // Each of these lands in steamapps with a manifest like any game the first
+    // time a Windows game is installed. Tiles for them would start nothing.
+    const fs::path dir = freshDir("tools");
+    writeFile(dir / "appmanifest_1493710.acf", manifest("1493710", "Proton Experimental"));
+    writeFile(dir / "appmanifest_2805730.acf", manifest("2805730", "Proton 9.0"));
+    writeFile(dir / "appmanifest_1628350.acf", manifest("1628350", "Steam Linux Runtime 3.0 (sniper)"));
+    writeFile(dir / "appmanifest_228980.acf", manifest("228980", "Steamworks Common Redistributables"));
+    writeFile(dir / "appmanifest_570.acf", manifest("570", "Dota 2"));
+
+    const std::vector<Game> games = readSteamLibrary(dir);
+    CHECK_EQ(games.size(), std::size_t{1});
+    CHECK_EQ(games.at(0).title, "Dota 2");
+}
+
+TEST("steam: a game still downloading has no tile until it finishes") {
+    // 1026 is what Steam writes while a first download runs; 4 is installed;
+    // 6 is installed with an update waiting, which still plays.
+    const fs::path dir = freshDir("state");
+    Game game;
+    writeFile(dir / "appmanifest_1.acf", manifest("1", "Downloading", "1026"));
+    CHECK(!readSteamManifest(dir / "appmanifest_1.acf", game));
+    writeFile(dir / "appmanifest_2.acf", manifest("2", "Installed", "4"));
+    CHECK(readSteamManifest(dir / "appmanifest_2.acf", game));
+    writeFile(dir / "appmanifest_3.acf", manifest("3", "Update waiting", "6"));
+    CHECK(readSteamManifest(dir / "appmanifest_3.acf", game));
+}
+
+TEST("steam: an app id that is not a number is not Steam's") {
+    // It would otherwise become part of a cover path and a steam:// URL.
+    const fs::path dir = freshDir("badid");
+    writeFile(dir / "appmanifest_x.acf", manifest("../../etc", "Odd"));
+    Game game;
+    CHECK(!readSteamManifest(dir / "appmanifest_x.acf", game));
+}
+
+TEST("steam: libraryfolders.vdf lists the other libraries") {
+    // A second drive is the usual reason for one: the games there are no less
+    // installed for not being under ~/Games.
+    const fs::path dir = freshDir("folders");
+    writeFile(dir / "libraryfolders.vdf",
+              "\"libraryfolders\"\n{\n"
+              "\t\"0\"\n\t{\n\t\t\"path\"\t\t\"/home/me/.local/share/Steam\"\n"
+              "\t\t\"label\"\t\t\"\"\n\t\t\"apps\"\n\t\t{\n\t\t\t\"570\"\t\t\"123\"\n\t\t}\n\t}\n"
+              "\t\"1\"\n\t{\n\t\t\"path\"\t\t\"/mnt/games/SteamLibrary\"\n\t}\n"
+              "}\n");
+    const std::vector<fs::path> libraries = steamLibraryFolders(dir / "libraryfolders.vdf");
+    CHECK_EQ(libraries.size(), std::size_t{2});
+    CHECK(libraries.at(0) == fs::path("/home/me/.local/share/Steam") / "steamapps");
+    CHECK(libraries.at(1) == fs::path("/mnt/games/SteamLibrary") / "steamapps");
+    CHECK(steamLibraryFolders(dir / "missing.vdf").empty());
+}
+
+TEST("steam: the cover comes from Steam's library cache, in any of its layouts") {
+    const fs::path client = freshDir("client");
+    const fs::path cache = client / "appcache" / "librarycache";
+
+    writeFile(cache / "10" / "library_600x900.jpg", "jpg");            // today's
+    writeFile(cache / "20" / "0a1b2c" / "library_600x900.jpg", "jpg"); // hashed
+    writeFile(cache / "30_library_600x900.jpg", "jpg");                // before 2024
+    writeFile(cache / "40" / "header.jpg", "jpg");                     // wide only
+    writeFile(cache / "50" / "header.jpg", "jpg");
+    writeFile(cache / "50" / "library_600x900.jpg", "jpg");
+
+    CHECK(steamCover(client, "10") == cache / "10" / "library_600x900.jpg");
+    CHECK(steamCover(client, "20") == cache / "20" / "0a1b2c" / "library_600x900.jpg");
+    CHECK(steamCover(client, "30") == cache / "30_library_600x900.jpg");
+    CHECK(steamCover(client, "40") == cache / "40" / "header.jpg");
+    // The tall capsule is the tile's shape, so it wins over the header.
+    CHECK(steamCover(client, "50") == cache / "50" / "library_600x900.jpg");
+    CHECK(steamCover(client, "60").empty());
+    CHECK(steamCover(client, "..").empty());
+}
+
+TEST("steam: the library stamp follows the tiles, not every write") {
+    // Steam rewrites a manifest every few seconds during a download. Following
+    // those would rescan, and reset the grid, the whole time.
+    const fs::path dir = freshDir("stamp");
+    writeFile(dir / "appmanifest_570.acf", manifest("570", "Dota 2"));
+    const std::string before = steamLibraryStamp({dir});
+
+    writeFile(dir / "appmanifest_730.acf", manifest("730", "Counter-Strike 2", "1026"));
+    CHECK_EQ(steamLibraryStamp({dir}), before);
+
+    writeFile(dir / "appmanifest_730.acf", manifest("730", "Counter-Strike 2", "4"));
+    const std::string installed = steamLibraryStamp({dir});
+    CHECK(installed != before);
+
+    fs::remove(dir / "appmanifest_730.acf");
+    CHECK_EQ(steamLibraryStamp({dir}), before);
+}

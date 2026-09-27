@@ -159,6 +159,12 @@ GameScanner::GameScanner() : root_(gamesDir()) {}
 
 GameScanner::GameScanner(fs::path gamesRoot) : root_(std::move(gamesRoot)) {}
 
+std::vector<fs::path> GameScanner::steamLibraries() const {
+    std::vector<fs::path> libraries{root_ / "steam"};
+    for (fs::path& library : defaultSteamLibraries()) libraries.push_back(std::move(library));
+    return libraries;
+}
+
 bool GameScanner::identify(const fs::path& path, Platform folderHint, Game& game,
                            std::string& reason) const {
     reason.clear();
@@ -286,16 +292,17 @@ ScanReport GameScanner::scan(GameLibrary& library) const {
     // The default locations are read too, so a library that already existed
     // before OmniOS pointed Steam at ~/Games is not invisible.
     {
-        std::vector<fs::path> steamRoots{root_ / "steam"};
-        for (const fs::path& fallback : defaultSteamLibraries())
-            steamRoots.push_back(fallback);
-
-        for (const fs::path& steamapps : steamRoots) {
+        for (const fs::path& steamapps : steamLibraries()) {
             for (Game& game : readSteamLibrary(steamapps)) {
                 // A library reachable by two paths — ~/Games/steam being a
                 // symlink to the real one is exactly how this is set up — must
                 // not produce the game twice.
                 if (seen.count(game.id) != 0) continue;
+
+                // Steam's own cover, as its library shows it, whenever the
+                // client has cached one; read afresh each scan, since Steam
+                // fetches the art after the game is already listed.
+                game.coverPath = steamCover(game.launchId);
 
                 if (const Game* cached = library.find(game.id); cached != nullptr) {
                     if (game.coverPath.empty()) game.coverPath = cached->coverPath;

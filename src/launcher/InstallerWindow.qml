@@ -1,7 +1,7 @@
 // "Install OmniOS" — the screen in front of omni-install (Phase 13.2).
 //
-// One screen per step: choose a disk, make the account, pick the time zone,
-// confirm, watch, restart. It
+// One screen per step: choose a disk, the language and keyboard, make the account,
+// pick the time zone, confirm, watch, restart. It
 // runs from the same binary as the launcher (omni-launcher-qml --install) so
 // it has the same look and the same controller support: on a console the
 // person installing may well be holding a gamepad, not a mouse.
@@ -38,8 +38,8 @@ Window {
 
     // The disk picked from the list: { path, model, size, transport, contents }.
     property var chosen: null
-    // Where the steps before the install have got to: "choose", "account",
-    // "timezone" or "confirm".
+    // Where the steps before the install have got to: "choose", "language",
+    // "account", "timezone" or "confirm".
     property string step: "choose"
 
     // The account, as the account screen leaves it. skipAccount keeps the live
@@ -50,6 +50,12 @@ Window {
     property bool hostnameEdited: false
     property string accountProblem: ""
     property string timezone: "UTC"
+    // The installed system's language, and its keyboard layout (an xkb id).
+    // The layout starts as whatever the live session has.
+    property string language: "en_US.UTF-8"
+    property string keyboard: Installer.currentKeyboard
+    // Chosen by hand, after which picking a language stops suggesting one.
+    property bool keyboardPicked: false
 
     // The chosen disk holds files or an operating system, so erasing it has
     // to be typed for; and whether it has been.
@@ -91,6 +97,12 @@ Window {
         if (page === "choose") {
             if (diskList.count > 0) diskList.forceActiveFocus()
             else closeButton.forceActiveFocus()
+        } else if (page === "language") {
+            languageSearch.text = ""
+            keyboardSearch.text = ""
+            languageList.showChosen()
+            keyboardList.showChosen()
+            languageList.forceActiveFocus()
         } else if (page === "account") {
             nameField.input.forceActiveFocus()
         } else if (page === "timezone") {
@@ -451,9 +463,9 @@ Window {
                     ActionButton {
                         id: accountBack
                         text: qsTr("Back")
-                        onActivated: window.step = "choose"
+                        onActivated: window.step = "language"
                         KeyNavigation.right: accountSkip
-                        Keys.onEscapePressed: window.step = "choose"
+                        Keys.onEscapePressed: window.step = "language"
                     }
                     ActionButton {
                         id: accountSkip
@@ -465,7 +477,7 @@ Window {
                         }
                         KeyNavigation.left: accountBack
                         KeyNavigation.right: accountNext
-                        Keys.onEscapePressed: window.step = "choose"
+                        Keys.onEscapePressed: window.step = "language"
                     }
                     ActionButton {
                         id: accountNext
@@ -473,7 +485,7 @@ Window {
                         onActivated: window.acceptAccount()
                         KeyNavigation.left: accountSkip
                         KeyNavigation.up: autologinSwitch
-                        Keys.onEscapePressed: window.step = "choose"
+                        Keys.onEscapePressed: window.step = "language"
                     }
                 }
 
@@ -495,7 +507,140 @@ Window {
                 // Enter on any field is Next, as on any form.
                 Keys.onReturnPressed: window.acceptAccount()
                 Keys.onEnterPressed: window.acceptAccount()
+                Keys.onEscapePressed: window.step = "language"
+            }
+
+            // ---- 1b. language and keyboard -----------------------------------
+            // Before the account, because of the keyboard: the layout applies
+            // at once, so the password typed on the next page is typed as it
+            // will be at every sign-in afterwards.
+            Item {
+                id: languagePage
+                anchors.fill: parent
+                visible: window.page === "language"
                 Keys.onEscapePressed: window.step = "choose"
+
+                readonly property var languages: window.filtered(Installer.languages, languageSearch.text,
+                                                                 ["name", "english", "id"])
+                readonly property var keyboards: window.filtered(Installer.keyboards, keyboardSearch.text,
+                                                                 ["name", "id"])
+
+                Heading {
+                    id: languageHeading
+                    title: qsTr("Language and keyboard")
+                    subtitle: qsTr("The language OmniOS and its apps use, and the keyboard you type on. The keyboard changes now, so the password you choose next types the same once OmniOS is installed.")
+                }
+
+                Item {
+                    id: languageColumn
+                    anchors {
+                        top: languageHeading.bottom; topMargin: 20
+                        left: parent.left; bottom: languageButtons.top; bottomMargin: 20
+                    }
+                    width: (parent.width - 28) / 2
+
+                    Field {
+                        id: languageSearch
+                        keyboard: fieldKeyboard
+                        width: parent.width
+                        label: qsTr("Search languages")
+                        onEdited: languageList.currentIndex = 0
+                        downTo: languageList
+                        tabTo: keyboardSearch.input
+                        onSubmitted: languageList.forceActiveFocus()
+                    }
+                    ChoiceList {
+                        id: languageList
+                        anchors {
+                            top: languageSearch.bottom; topMargin: 12
+                            left: parent.left; right: parent.right; bottom: parent.bottom
+                        }
+                        model: languagePage.languages
+                        chosen: window.language
+                        detailRole: "english"
+                        search: languageSearch
+                        empty: qsTr("No language matches \"%1\"").arg(languageSearch.text)
+                        onPicked: window.pickLanguage()
+                        onRightWanted: keyboardList.forceActiveFocus()
+                        onDownWanted: languageNext.forceActiveFocus()
+                        onBackWanted: window.step = "choose"
+                    }
+                }
+
+                Item {
+                    id: keyboardColumn
+                    anchors {
+                        top: languageHeading.bottom; topMargin: 20
+                        right: parent.right; bottom: languageButtons.top; bottomMargin: 20
+                    }
+                    width: (parent.width - 28) / 2
+
+                    Field {
+                        id: keyboardSearch
+                        keyboard: fieldKeyboard
+                        width: parent.width
+                        label: qsTr("Search keyboards")
+                        onEdited: keyboardList.currentIndex = 0
+                        downTo: keyboardList
+                        tabTo: keyboardList
+                        onSubmitted: keyboardList.forceActiveFocus()
+                    }
+                    ChoiceList {
+                        id: keyboardList
+                        anchors {
+                            top: keyboardSearch.bottom; topMargin: 12
+                            left: parent.left; right: parent.right; bottom: parent.bottom
+                        }
+                        model: languagePage.keyboards
+                        chosen: window.keyboard
+                        detailRole: "id"
+                        search: keyboardSearch
+                        empty: qsTr("No keyboard matches \"%1\"").arg(keyboardSearch.text)
+                        onPicked: window.pickKeyboard()
+                        onLeftWanted: languageList.forceActiveFocus()
+                        onDownWanted: languageNext.forceActiveFocus()
+                        onBackWanted: window.step = "choose"
+                    }
+                }
+
+                // A layout without Latin letters comes second, and says so:
+                // otherwise the next page's username could not be typed.
+                Text {
+                    anchors {
+                        left: parent.left; right: languageButtons.left; rightMargin: 24
+                        verticalCenter: languageButtons.verticalCenter
+                    }
+                    wrapMode: Text.WordWrap
+                    color: Theme.textSecondary
+                    font.pixelSize: 13
+                    text: Installer.isLatinKeyboard(window.keyboard)
+                          ? qsTr("%1  ·  %2").arg(window.languageName(window.language))
+                                              .arg(window.keyboardName(window.keyboard))
+                          : qsTr("%1 comes after English (US), which usernames are typed in. Meta+Alt+K switches between them.")
+                                .arg(window.keyboardName(window.keyboard))
+                }
+
+                Row {
+                    id: languageButtons
+                    anchors { right: parent.right; bottom: parent.bottom }
+                    spacing: 14
+                    ActionButton {
+                        id: languageBack
+                        text: qsTr("Back")
+                        onActivated: window.step = "choose"
+                        KeyNavigation.right: languageNext
+                        KeyNavigation.up: languageList
+                        Keys.onEscapePressed: window.step = "choose"
+                    }
+                    ActionButton {
+                        id: languageNext
+                        text: qsTr("Next")
+                        onActivated: window.step = "account"
+                        KeyNavigation.left: languageBack
+                        KeyNavigation.up: keyboardList
+                        Keys.onEscapePressed: window.step = "choose"
+                    }
+                }
             }
 
             // ---- 3. time zone ------------------------------------------------
@@ -729,6 +874,15 @@ Window {
                         font.pixelSize: 15
                         text: qsTr("Time zone:  %1").arg(window.timezone)
                     }
+                    Text {
+                        color: Theme.textSecondary
+                        font.pixelSize: 15
+                        width: parent.width
+                        elide: Text.ElideRight
+                        text: qsTr("Language:  %1   ·   Keyboard:  %2")
+                                  .arg(window.languageName(window.language))
+                                  .arg(window.keyboardName(window.keyboard))
+                    }
                 }
 
                 // Anything on the disk has to be typed for. A blank disk skips
@@ -902,7 +1056,7 @@ Window {
         // A word typed for one disk does not carry over to another.
         if (!chosen || chosen.path !== disk.path) eraseField.text = ""
         chosen = disk
-        step = "account"
+        step = "language"
     }
 
     function validHostname(name) {
@@ -952,7 +1106,8 @@ Window {
     }
 
     function account() {
-        if (skipAccount) return { skip: true, timezone: timezone, eraseConfirmed: eraseAllowed }
+        if (skipAccount) return { skip: true, timezone: timezone, language: language,
+                                  keyboard: keyboard, eraseConfirmed: eraseAllowed }
         return {
             skip: false,
             eraseConfirmed: eraseAllowed,
@@ -961,8 +1116,57 @@ Window {
             password: passwordField.text,
             hostname: hostnameField.text,
             autologin: autologinSwitch.checked,
-            timezone: timezone
+            timezone: timezone,
+            language: language,
+            keyboard: keyboard
         }
+    }
+
+    // Entries of a list whose fields (keys) contain what was typed.
+    function filtered(all, text, keys) {
+        var q = text.trim().toLowerCase()
+        if (q === "") return all
+        return all.filter(function (entry) {
+            return keys.some(function (k) { return String(entry[k]).toLowerCase().indexOf(q) >= 0 })
+        })
+    }
+
+    function nameIn(list, id) {
+        for (var i = 0; i < list.length; ++i) if (list[i].id === id) return list[i].name
+        return id
+    }
+    function languageName(id) { return nameIn(Installer.languages, id) }
+    function keyboardName(id) { return nameIn(Installer.keyboards, id) }
+
+    // A picks a language and goes on to the keyboards, landing on the layout
+    // that language suggests — unless a layout was already picked by hand.
+    function pickLanguage() {
+        var entry = languagePage.languages[languageList.currentIndex]
+        if (!entry) return
+        language = entry.id
+        if (!keyboardPicked) {
+            var suggested = Installer.suggestKeyboard(entry.id)
+            if (suggested !== "" && suggested !== keyboard
+                    && keyboardName(suggested) !== suggested) setKeyboard(suggested)
+        }
+        keyboardSearch.text = ""
+        keyboardList.showChosen()
+        keyboardList.forceActiveFocus()
+    }
+
+    // A picks a layout, which the live session switches to at once, and goes
+    // on to Next.
+    function pickKeyboard() {
+        var entry = languagePage.keyboards[keyboardList.currentIndex]
+        if (!entry) return
+        keyboardPicked = true
+        setKeyboard(entry.id)
+        languageNext.forceActiveFocus()
+    }
+
+    function setKeyboard(id) {
+        keyboard = id
+        Installer.applyKeyboard(id)
     }
 
     // Enter on a zone picks it; Enter on the one already picked moves on.

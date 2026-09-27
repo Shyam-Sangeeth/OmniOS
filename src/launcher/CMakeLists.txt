@@ -38,6 +38,7 @@ qt_add_qml_module(omni-launcher
         Field.qml
         OnScreenKeyboard.qml
         FieldKeyboard.qml
+        ChoiceList.qml
         PromptPanel.qml
     SOURCES
         GameListModel.h

@@ -3,7 +3,12 @@
 #include "KeyDelivery.h"
 
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QHash>
+#include <QLocale>
 #include <QRegularExpression>
+#include <QSet>
 #include <QTimeZone>
 #include <QVariantMap>
 
@@ -145,6 +150,187 @@ QVariantList InstallerController::timeZones() const {
     return zones;
 }
 
+namespace {
+
+// glibc's list of the locales it can generate, one "name charset" per line.
+const QString kSupportedLocales = QStringLiteral("/usr/share/i18n/SUPPORTED");
+// xkeyboard-config's list of layouts, the one every keyboard settings page
+// reads. The layouts are the "! layout" section: "  de   German".
+const QString kXkbLayouts = QStringLiteral("/usr/share/X11/xkb/rules/evdev.lst");
+
+// Layouts whose letters are not Latin. Not in xkeyboard-config's data in any
+// form a program can read, so kept here; a layout missing from it is taken as
+// Latin, which is what most of the list is.
+const QSet<QString> kNonLatinLayouts = {
+    QStringLiteral("am"), QStringLiteral("af"), QStringLiteral("ara"), QStringLiteral("bd"),
+    QStringLiteral("bg"), QStringLiteral("bt"), QStringLiteral("by"), QStringLiteral("et"),
+    QStringLiteral("ge"), QStringLiteral("gr"), QStringLiteral("il"), QStringLiteral("in"),
+    QStringLiteral("iq"), QStringLiteral("ir"), QStringLiteral("kg"), QStringLiteral("kh"),
+    QStringLiteral("kz"), QStringLiteral("la"), QStringLiteral("lk"), QStringLiteral("ma"),
+    QStringLiteral("mk"), QStringLiteral("mm"), QStringLiteral("mn"), QStringLiteral("mv"),
+    QStringLiteral("np"), QStringLiteral("pk"), QStringLiteral("rs"), QStringLiteral("ru"),
+    QStringLiteral("sy"), QStringLiteral("th"), QStringLiteral("tj"), QStringLiteral("ua")};
+
+}  // namespace
+
+QVariantList InstallerController::languages() const {
+    QVariantList out;
+    QFile file(kSupportedLocales);
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QSet<QString> seen;
+        while (!file.atEnd()) {
+            const QStringList parts =
+                QString::fromUtf8(file.readLine()).simplified().split(QLatin1Char(' '));
+            // UTF-8 only: nothing else should be a new system's language. And
+            // no @modifier variants (sr_RS@latin, ca_ES@valencia), which Qt
+            // cannot name and which are rare enough to leave to Settings.
+            if (parts.size() != 2 || parts.at(1) != QLatin1String("UTF-8")) continue;
+            const QString id = parts.at(0);
+            if (!id.endsWith(QLatin1String(".UTF-8")) || id.contains(QLatin1Char('@'))) continue;
+            const QString code = id.left(id.size() - 6);
+            const QLocale locale(code);
+            // A code Qt does not know comes back as some other locale; it
+            // could not be named, so it is left out rather than mislabelled.
+            if (locale.language() == QLocale::C || locale.name() != code) continue;
+            if (seen.contains(id)) continue;
+            seen.insert(id);
+
+            QVariantMap entry;
+            entry.insert(QStringLiteral("id"), id);
+            entry.insert(QStringLiteral("name"),
+                         QStringLiteral("%1 (%2)").arg(locale.nativeLanguageName(),
+                                                       locale.nativeTerritoryName()));
+            entry.insert(QStringLiteral("english"),
+                         QStringLiteral("%1 (%2)").arg(QLocale::languageToString(locale.language()),
+                                                       QLocale::territoryToString(locale.territory())));
+            out.append(entry);
+        }
+    }
+    if (out.isEmpty()) {
+        // No glibc data (a development machine): the live image's own.
+        QVariantMap entry;
+        entry.insert(QStringLiteral("id"), QStringLiteral("en_US.UTF-8"));
+        entry.insert(QStringLiteral("name"), QStringLiteral("English (United States)"));
+        entry.insert(QStringLiteral("english"), QStringLiteral("English (United States)"));
+        out.append(entry);
+    }
+    // By the name each language has for itself, which is the one its speakers
+    // look for: Deutsch under D, not German under G.
+    std::sort(out.begin(), out.end(), [](const QVariant& a, const QVariant& b) {
+        return a.toMap().value(QStringLiteral("name")).toString().localeAwareCompare(
+                   b.toMap().value(QStringLiteral("name")).toString()) < 0;
+    });
+    return out;
+}
+
+QVariantList InstallerController::keyboards() const {
+    QVariantList out;
+    QFile file(kXkbLayouts);
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        bool inLayouts = false;
+        while (!file.atEnd()) {
+            const QString line = QString::fromUtf8(file.readLine()).trimmed();
+            if (line.startsWith(QLatin1Char('!'))) {
+                inLayouts = line == QLatin1String("! layout");
+                continue;
+            }
+            if (!inLayouts || line.isEmpty()) continue;
+            const int space = line.indexOf(QLatin1Char(' '));
+            if (space <= 0) continue;
+            QVariantMap entry;
+            entry.insert(QStringLiteral("id"), line.left(space));
+            entry.insert(QStringLiteral("name"), line.mid(space).trimmed());
+            out.append(entry);
+        }
+    }
+    if (out.isEmpty()) {
+        QVariantMap entry;
+        entry.insert(QStringLiteral("id"), QStringLiteral("us"));
+        entry.insert(QStringLiteral("name"), QStringLiteral("English (US)"));
+        out.append(entry);
+    }
+    std::sort(out.begin(), out.end(), [](const QVariant& a, const QVariant& b) {
+        return a.toMap().value(QStringLiteral("name")).toString().localeAwareCompare(
+                   b.toMap().value(QStringLiteral("name")).toString()) < 0;
+    });
+    return out;
+}
+
+QString InstallerController::currentKeyboard() const {
+    // KDE's own record of it. "us,ru" is how this installer writes a
+    // non-Latin choice, so the layout that was chosen is the last one.
+    QFile file(QDir::homePath() + QStringLiteral("/.config/kxkbrc"));
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        while (!file.atEnd()) {
+            const QString line = QString::fromUtf8(file.readLine()).trimmed();
+            if (!line.startsWith(QLatin1String("LayoutList="))) continue;
+            const QStringList layouts =
+                line.mid(11).split(QLatin1Char(','), Qt::SkipEmptyParts);
+            if (!layouts.isEmpty()) return layouts.last().trimmed();
+        }
+    }
+    return QStringLiteral("us");
+}
+
+QString InstallerController::suggestKeyboard(const QString& language) const {
+    // By whole locale where the country decides it, then by language.
+    static const QHash<QString, QString> kByLocale = {
+        {QStringLiteral("en_GB"), QStringLiteral("gb")}, {QStringLiteral("en_IE"), QStringLiteral("ie")},
+        {QStringLiteral("de_CH"), QStringLiteral("ch")}, {QStringLiteral("de_AT"), QStringLiteral("at")},
+        {QStringLiteral("fr_CH"), QStringLiteral("ch")}, {QStringLiteral("fr_BE"), QStringLiteral("be")},
+        {QStringLiteral("fr_CA"), QStringLiteral("ca")}, {QStringLiteral("nl_BE"), QStringLiteral("be")},
+        {QStringLiteral("es_ES"), QStringLiteral("es")}, {QStringLiteral("pt_BR"), QStringLiteral("br")},
+        {QStringLiteral("pt_PT"), QStringLiteral("pt")}, {QStringLiteral("it_CH"), QStringLiteral("ch")}};
+    static const QHash<QString, QString> kByLanguage = {
+        {QStringLiteral("en"), QStringLiteral("us")}, {QStringLiteral("de"), QStringLiteral("de")},
+        {QStringLiteral("fr"), QStringLiteral("fr")}, {QStringLiteral("es"), QStringLiteral("latam")},
+        {QStringLiteral("it"), QStringLiteral("it")}, {QStringLiteral("nl"), QStringLiteral("us")},
+        {QStringLiteral("sv"), QStringLiteral("se")}, {QStringLiteral("nb"), QStringLiteral("no")},
+        {QStringLiteral("nn"), QStringLiteral("no")}, {QStringLiteral("da"), QStringLiteral("dk")},
+        {QStringLiteral("fi"), QStringLiteral("fi")}, {QStringLiteral("pl"), QStringLiteral("pl")},
+        {QStringLiteral("cs"), QStringLiteral("cz")}, {QStringLiteral("sk"), QStringLiteral("sk")},
+        {QStringLiteral("hu"), QStringLiteral("hu")}, {QStringLiteral("tr"), QStringLiteral("tr")},
+        {QStringLiteral("is"), QStringLiteral("is")}, {QStringLiteral("et"), QStringLiteral("ee")},
+        {QStringLiteral("lv"), QStringLiteral("lv")}, {QStringLiteral("lt"), QStringLiteral("lt")},
+        {QStringLiteral("sl"), QStringLiteral("si")}, {QStringLiteral("hr"), QStringLiteral("hr")},
+        {QStringLiteral("ro"), QStringLiteral("ro")}, {QStringLiteral("pt"), QStringLiteral("pt")}};
+
+    const QString code = language.section(QLatin1Char('.'), 0, 0);
+    if (const auto it = kByLocale.constFind(code); it != kByLocale.constEnd()) return it.value();
+    const QString lang = code.section(QLatin1Char('_'), 0, 0);
+    if (const auto it = kByLanguage.constFind(lang); it != kByLanguage.constEnd()) return it.value();
+    return {};
+}
+
+bool InstallerController::isLatinKeyboard(const QString& layout) const {
+    return !kNonLatinLayouts.contains(layout);
+}
+
+QString InstallerController::keyboardLayouts(const QString& layout) const {
+    if (layout.isEmpty() || layout == QLatin1String("us")) return QStringLiteral("us");
+    return isLatinKeyboard(layout) ? layout : QStringLiteral("us,") + layout;
+}
+
+void InstallerController::applyKeyboard(const QString& layout) {
+    static const QRegularExpression kLayoutId(QStringLiteral("^[a-z]{2,8}$"));
+    if (!kLayoutId.match(layout).hasMatch()) return;
+    // KWin keeps the layout in kxkbrc and watches it through KConfig's change
+    // notifications, which --notify sends. The old D-Bus signal for this,
+    // /Layouts org.kde.keyboard reloadConfig, is still in guides but KWin 6.7
+    // no longer listens for it: sent on the VM, the layout stayed US.
+    // A notification only goes out for a value that changed, which it does
+    // here — this is the only thing that writes the live session's layout.
+    const auto write = [](const QString& key, const QString& value) {
+        QProcess::execute(QStringLiteral("kwriteconfig6"),
+                          {QStringLiteral("--notify"),
+                           QStringLiteral("--file"), QStringLiteral("kxkbrc"),
+                           QStringLiteral("--group"), QStringLiteral("Layout"),
+                           QStringLiteral("--key"), key, value});
+    };
+    write(QStringLiteral("Use"), QStringLiteral("true"));
+    write(QStringLiteral("LayoutList"), keyboardLayouts(layout));
+}
+
 QString InstallerController::usernameProblem(const QString& name) const {
     if (name.isEmpty()) return tr("Choose a username");
     static const QRegularExpression kValid(QStringLiteral("^[a-z_][a-z0-9_-]{0,31}$"));
@@ -262,6 +448,10 @@ void InstallerController::install(const QString& path, const QVariantMap& accoun
     if (!hostname.isEmpty()) args << QStringLiteral("--hostname") << hostname;
     const QString zone = account.value(QStringLiteral("timezone")).toString();
     if (!zone.isEmpty()) args << QStringLiteral("--timezone") << zone;
+    const QString language = account.value(QStringLiteral("language")).toString();
+    if (!language.isEmpty()) args << QStringLiteral("--locale") << language;
+    const QString keyboard = account.value(QStringLiteral("keyboard")).toString();
+    if (!keyboard.isEmpty()) args << QStringLiteral("--keyboard") << keyboardLayouts(keyboard);
 
     installing_->start(kSudo, args);
     // The password goes down stdin, never into args: every process on the

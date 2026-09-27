@@ -37,4 +37,12 @@ esac
 export LIBSEAT_BACKEND=logind
 export QT_QPA_PLATFORM=wayland
 
+# The keyboard layout chosen in the installer, which wrote it where localectl
+# keeps it. cage takes its layout from the environment; without this a German
+# keyboard would type a German password as though it were a US one here, and
+# only here.
+layout="$(sed -n 's/.*Option *"XkbLayout" *"\([^"]*\)".*/\1/p' \
+              /etc/X11/xorg.conf.d/00-keyboard.conf 2>/dev/null | head -n 1)"
+[ -n "$layout" ] && export XKB_DEFAULT_LAYOUT="$layout"
+
 exec cage -s -d -- omni-launcher-qml --greeter

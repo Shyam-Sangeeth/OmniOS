@@ -22,6 +22,10 @@
 #                            signing in by itself
 #       --hostname NAME      the computer's name (default: omnios)
 #       --timezone ZONE      e.g. Asia/Kolkata (default: UTC)
+#       --locale LOCALE      the system's language, e.g. de_DE.UTF-8
+#                            (default: en_US.UTF-8)
+#       --keyboard LAYOUTS   keyboard layouts, comma-separated, first one
+#                            used at start, e.g. de or us,ru (default: us)
 #       --erase-os NAME      required when the disk holds an operating system,
 #                            and it has to name the one --list found there:
 #                            a caller cannot erase Windows without having been
@@ -73,6 +77,8 @@ HAVE_PASSWORD=0
 AUTOLOGIN=1
 HOST_NAME=omnios
 TIME_ZONE=UTC
+LOCALE=en_US.UTF-8
+KEYBOARD=us
 ERASE_OS=""
 
 # ---- output -------------------------------------------------------------------
@@ -366,6 +372,31 @@ PRESET
     echo "$HOST_NAME" > "$ROOT/etc/hostname"
     ln -sfn "/usr/share/zoneinfo/$TIME_ZONE" "$ROOT/etc/localtime"
 
+    # ---- language and keyboard -------------------------------------------
+    # The image generates en_US alone. Another language is generated here,
+    # beside it rather than instead: plenty of scripts and tools assume en_US
+    # exists.
+    if [[ $LOCALE != en_US.UTF-8 ]]; then
+        echo "$LOCALE UTF-8" >> "$ROOT/etc/locale.gen"
+        arch-chroot "$ROOT" locale-gen
+    fi
+    echo "LANG=$LOCALE" > "$ROOT/etc/locale.conf"
+
+    # Three places a layout lives. The console's, which mkinitcpio's keymap
+    # hook also bakes into the startup image; X11's, which is where localectl
+    # and the sign-in screen (omni-greeter) read it; and KDE's, for the
+    # account below.
+    sed -i "s/^KEYMAP=.*/KEYMAP=$(console_keymap "${KEYBOARD%%,*}")/" "$ROOT/etc/vconsole.conf"
+    install -d "$ROOT/etc/X11/xorg.conf.d"
+    cat > "$ROOT/etc/X11/xorg.conf.d/00-keyboard.conf" <<KEYBOARD
+# Written by omni-install, in the form localectl writes.
+Section "InputClass"
+        Identifier "system-keyboard"
+        MatchIsKeyboard "on"
+        Option "XkbLayout" "$KEYBOARD"
+EndSection
+KEYBOARD
+
     local dropin="$ROOT/etc/systemd/system/getty@tty1.service.d/autologin.conf"
     if (( AUTOLOGIN )); then
         sed -i "s/--autologin $LIVE_USER /--autologin $USER_NAME /" "$dropin"
@@ -407,6 +438,9 @@ GREETD
     # once, here, and the rule goes.
     install -d -m 0755 "$ROOT/home/$USER_NAME"
     cp -a "$ROOT/etc/skel/." "$ROOT/home/$USER_NAME/"
+    # Plasma reads the layout from here, not from the system's setting.
+    install -d "$ROOT/home/$USER_NAME/.config"
+    printf '[Layout]\nLayoutList=%s\nUse=true\n' "$KEYBOARD" > "$ROOT/home/$USER_NAME/.config/kxkbrc"
     chown -R "$USER_ID:$USER_ID" "$ROOT/home/$USER_NAME"
     rm -f "$ROOT/etc/tmpfiles.d/omnios-home.conf"
 
@@ -573,6 +607,36 @@ validate_account() {
     if (( ! AUTOLOGIN && ! HAVE_PASSWORD )); then
         fail "signing in by password needs a password"
     fi
+    # One of the locales glibc can generate, spelled exactly as its list does.
+    if [[ ! $LOCALE =~ ^[A-Za-z_]+\.UTF-8$ ]] || ! grep -qxF "$LOCALE UTF-8" /usr/share/i18n/SUPPORTED; then
+        fail "\"$LOCALE\" is not a language this system can use"
+    fi
+    local layout layouts
+    IFS=, read -ra layouts <<<"$KEYBOARD"
+    (( ${#layouts[@]} >= 1 && ${#layouts[@]} <= 4 )) || fail "\"$KEYBOARD\" is not a keyboard layout"
+    for layout in "${layouts[@]}"; do
+        if [[ ! $layout =~ ^[a-z]{2,8}$ ]] || ! known_layout "$layout"; then
+            fail "\"$layout\" is not a keyboard layout"
+        fi
+    done
+}
+
+# Whether xkeyboard-config has this layout: its "! layout" section, one
+# "  id   Name" per line.
+known_layout() {
+    awk -v id="$1" '/^!/ { in_layouts = ($0 == "! layout"); next }
+                    in_layouts && $1 == id { found = 1; exit }
+                    END { exit !found }' /usr/share/X11/xkb/rules/evdev.lst
+}
+
+# The console's keymap for an X layout, from the table systemd-localed uses
+# for the same translation ("uk" for gb, "de" for de, ...). US where there is
+# none: the console is only ever a fallback, and US is what it had.
+console_keymap() {
+    local map
+    map="$(awk -v id="$1" '$1 !~ /^#/ && $2 == id && $4 == "-" { print $1; exit }' \
+           /usr/share/systemd/kbd-model-map 2>/dev/null)"
+    echo "${map:-us}"
 }
 
 install_to() {
@@ -626,7 +690,7 @@ install_to() {
 usage() {
     echo "usage: omni-install --list | --disk DEV --erase DEV [--user NAME] [--full-name TEXT]" >&2
     echo "         [--password-stdin] [--no-autologin] [--hostname NAME] [--timezone ZONE]" >&2
-    echo "         [--erase-os NAME]" >&2
+    echo "         [--locale LOCALE] [--keyboard LAYOUTS] [--erase-os NAME]" >&2
     exit 2
 }
 
@@ -640,6 +704,8 @@ while [[ $# -gt 0 ]]; do
         --full-name) [[ $# -ge 2 ]] || usage; FULL_NAME="$2"; shift 2 ;;
         --hostname) [[ $# -ge 2 ]] || usage; HOST_NAME="$2"; shift 2 ;;
         --timezone) [[ $# -ge 2 ]] || usage; TIME_ZONE="$2"; shift 2 ;;
+        --locale) [[ $# -ge 2 ]] || usage; LOCALE="$2"; shift 2 ;;
+        --keyboard) [[ $# -ge 2 ]] || usage; KEYBOARD="$2"; shift 2 ;;
         --erase-os) [[ $# -ge 2 ]] || usage; ERASE_OS="$2"; shift 2 ;;
         --no-autologin) AUTOLOGIN=0; shift ;;
         --password-stdin) password_stdin=1; shift ;;

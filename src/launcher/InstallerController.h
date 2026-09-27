@@ -43,6 +43,15 @@ class InstallerController : public QObject {
     // [{ id: "Asia/Kolkata", region: "Asia", city: "Kolkata", offset: "UTC+05:30" }, ...]
     Q_PROPERTY(QVariantList timeZones READ timeZones CONSTANT)
 
+    // The languages the installed system can be set to, from glibc's list of
+    // the locales it can generate: [{ id: "de_DE.UTF-8", name: "Deutsch
+    // (Deutschland)", english: "German (Germany)" }, ...], by their own names.
+    Q_PROPERTY(QVariantList languages READ languages CONSTANT)
+    // Keyboard layouts, from xkeyboard-config: [{ id: "de", name: "German" }, ...].
+    Q_PROPERTY(QVariantList keyboards READ keyboards CONSTANT)
+    // What the live session is using now, as a layout id; "us" by default.
+    Q_PROPERTY(QString currentKeyboard READ currentKeyboard CONSTANT)
+
 public:
     explicit InstallerController(QObject* parent = nullptr);
 
@@ -56,6 +65,25 @@ public:
     bool fullscreen() const;
     QString minimumSize() const { return QStringLiteral("24 GB"); }
     QVariantList timeZones() const;
+    QVariantList languages() const;
+    QVariantList keyboards() const;
+    QString currentKeyboard() const;
+
+    // The keyboard layout people who speak this language usually have, or
+    // empty to leave the choice alone. Only Latin-script layouts are ever
+    // suggested: a username has to be typed in Latin letters on the very next
+    // page, so a Cyrillic or Arabic layout is something to choose, not to be
+    // given.
+    Q_INVOKABLE QString suggestKeyboard(const QString& language) const;
+
+    // Whether a layout types Latin letters. Those that do not are installed
+    // behind US English (see keyboardLayouts).
+    Q_INVOKABLE bool isLatinKeyboard(const QString& layout) const;
+
+    // Switches the live session to this layout now, through KDE's own setting,
+    // so the password typed on the account page is typed as it will be on the
+    // installed system.
+    Q_INVOKABLE void applyKeyboard(const QString& layout);
 
     // Why a username cannot be used, or empty when it can. The same rules as
     // omni-install, asked here so the account screen can say so while the
@@ -73,7 +101,7 @@ public:
     // installs to another should fail here first.
     //
     // account: { skip, fullName, username, password, hostname, autologin,
-    // timezone, eraseConfirmed }. With skip set the installed account is the
+    // timezone, language, keyboard, eraseConfirmed }. With skip set the installed account is the
     // live image's. eraseConfirmed has to be true for a disk that holds
     // anything: the screen sets it only once "erase" has been typed.
     Q_INVOKABLE void install(const QString& path, const QVariantMap& account);
@@ -96,6 +124,11 @@ signals:
 private:
     void readProgress();
     void setError(const QString& text);
+
+    // The layouts to configure for a choice: the layout itself, or "us,<it>"
+    // for one that does not type Latin letters, so a username and password can
+    // still be typed and US English is where every session starts.
+    QString keyboardLayouts(const QString& layout) const;
 
     QVariantList disks_;
     bool listed_ = false;

@@ -23,8 +23,9 @@ README is what exists.
   still along the bottom: a Games tab built by scanning `~/Games` and Steam's
   library, an Apps tab, and full controller support. Switching modes is
   instant; *Switch to desktop* is in its menu.
-- **An installer** that puts OmniOS on a disk of its own: an account (or none,
-  for a controller-only console), a time zone, and a typed confirmation before
+- **An installer** that puts OmniOS on a disk of its own: a language and
+  keyboard layout, an account (or none, for a controller-only console), a time
+  zone, and a typed confirmation before
   it will erase anything that holds files or another operating system.
 - **A sign-in screen**, on installs where "sign in automatically" is off.
 - **A store** — Discover on the desktop, on Flathub. What it installs turns up
@@ -152,6 +153,24 @@ left alone. An operating system on it is named — Windows from its boot manager
 sourced) — and such disks are listed last and flagged. Erasing any disk that
 holds anything takes `erase` typed out; `omni-install` itself refuses a disk with
 an OS on it unless told which OS, so no caller can skip that.
+
+The language and keyboard come first, before the account, because of the
+keyboard. A layout picked there applies to the live session at once, so the
+password typed on the next page is typed the way it will be at every sign-in
+afterwards; chosen later, a German keyboard would type a US password with `y`
+and `z` swapped, and the new system would never accept it. KWin takes the change
+from `kxkbrc` through KConfig's change notification (`kwriteconfig6 --notify`);
+the `/Layouts` `reloadConfig` D-Bus signal most guides give is no longer
+listened to. Picking a language suggests a layout for it, but only a Latin one:
+a Cyrillic or Arabic layout is installed after US English, since usernames have
+to be typed in Latin letters, and Meta+Alt+K switches between them.
+
+`omni-install --locale de_DE.UTF-8 --keyboard de` then generates the locale
+beside en_US, writes `locale.conf`, the console keymap (translated through
+systemd's `kbd-model-map`), X11's keyboard file where `localectl` and the
+sign-in screen read it, and the account's `kxkbrc`, which is where Plasma does.
+Qt names each language in itself, so the list is sorted as its readers would
+look: Deutsch under D.
 
 The account step creates the user by renaming the live `omni` account, so its
 groups and permissions carry over. The password travels over stdin, never the
@@ -409,6 +428,21 @@ launched by id:
 The client has to be running for DRM, the overlay and cloud saves, so the route
 is through Steam even when the binary is easy to find.
 
+Not every manifest is a game. Steam installs Proton, the Steam Linux Runtimes
+and its Windows redistributables the same way, and a first download writes its
+manifest long before there is anything to play; none of those get a tile (the
+`StateFlags` "fully installed" bit decides the second). Libraries on other
+drives, listed in `libraryfolders.vdf`, are read too. Covers are the ones Steam
+already caches for its own library view, under `appcache/librarycache` — the
+tall capsule, or the wide header when that is all there is.
+
+Games are installed in Steam's window, not through the launcher, so the Games
+tab watches for the result: when the launcher comes back to the front, and every
+ten seconds while it is there, it compares the Steam games it would show — ids,
+titles, covers — with the last scan, and rescans on a difference. Comparing
+what a tile shows rather than file times matters: Steam rewrites a manifest
+every few seconds during a download, and a rescan resets the grid.
+
 ### Routing
 
 The engine table in [Router.cpp](src/omnios/Router.cpp) is data, deliberately.
@@ -490,7 +524,6 @@ the boot-os skill.
 - **Phase 6's `.opkg` installer** — extracting a package into `~/Games` with
   checksum verification — and **Phase 7.4 cover art**.
 - **System updates** (Phase 12).
-- **Language and keyboard layout** in the installer.
 - **Sleep on real hardware** is untested. In QEMU the system resumes, but the
   VM's own faults — its watchdog, its virtual GPU, its ACPI timer under WHPX —
   get in the way; Desktop Mode's sleep works there with the workarounds in the

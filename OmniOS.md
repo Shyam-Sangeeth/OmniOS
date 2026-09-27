@@ -743,7 +743,7 @@ Checklist:
 ```
 13.1  Build custom Arch ISO with all phases included (archiso tool)
 13.2  Installer (boots ISO → installs OmniOS, typed confirmation before erasing)
-13.3  First-run setup (account and time zone are in the installer; GPU driver, theme)
+13.3  First-run setup (language, keyboard, account and time zone are in the installer; GPU driver, theme)
 13.4  Test on real hardware
 13.5  Release OmniOS v0.1
 ```
@@ -763,13 +763,14 @@ Checklist:
 `omni-install` does the work; the installer screen (`omni-launcher-qml --install`, from the boot menu, the live desktop or Game Mode's menu) only starts it and shows its progress, so exactly one place decides which disks may be erased.
 
 ```
-Choose disk → Account → Time zone → Confirm → Installing → Done
+Choose disk → Language and keyboard → Account → Time zone → Confirm → Installing → Done
 ```
 
 - **Whole disk only.** It installs beside nothing and resizes nothing: GPT, a 1 GiB EFI system partition, ext4 for the rest. OmniOS goes on its own disk, picked from the firmware's boot menu.
 - **What is installed is what was tried:** the live squashfs, unpacked onto the disk, then configured for that machine.
 - **Both boot loaders** — systemd-boot for UEFI, extlinux for BIOS — so the disk starts in either kind of machine.
 - **Disk safety.** Every disk is inspected read-only before it is offered. An OS on it is named (Windows, or a Linux system from its `os-release`) and such disks are listed last and flagged. Erasing a disk that holds anything takes `erase` typed out, and `omni-install` itself refuses a disk with an OS on it unless told which OS.
+- **Language and keyboard.** Any UTF-8 locale glibc can generate, and any xkeyboard-config layout. The layout applies to the live session as soon as it is picked, so the password typed next matches the installed system's layout. Non-Latin layouts are installed after US English, for typing usernames.
 - **Account.** Name, username, password, hostname, and *sign in automatically*. The account is the live `omni` user renamed, so groups carry over. The password travels over stdin, never argv, and never reaches the log. *Skip* keeps a passwordless `omni` account for a controller-only console.
 - **Hardening.** On the installed system ssh is off and root is locked, because the live image's password is public.
 

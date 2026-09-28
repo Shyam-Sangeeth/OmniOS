@@ -6,6 +6,7 @@
 // engine behind a platform has to be swappable without touching the router.
 #pragma once
 
+#include <filesystem>
 #include <map>
 #include <string>
 #include <vector>
@@ -25,6 +26,10 @@ struct Engine {
     std::string_view package;
     Tier             tier;
     std::string_view notes;
+    // Its app on Flathub, when there is one. The emulators that live only in
+    // the AUR are installed from there instead, by the launcher, the first
+    // time a game needs one: no terminal, no compiling, no password.
+    std::string_view flatpak = {};
 };
 
 // Every engine this build knows how to drive.
@@ -65,6 +70,16 @@ struct LaunchPlan {
     // Set when the engine is known but not installed, so the UI can offer the
     // one-line pacman/yay command that fixes it.
     std::string installHint;
+    // Set when installing this Flathub app is what would make the launch
+    // possible; the launcher offers to do it.
+    std::string flatpakApp;
+    // The engine runs from its Flathub install (flatpak run ...), whose
+    // settings prepareEmulator() fills in before the first game.
+    bool viaFlatpak = false;
+    // A one-time step the emulator needs before it can play, which the
+    // launcher offers as a button: "Install PS3 system software".
+    std::string setupLabel;
+    std::vector<std::string> setupArgv;
 
     // Single-line rendering of argv, for logs and the CLI.
     std::string commandLine() const;
@@ -75,5 +90,19 @@ LaunchPlan planLaunch(const Game& game, const LaunchOptions& options = {});
 
 // True when `command` resolves on PATH.
 bool commandExists(std::string_view command);
+
+// True when Flathub app `appId` is installed, for this user or for everyone.
+bool flatpakInstalled(std::string_view appId);
+
+// Where a PS1 or PS2 emulator looks for the console's BIOS: ~/Games/bios.
+// The Switch's keys and the PS3's system software go there too.
+std::filesystem::path biosDir();
+
+// The free PS1 BIOS on the image (PCSX-Redux's OpenBIOS, MIT), for when the
+// user has no BIOS of their own. OMNIOS_OPENBIOS overrides where it is.
+std::filesystem::path openBiosImage();
+
+// A Flathub app's own settings folder: ~/.var/app/<id>/config.
+std::filesystem::path flatpakConfigDir(std::string_view appId);
 
 }  // namespace omnios

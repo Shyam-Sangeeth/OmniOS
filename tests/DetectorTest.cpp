@@ -120,6 +120,18 @@ TEST("detector: extension beats the folder hint") {
     CHECK(detection.source == DetectionSource::Extension);
 }
 
+TEST("detector: a .dol is a Wii program in the wii folder, a GameCube one elsewhere") {
+    const std::vector<std::uint8_t> nothing(64, 0);
+    CHECK_EQ(idOf(detectHeader(nothing, "boot.dol", Platform::Wii)), std::string("wii"));
+    CHECK_EQ(idOf(detectHeader(nothing, "boot.dol", Platform::GameCube)), std::string("gamecube"));
+    CHECK_EQ(idOf(detectHeader(nothing, "boot.dol")), std::string("gamecube"));
+}
+
+TEST("detector: Switch homebrew (.nro) is a Switch game") {
+    const std::vector<std::uint8_t> nothing(64, 0);
+    CHECK_EQ(idOf(detectHeader(nothing, "SuperHaxagon.nro")), std::string("switch"));
+}
+
 TEST("detector: an unidentifiable file is reported, not guessed") {
     const std::vector<std::uint8_t> nothing(64, 0);
     const Detection detection = detectHeader(nothing, "notes");

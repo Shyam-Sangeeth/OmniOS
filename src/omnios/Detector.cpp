@@ -173,16 +173,23 @@ const ExtensionRow kExtensions[] = {
     {"nsp",  Platform::Switch,   "nsp"},
     {"xci",  Platform::Switch,   "xci"},
     {"nca",  Platform::Switch,   "nca"},
+    {"nro",  Platform::Switch,   "nro"},  // homebrew
     {"apk",  Platform::Android,  "apk"},
     {"apks", Platform::Android,  "apk_split"},
     {"xapk", Platform::Android,  "apk_split"},
     {"gcm",  Platform::GameCube, "gc_disc"},
+    {"dol",  Platform::GameCube, "dol"},
     {"rvz",  Platform::Wii,      "rvz"},
     {"wbfs", Platform::Wii,      "wbfs"},
     {"wad",  Platform::Wii,      "wad"},
     {"3ds",  Platform::N3DS,     "3ds_rom"},
     {"cia",  Platform::N3DS,     "cia"},
     {"cci",  Platform::N3DS,     "3ds_rom"},
+    {"3dsx", Platform::N3DS,     "3ds_homebrew"},
+    {"z3dsx", Platform::N3DS,    "3ds_homebrew"},
+    {"zcci", Platform::N3DS,     "3ds_rom"},
+    {"zcia", Platform::N3DS,     "cia"},
+    {"cxi",  Platform::N3DS,     "ncch"},
     {"gba",  Platform::GBA,      "gba_rom"},
     {"gb",   Platform::GBA,      "gb_rom"},
     {"gbc",  Platform::GBA,      "gbc_rom"},
@@ -192,9 +199,12 @@ const ExtensionRow kExtensions[] = {
     {"smc",  Platform::Retro,    "snes_rom"},
     {"n64",  Platform::Retro,    "n64_rom"},
     {"z64",  Platform::Retro,    "n64_rom"},
+    {"v64",  Platform::Retro,    "n64_rom"},
     {"md",   Platform::Retro,    "genesis_rom"},
     {"gen",  Platform::Retro,    "genesis_rom"},
+    {"smd",  Platform::Retro,    "genesis_rom"},
     {"sms",  Platform::Retro,    "sms_rom"},
+    {"gg",   Platform::Retro,    "gg_rom"},
     {"pbp",  Platform::PS1,      "pbp"},
     {"chd",  Platform::PS1,      "chd"},
     {"cue",  Platform::PS1,      "cue"},
@@ -254,8 +264,10 @@ Detection detectHeader(const std::vector<std::uint8_t>& header,
         detection = iso;  // known container, unknown platform — keep refining
     }
 
-    if (const Platform byExtension = platformFromExtension(extension);
-        byExtension != Platform::Unknown) {
+    if (Platform byExtension = platformFromExtension(extension); byExtension != Platform::Unknown) {
+        // A .dol is a GameCube or a Wii program alike; which one, only the
+        // folder it was put in says. (Dolphin tells them apart by itself.)
+        if (extension == "dol" && folderHint == Platform::Wii) byExtension = Platform::Wii;
         std::string format(detection.format);
         for (const ExtensionRow& row : kExtensions) {
             if (row.extension == extension) { format = std::string(row.format); break; }

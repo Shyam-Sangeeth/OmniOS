@@ -107,6 +107,14 @@ dolphin-emu
 retroarch
 retroarch-assets-ozone
 libretro-core-info
+## RetroArch's systems: it plays nothing without a core, and the launcher
+## picks one by the file's extension (src/omnios/Router.cpp, kCores).
+libretro-nestopia
+libretro-snes9x
+libretro-mgba
+libretro-melonds
+libretro-mupen64plus-next
+libretro-genesis-plus-gx
 
 ## Launcher toolchain — Phase 10. Qt6 + QML, and the compiler the core needs.
 qt6-base

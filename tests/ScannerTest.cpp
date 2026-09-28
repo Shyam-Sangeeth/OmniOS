@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -247,4 +248,54 @@ TEST("scanner: filenames become readable titles") {
     CHECK_EQ(titleFromFilename("zelda_totk_v1.2.1 [USA].nsp"), std::string("Zelda Totk V1 2 1"));
     CHECK_EQ(titleFromFilename("GTA-San-Andreas.iso"), std::string("GTA San Andreas"));
     CHECK_EQ(titleFromFilename("Celeste"), std::string("Celeste"));
+}
+
+TEST("scanner: a PS3 or PS4 game folder is launched through its EBOOT") {
+    GamesTree tree;
+    tree.dir("ps3/Some Disc Game/PS3_GAME/USRDIR");
+    tree.write(tree.root() / "ps3/Some Disc Game/PS3_GAME/USRDIR/EBOOT.BIN", "SCE");
+    tree.dir("ps3/Some Download/USRDIR");
+    tree.write(tree.root() / "ps3/Some Download/USRDIR/EBOOT.BIN", "SCE");
+    tree.dir("ps3/Empty Folder");
+    tree.dir("ps4/CUSA00001");
+    tree.write(tree.root() / "ps4/CUSA00001/eboot.bin", "SCE");
+
+    GameLibrary library;
+    GameScanner(tree.root()).scan(library);
+
+    int ps3 = 0, ps4 = 0;
+    for (const Game& game : library.games()) {
+        if (game.platform == Platform::PS3) {
+            ++ps3;
+            CHECK(game.executable == "PS3_GAME/USRDIR/EBOOT.BIN" || game.executable == "USRDIR/EBOOT.BIN");
+        }
+        if (game.platform == Platform::PS4) {
+            ++ps4;
+            CHECK_EQ(game.executable, std::string("eboot.bin"));
+        }
+    }
+    CHECK_EQ(ps3, 2);  // not the empty folder
+    CHECK_EQ(ps4, 1);
+}
+
+TEST("scanner: a PS1 or PS2 game folder is launched through its disc image") {
+    GamesTree tree;
+    tree.dir("ps1/Tetrade");
+    tree.write(tree.root() / "ps1/Tetrade/TETRADE_PSX.bin", "tracks");
+    tree.write(tree.root() / "ps1/Tetrade/TETRADE_PSX.cue", "FILE \"TETRADE_PSX.bin\" BINARY");
+    tree.dir("ps1/Two Discs");
+    tree.write(tree.root() / "ps1/Two Discs/Game (Disc 2).cue", "cue");
+    tree.write(tree.root() / "ps1/Two Discs/Game (Disc 1).cue", "cue");
+    tree.write(tree.root() / "ps1/Two Discs/Game.m3u", "Game (Disc 1).cue");
+    tree.dir("ps2/Notes Only");
+    tree.write(tree.root() / "ps2/Notes Only/readme.txt", "hi");
+
+    GameLibrary library;
+    GameScanner(tree.root()).scan(library);
+
+    std::map<std::string, std::string> executables;
+    for (const Game& game : library.games()) executables[game.title] = game.executable;
+    CHECK_EQ(executables["Tetrade"], std::string("TETRADE_PSX.cue"));
+    CHECK_EQ(executables["Two Discs"], std::string("Game.m3u"));
+    CHECK(executables.find("Notes Only") == executables.end());
 }

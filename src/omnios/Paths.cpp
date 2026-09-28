@@ -56,6 +56,8 @@ bool ensureDirectories(std::string& error) {
     };
 
     create(gamesDir());
+    // PS1 and PS2 BIOS files, which the user supplies (Router.h, biosDir).
+    create(gamesDir() / "bios");
     for (const PlatformInfo& info : allPlatforms()) {
         // linux and windows share the "pc" folder, so this creates it twice —
         // create_directories is happy either way.

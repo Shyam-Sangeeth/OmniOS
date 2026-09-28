@@ -19,7 +19,11 @@ iso/airootfs/usr/local/bin/omnictl
 # under the iso/** text=lf rule, which rewrites line endings inside the
 # binary and corrupts it.
 iso/airootfs/usr/local/bin/omni-launcher-qml
-iso/airootfs/usr/share/omnios/
+# What build-iso.sh writes into usr/share/omnios. The rest of that folder
+# (retroarch.cfg, bios/) is source and is tracked.
+iso/airootfs/usr/share/omnios/packages.aur.txt
+iso/airootfs/usr/share/omnios/OmniOS.md
+iso/airootfs/usr/share/omnios/baseline-apps.txt
 iso/airootfs/etc/localtime
 # The desktop's application launcher, assembled from Plasma's own source by
 # scripts/make-desktop-launcher.sh for whichever release the image installs.

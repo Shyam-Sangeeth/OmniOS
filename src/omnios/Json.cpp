@@ -1,5 +1,6 @@
 #include "Json.h"
 
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -245,10 +246,12 @@ private:
             fail("unexpected character");
             return {};
         }
-        const std::string literal(text_.substr(start, pos_ - start));
-        char* end = nullptr;
-        const double value = std::strtod(literal.c_str(), &end);
-        if (end != literal.c_str() + literal.size() || !std::isfinite(value)) {
+        // from_chars, not strtod: strtod follows the C locale, which Qt sets
+        // from the system's, and in German "0.5" stops at the dot.
+        const std::string_view literal = text_.substr(start, pos_ - start);
+        double value = 0.0;
+        const auto [end, ec] = std::from_chars(literal.data(), literal.data() + literal.size(), value);
+        if (ec != std::errc() || end != literal.data() + literal.size() || !std::isfinite(value)) {
             fail("invalid number");
             return {};
         }
@@ -292,9 +295,11 @@ void numberTo(std::string& out, double value) {
         out += std::to_string(static_cast<long long>(value));
         return;
     }
+    // The shortest text that reads back as the same double, and a dot
+    // whatever the locale (snprintf would write "0,5" in German).
     char buffer[40];
-    std::snprintf(buffer, sizeof(buffer), "%.17g", value);
-    out += buffer;
+    const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    out.append(buffer, result.ptr);
 }
 
 }  // namespace

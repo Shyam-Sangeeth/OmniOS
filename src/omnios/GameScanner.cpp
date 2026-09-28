@@ -268,6 +268,54 @@ bool GameScanner::identify(const fs::path& path, Platform folderHint, Game& game
         }
     }
 
+    // A PS3 or PS4 game on disk is a folder, and its emulator is given the
+    // program inside it: EBOOT.BIN under a disc's PS3_GAME or a download's
+    // USRDIR, eboot.bin at the top of a PS4 dump.
+    if (isDirectory && (game.platform == Platform::PS3 || game.platform == Platform::PS4 ||
+                        game.platform == Platform::PS5)) {
+        const bool ps3 = game.platform == Platform::PS3;
+        const std::vector<std::string> candidates =
+            ps3 ? std::vector<std::string>{"PS3_GAME/USRDIR/EBOOT.BIN", "USRDIR/EBOOT.BIN"}
+                : std::vector<std::string>{"eboot.bin"};
+        for (const std::string& candidate : candidates) {
+            if (fs::is_regular_file(path / candidate, ec)) {
+                game.executable = candidate;
+                break;
+            }
+        }
+        if (game.executable.empty()) {
+            reason = ps3 ? "folder has no PS3_GAME/USRDIR/EBOOT.BIN" : "folder has no eboot.bin";
+            return false;
+        }
+    }
+
+    // A disc game kept in a folder of its own — a .cue with its .bin tracks,
+    // say — is given its disc image, since no emulator boots a folder. The
+    // playlist of a multi-disc game first, then the image formats that describe
+    // a whole disc, a bare .bin last; among equals, the first by name (disc 1).
+    if (isDirectory && (game.platform == Platform::PS1 || game.platform == Platform::PS2 ||
+                        game.platform == Platform::GameCube || game.platform == Platform::Wii)) {
+        static const std::vector<std::string> kPreference = {"m3u", "cue", "chd", "pbp", "ccd", "rvz", "wbfs",
+                                                              "gcm", "iso", "cso", "img", "bin"};
+        std::vector<std::string> names;
+        for (fs::directory_iterator it(path, ec), end; !ec && it != end; it.increment(ec))
+            if (it->is_regular_file(ec)) names.push_back(it->path().filename().string());
+        std::sort(names.begin(), names.end());
+        for (const std::string& extension : kPreference) {
+            for (const std::string& name : names) {
+                if (fileExtension(name) == extension) {
+                    game.executable = name;
+                    break;
+                }
+            }
+            if (!game.executable.empty()) break;
+        }
+        if (game.executable.empty()) {
+            reason = "folder has no disc image";
+            return false;
+        }
+    }
+
     return true;
 }
 

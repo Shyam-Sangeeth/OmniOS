@@ -272,6 +272,37 @@ that as focus stealing and only flashes the taskbar entry — so
 [omni-kwin-activate](iso/airootfs/usr/local/bin/omni-kwin-activate) asks KWin
 to, by loading a three-line script through its D-Bus scripting interface.
 
+### Quiet while a game runs
+
+Plasma draws its notifications over full-screen windows, games included, and
+a persistent one stays in the corner of the game until someone closes it with
+a mouse. So while anything the launcher started is running, the launcher asks
+Plasma for Do Not Disturb (`Inhibit` on `org.freedesktop.Notifications`, the
+call video players make) on its own D-Bus connection, which Plasma releases by
+itself if the launcher goes, so it cannot be left on. Plasma still shows
+*critical* notifications in Do Not Disturb by default, and those are the ones
+that never time out, so for the length of the game that is turned off too
+(`plasmanotifyrc`, `[Notifications] CriticalInDndMode`). The user's own value
+is kept in `~/.local/state/omnios/critical-in-dnd` and put back when the game
+ends, or on the launcher's next start if it died mid-game. Nothing is lost:
+everything still lands in the notification history. Verified in the VM:
+during a game, three standing "Memory Shortage Avoided" warnings and a new
+notification stayed hidden; after it, the setting was back as it was and the
+warnings returned.
+
+Over the library, such a notification is closed from the system menu: while
+one is standing, the menu opens on *Clear notifications · N*. Plasma cannot
+be asked what is on screen, but it does send every new notification to a
+registered watcher (`RegisterWatcher`, on `org.kde.NotificationManager`), and
+[NotificationWatcher](src/launcher/NotificationWatcher.h) counts the ones that
+never time out (critical, or sent with no timeout). Clearing closes them with
+`CloseNotification`, which Plasma honours whoever asks, and since Plasma
+numbers notifications in order, every number up to the newest seen is closed
+too: that takes the ones shown before the launcher started as well. They
+leave the history, as with its own *Clear all*. Verified in the VM with the
+virtual PS5 pad: four standing notifications, three of them older than the
+launcher, all gone with one press.
+
 ### The controller
 
 A console you can only drive with a keyboard is not a console. The shell takes a
@@ -620,6 +651,146 @@ forks (Ryubing, Azahar) instead, and swapping either is a one-line change.
 PS5 routes to shadPS4 as the closest available Orbis layer. That covers a subset
 of PS5 titles today, not the platform.
 
+**RetroArch** plays nothing by itself: each system is a core, and started
+without one it opens its own menu instead of the game. The router picks the
+core by extension — `.nes` Nestopia, `.sfc`/`.smc` Snes9x, `.gb`/`.gbc`/`.gba`
+mGBA, `.nds` melonDS, `.n64`/`.z64`/`.v64` Mupen64Plus-Next,
+`.md`/`.gen`/`.smd`/`.sms`/`.gg` Genesis Plus GX — all from Arch's repositories
+and on the image; a file it has no core for is refused with a reason, and a
+missing core names its package. Games start full screen with
+[retroarch.cfg](iso/airootfs/usr/share/omnios/retroarch.cfg) laid over the
+user's settings: Start + Select for RetroArch's menu, Esc to quit, paused
+while the launcher is in front, and controllers read through SDL. Its default,
+udev, needs a profile for each controller model from
+retroarch-joypad-autoconfig, which only the AUR has, so with it no pad did
+anything in any game; through SDL, a pad without a profile gets RetroArch's
+built-in "Standard Gamepad" mapping, by position. Proven with Nova the
+Squirrel (a GPL NES game): the virtual PS5 pad's Start, D-pad and ○ (the NES's
+A, on the right as on a NES pad) took it from the title to the level select.
+The same held for Blind Jump (GBA, MIT) and Gothicvania (SNES, MIT). Sblobber64
+(N64, MIT) started, then crashed inside the Mupen64Plus-Next core as its game
+began — in the VM, under software OpenGL; to be tried on real hardware. A
+game that crashes is reported as "… crashed" in the corner, not as an exit
+code.
+**Dolphin** is started into the game (`-e`),
+full screen and in batch mode (`-b`, so it closes when the game stops), and
+with `QT_QPA_PLATFORM=xcb`: its window is X11 only, and handed the session's
+Wayland setting it aborts before drawing. Both were proven with test programs
+built for the purpose (a NES ROM that fills the screen green, a GameCube `.dol`
+that loops): tile, Play, the game full screen, Guide, *Quit*, back to the
+library.
+
+**The other emulators come from Flathub, when a game first needs one.**
+DuckStation (PS1), PCSX2 (PS2), RPCS3 (PS3), shadPS4 (PS4/PS5), Ryubing
+(Switch) and Azahar (3DS) are AUR packages, which the image cannot carry and a
+console cannot build. All six are on Flathub, so a game whose emulator is
+missing shows *Install &lt;emulator&gt;* on its page instead of a command to
+type: the launcher installs it for the user (no password; the first one also
+brings a shared runtime of a few hundred MB), then the page offers Play. A
+native install, if someone made one, is used first. From Flathub the emulator
+is started with read access to `~/Games`, which its sandbox otherwise does not
+see, and without `gamemoderun`/`mangohud`, which work by preloading a host
+library into the process and inside a sandbox broke PCSX2.
+
+Before it starts one, [EmulatorSetup](src/omnios/EmulatorSetup.cpp) fills in
+what its first-run wizard would ask, since a wizard is where a controller-only
+console stops: the wizard marked done, no update check (Flathub updates it; its
+own updater opened a window a pad cannot close), the BIOS folder set to
+`~/Games/bios`, and the first controller mapped to the PlayStation pad by
+position. It only ever changes a setting still at the emulator's own default.
+This is done for DuckStation and PCSX2, and proven from an empty settings file
+and from the wizard's defaults: each goes straight to booting the game.
+
+The other four each have their own first step, and the game's page takes it:
+
+- **RPCS3** needs the PS3 system software installed into it. With
+  `PS3UPDAT.PUP` (Sony's own download) in `~/Games/bios`, the page's button
+  becomes *Install PS3 system software*, which runs RPCS3's installer; RPCS3's
+  "Install firmware?" has no setting to skip it, so that one question needs
+  a keyboard or mouse (Yes, or Alt+Y); a pad cannot answer it. RPCS3 stays open after installing, so the launcher
+  closes it when the firmware appears, and the button becomes Play. Its welcome
+  box, "installed" box and exit confirmation are turned off. Games start with
+  `--no-gui --fullscreen`; a PS3 game folder's tile runs its
+  `PS3_GAME/USRDIR/EBOOT.BIN`.
+- **Ryubing** needs the user's Switch keys: `prod.keys` (and `title.keys`, if
+  there is one) put in `~/Games/bios` are copied into Ryubing's system folder
+  before each start, a newer copy replacing an older one. Without them the page
+  says so. Started with `--fullscreen --hide-updates`.
+- **shadPS4** is started with `-d -g <eboot.bin> -- --fullscreen true` (the
+  first skips its game list); a PS4 game folder's tile runs its `eboot.bin`.
+- **Azahar** is started with `-f`.
+
+Each was proven in the VM from its Flathub install with a test file (the PS3
+system software was Sony's real one): Play, the emulator full screen with the
+file loaded, Guide, *Quit*, and its processes gone.
+
+**Their controllers are mapped too.** shadPS4 takes an SDL gamepad by itself;
+the other three start on the keyboard, and each names a pad its own way, so
+the launcher (which reads the pads with SDL already) passes the connected ones
+to EmulatorSetup, the one last pressed first — whoever pressed Play is player
+1. Always by position, like their own defaults: ✕ is the bottom button and a
+Switch or 3DS game's A the right-hand one.
+
+- **Azahar** can bind "any controller" (`maptype:all`), so its buttons are set
+  once and need no pad plugged in. Home stays off the pad: that is Guide,
+  which is OmniOS's.
+- **RPCS3** binds a device by SDL's name and a number ("PS5 Controller 1"),
+  in `input_configs/global/Default.yml`. PS is Start + Select, for the same
+  reason.
+- **Dolphin** (from the image, settings in `~/.config/dolphin-emu`) binds
+  `SDL/0/<name>`, with SDL's positional button names: player 1's GameCube pad
+  laid out as a GameCube pad (A bottom, B left, X right, Y top), and their
+  Wii Remote with a Nunchuk (its stick on the left stick, the pointer on the
+  right one). Proven with Maze Game (GameCube homebrew): the virtual PS5 pad's
+  D-pad moved its menu and ✕ opened Credits. On the Wii side, a test program
+  built with devkitPro saw the Nunchuk attached and its stick follow the pad's
+  left stick. (Built with the newest libogc, the same program saw no buttons
+  and no Nunchuk at all under Dolphin; with libogc from 2023 it did — Dolphin
+  and that library, not OmniOS.) A `.dol` in `~/Games/wii` is a Wii program;
+  anywhere else, a GameCube one.
+- **Ryubing** binds by an id made from SDL's GUID — as .NET prints it, with
+  the name's CRC zeroed, read out of its own decompiled SDL2 driver — in its
+  `Config.json`, which it only writes on its first start; that first start is
+  therefore on the keyboard.
+
+Each replaces only the emulator's default keyboard player 1; a pad set up in
+the emulator by the user stays, and when theirs or OmniOS's is no longer
+connected, only the device is pointed at the one that is. Verified in the VM
+with the Xbox and then the PS5 virtual pad: the name RPCS3's SDL3 and the
+GUID Ryubing's SDL2 report match what was written (Ryubing's SDL2 calls the
+Xbox pad "X360 Controller", with a different CRC, which is why that is
+zeroed), RPCS3's log shows player 1 bound to it and connected, and Azahar
+loads and saves the bindings unchanged. None has been played with a real
+game yet.
+
+PS1 and PS2 games start from a BIOS, and Sony's cannot come with OmniOS. **For
+the PS1 there is a free one:** OpenBIOS, written by the PCSX-Redux authors
+under the MIT licence, is on the image
+([bios/openbios.bin](iso/airootfs/usr/share/omnios/bios/), rebuilt from a
+pinned commit of their nugget repo by
+[build-openbios.sh](scripts/build-openbios.sh), since Arch has no MIPS
+compiler). With no PS1 BIOS of the user's own in `~/Games/bios`, it is copied
+there before DuckStation starts. DuckStation knows it by a signature inside
+it, takes it for every region and ranks it below every real BIOS, so one
+added later is used without anything being changed. Many games boot on it,
+not all; a dump of the user's own console's BIOS is still the better choice.
+Proven with Tetrade (an MIT-licensed PS1 game, `.cue` + `.bin`): tile, Play,
+OpenBIOS boots it, and the pad's Start, D-pad and left stick play it.
+DuckStation is also set to its Vulkan renderer: its "Automatic" choice was
+OpenGL, which full screen on Wayland drew the game a few centimetres wide in
+a corner.
+**For the PS2 nothing of the kind exists**: its BIOS has to be dumped from the
+user's own PS2 (with a homebrew BIOS dumper). A game folder holding a disc
+image and its tracks (`.cue` + `.bin`) is launched through its playlist or
+image, not the folder. Without a usable BIOS — for the PS2, a 4-8 MB file,
+since the same folder holds the PS3's update and the Switch's keys — the
+game's page says so and where to put it, rather than the emulator saying it in
+a dialog after taking the screen.
+Emulators get no `QT_QPA_PLATFORM` from the launcher, whose own is Wayland:
+Dolphin aborts under it (and is given `xcb`), and PCSX2 from Flathub in a
+Plasma Wayland session crashed loading KDE's platform theme (it is given
+`QT_QPA_PLATFORMTHEME=generic`).
+
 ### The library cache
 
 `~/.omnios/library.json` is only ever a faster copy of what a scan produces: it
@@ -688,6 +859,10 @@ the boot-os skill.
 ## Not done yet
 
 - **Real hardware.** Everything so far has run in QEMU only.
+- **Ryubing needs Switch firmware**, which OmniOS does not install for it, and
+  its very first start is on the keyboard (above). No emulator has been tried
+  with a real game and BIOS — only with test files — so no pad has been seen
+  moving anything inside one.
 - **Phase 6's `.opkg` installer** — extracting a package into `~/Games` with
   checksum verification — and **Phase 7.4 cover art**.
 - **Sleep on real hardware** is untested. In QEMU the system resumes, but the

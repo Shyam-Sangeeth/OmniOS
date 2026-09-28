@@ -29,7 +29,8 @@ add_library(omnios_core STATIC
     src/omnios/Router.cpp
     src/omnios/SteamLibrary.cpp
     src/omnios/Iptv.cpp
-    src/omnios/Epg.cpp)
+    src/omnios/Epg.cpp
+    src/omnios/EmulatorSetup.cpp)
 
 target_include_directories(omnios_core PUBLIC src)
 

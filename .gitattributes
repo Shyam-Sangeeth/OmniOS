@@ -25,3 +25,4 @@ CMakeLists.txt  text eol=lf
 *.zst           binary
 *.iso           binary
 *.opkg          binary
+*.bin           binary

@@ -10,7 +10,8 @@ add_executable(omnios_tests
     ScannerTest.cpp
     SteamLibraryTest.cpp
     IptvTest.cpp
-    EpgTest.cpp)
+    EpgTest.cpp
+    EmulatorSetupTest.cpp)
 
 target_link_libraries(omnios_tests PRIVATE omnios_core)
 target_include_directories(omnios_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

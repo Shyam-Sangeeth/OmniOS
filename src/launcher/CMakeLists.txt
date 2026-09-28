@@ -16,6 +16,7 @@ qt_add_executable(omni-launcher
     InputMode.cpp
     PadGlyphs.cpp
     MpvItem.cpp
+    NotificationWatcher.cpp
     TvController.cpp)
 
 # The QML forms a module named "omnios". The files sit beside this file rather
@@ -59,6 +60,7 @@ qt_add_qml_module(omni-launcher
         InputMode.h
         PadGlyphs.h
         MpvItem.h
+        NotificationWatcher.h
         TvController.h)
 
 # SDL3 for the controller. Optional on purpose: without it the shell still
@@ -81,7 +83,7 @@ find_package(ZLIB REQUIRED)
 # libmpv, TV's player (see MpvItem.h), drawing through OpenGL.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv)
-find_package(Qt6 REQUIRED COMPONENTS OpenGL)
+find_package(Qt6 REQUIRED COMPONENTS OpenGL DBus)
 
 target_link_libraries(omni-launcher PRIVATE
     omnios_core
@@ -92,7 +94,10 @@ target_link_libraries(omni-launcher PRIVATE
     Qt6::Gui
     Qt6::Quick
     # QLocalSocket, for the sign-in screen's conversation with greetd.
-    Qt6::Network)
+    Qt6::Network
+    # Plasma's Do Not Disturb while a game runs, held on the launcher's own
+    # connection (LauncherController::updateNotificationInhibit).
+    Qt6::DBus)
 
 target_include_directories(omni-launcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 

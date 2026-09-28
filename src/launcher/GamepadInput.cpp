@@ -111,7 +111,26 @@ void GamepadInput::handleDirection(int key, bool pressed) {
 
 void GamepadInput::poll() {}
 
+std::vector<omnios::Controller> GamepadInput::controllers() const { return {}; }
+
 #else
+
+std::vector<omnios::Controller> GamepadInput::controllers() const {
+    std::vector<omnios::Controller> list;
+    if (!available_) return list;
+    int count = 0;
+    SDL_JoystickID* ids = SDL_GetGamepads(&count);
+    for (int i = 0; i < count && ids != nullptr; ++i) {
+        const char* name = SDL_GetGamepadNameForID(ids[i]);
+        char guid[33];
+        SDL_GUIDToString(SDL_GetGamepadGUIDForID(ids[i]), guid, sizeof(guid));
+        omnios::Controller pad{name != nullptr ? name : "", guid};
+        if (ids[i] == lastPad_) list.insert(list.begin(), std::move(pad));
+        else list.push_back(std::move(pad));
+    }
+    SDL_free(ids);
+    return list;
+}
 
 void GamepadInput::poll() {
     SDL_Event event;
@@ -163,6 +182,7 @@ void GamepadInput::poll() {
                 const bool pressed = event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
                 if (pressed) {
                     emit activity();
+                    lastPad_ = event.gbutton.which;
                     // With two pads connected, the one being used names the
                     // buttons.
                     if (SDL_Gamepad* pad = SDL_GetGamepadFromID(event.gbutton.which))

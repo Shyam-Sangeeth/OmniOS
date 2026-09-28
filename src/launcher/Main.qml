@@ -403,6 +403,7 @@ Window {
             // Two of the system menu's entries are doors into another menu
             // rather than actions of their own.
             if (context === "power" && action === "resume") Launcher.resumeRunningGame()
+            else if (context === "power" && action === "clearnotes") Launcher.clearNotifications()
             else if (context === "power" && action === "sysupdate") window.confirmUpdate()
             else if (context === "power" && action === "syscheck") {
                 Launcher.checkSystemUpdates(true)
@@ -428,7 +429,7 @@ Window {
             else if (context === "game") window.runGameAction(action)
             else window.runTileAction(action)
         }
-        onClosed: window.activeGrid.forceActiveFocus()
+        onClosed: window.restoreFocus()
     }
 
     // ---- questions that need typing ------------------------------------------
@@ -467,10 +468,13 @@ Window {
         return passwordPrompt.open || wifiPrompt.open
     }
 
-    // Focus back where it belongs: an open prompt if there is one, the grid if not.
+    // Focus back where it belongs: an open prompt if there is one, then a
+    // game's page if one is open (the grid is only behind it; with focus
+    // there, the page's Play and Back stopped answering), then the grid.
     function restoreFocus() {
         if (passwordPrompt.open) passwordPrompt.takeFocus()
         else if (wifiPrompt.open) wifiPrompt.takeFocus()
+        else if (detailLoader.item) detailLoader.item.forceActiveFocus()
         else activeGrid.forceActiveFocus()
     }
 
@@ -581,7 +585,13 @@ Window {
             { action: "resume", label: qsTr("Resume %1").arg(Launcher.runningTitle), enabled: true },
             { action: "quit",   label: qsTr("Quit %1").arg(Launcher.runningTitle),   enabled: true }
         ] : []
-        menuPanel.openFor(menuAnchor, qsTr("OMNIOS %1").arg(Launcher.version), running.concat(updates, [
+        // Notifications that stay until closed, which Plasma closes only
+        // with a pointer; see NotificationWatcher.h.
+        var notes = Launcher.standingNotifications > 0 ? [
+            { action: "clearnotes",
+              label: qsTr("Clear notifications  ·  %1").arg(Launcher.standingNotifications), enabled: true }
+        ] : []
+        menuPanel.openFor(menuAnchor, qsTr("OMNIOS %1").arg(Launcher.version), running.concat(notes, updates, [
             // Plasma's panel has these a pointer away, and a console often has
             // no pointer. Everything they offer is reachable from here too, so
             // the keyboard and the controller are not second-class.
@@ -660,6 +670,8 @@ Window {
     function openDetail() {
         if (GameLibrary.count === 0) return
         detailLoader.active = true
+        // Already open, onLoaded does not run again.
+        if (detailLoader.item) detailLoader.item.forceActiveFocus()
     }
 
     // A controller press is about to arrive. Qt only routes a key to the item

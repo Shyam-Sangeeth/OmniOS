@@ -1,9 +1,15 @@
 #include "LauncherController.h"
 
 #include <QCoreApplication>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
 #include <QDateTime>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
 #include <QDebug>
 #include <QGuiApplication>
 #include <QKeyEvent>
@@ -23,6 +29,7 @@
 #include "omnios/Apps.h"
 #include "omnios/GameScanner.h"
 #include "omnios/Paths.h"
+#include "omnios/EmulatorSetup.h"
 #include "omnios/Router.h"
 #include "omnios/SteamLibrary.h"
 
@@ -118,6 +125,12 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
     QCoreApplication::instance()->installEventFilter(this);
     connect(&gamepad_, &GamepadInput::homeRequested, this, &LauncherController::goHome);
     connect(&gamepad_, &GamepadInput::kindChanged, this, &LauncherController::controllerKindChanged);
+    connect(this, &LauncherController::gameRunningChanged, this, &LauncherController::updateNotificationInhibit);
+    connect(&notifications_, &NotificationWatcher::countChanged, this,
+            &LauncherController::standingNotificationsChanged);
+    // A launcher that stopped mid-game left the user's critical-notification
+    // setting changed; put it back.
+    quietCriticalNotifications(false);
 
     // Controller use counts as someone being there. Told to KDE through the
     // freedesktop screensaver interface it implements, at most every half
@@ -291,9 +304,15 @@ QString LauncherController::launchCommand(const QString& gameId) const {
     const omnios::Game* game = findGame(model_.library(), gameId);
     if (game == nullptr) return {};
 
-    omnios::LaunchOptions options;
-    options.skipAvailabilityCheck = true;  // describing, not running
-    return QString::fromStdString(omnios::planLaunch(*game, options).commandLine());
+    // What will run: from Flathub, when that is where the emulator is. A
+    // plan that cannot run yet is described as it would be once it can.
+    omnios::LaunchPlan plan = omnios::planLaunch(*game, {});
+    if (!plan.ok) {
+        omnios::LaunchOptions options;
+        options.skipAvailabilityCheck = true;  // describing, not running
+        plan = omnios::planLaunch(*game, options);
+    }
+    return QString::fromStdString(plan.commandLine());
 }
 
 QString LauncherController::installHint(const QString& gameId) const {
@@ -302,16 +321,177 @@ QString LauncherController::installHint(const QString& gameId) const {
     return QString::fromStdString(omnios::planLaunch(*game, {}).installHint);
 }
 
+bool LauncherController::isPlayable(const QString& gameId) const {
+    const omnios::Game* game = findGame(model_.library(), gameId);
+    return game != nullptr && omnios::planLaunch(*game, {}).ok;
+}
+
+QString LauncherController::launchProblem(const QString& gameId) const {
+    const omnios::Game* game = findGame(model_.library(), gameId);
+    if (game == nullptr) return {};
+    return QString::fromStdString(omnios::planLaunch(*game, {}).error);
+}
+
+QVariantMap LauncherController::missingEngine(const QString& gameId) const {
+    const omnios::Game* game = findGame(model_.library(), gameId);
+    if (game == nullptr) return {};
+    const omnios::LaunchPlan plan = omnios::planLaunch(*game, {});
+    if (plan.ok || plan.flatpakApp.empty()) return {};
+    return {{QStringLiteral("app"), QString::fromStdString(plan.flatpakApp)},
+            {QStringLiteral("name"), QString::fromStdString(plan.engineDisplayName)}};
+}
+
+void LauncherController::installEngine(const QString& gameId) {
+    const QVariantMap engine = missingEngine(gameId);
+    if (engine.isEmpty() || packageBusy()) return;
+    const QString app = engine.value(QStringLiteral("app")).toString();
+    const QString name = engine.value(QStringLiteral("name")).toString();
+
+    // The first emulator brings a runtime of about a gigabyte, and Flatpak
+    // needs room for it on top while it unpacks. Better said now than as a
+    // failure half way: on the live USB, where everything installed lives in
+    // memory, that room ran out in testing.
+    constexpr qint64 kNeeded = 1536LL * 1024 * 1024;
+    const qint64 free = freeBytes();
+    if (free >= 0 && free < kNeeded) {
+        setPackageStatus(liveImage()
+                             ? tr("Not enough room to install %1 on the USB stick, whose space is memory  -  "
+                                  "install OmniOS to a disk for it").arg(name)
+                             : tr("Installing %1 needs about 1.5 GB free, and there is %2 MB")
+                                   .arg(name).arg(free / (1024 * 1024)));
+        return;
+    }
+
+    auto* process = new QProcess(this);
+    process->setProcessChannelMode(QProcess::MergedChannels);
+    auto collected = std::make_shared<QByteArray>();
+    connect(process, &QProcess::readyReadStandardOutput, this, [this, process, collected, name]() {
+        const QByteArray chunk = process->readAllStandardOutput();
+        collected->append(chunk);
+        // Flatpak says how far it has got as a percentage, the runtime first
+        // (hundreds of MB the first time) and then the app itself.
+        static const QRegularExpression kPercent(QStringLiteral("(\\d{1,3})%"));
+        QRegularExpressionMatchIterator it = kPercent.globalMatch(QString::fromUtf8(chunk));
+        QString last;
+        while (it.hasNext()) last = it.next().captured(1);
+        if (!last.isEmpty()) setPackageStatus(tr("Installing %1  ·  %2%").arg(name, last));
+    });
+    connect(process, &QProcess::finished, this, [this, process, collected, name](int code, QProcess::ExitStatus) {
+        collected->append(process->readAll());
+        QFile log(kPackageLog);
+        if (log.open(QIODevice::Append)) log.write(*collected);
+        package_ = nullptr;
+        process->deleteLater();
+        if (code == 0) {
+            setPackageStatus(tr("%1 is installed").arg(name));
+            refresh();  // the game list is a snapshot; its games are playable now
+        } else {
+            const QString output = QString::fromUtf8(*collected).trimmed();
+            const QString cause = firstErrorLine(output);
+            setPackageStatus(tr("Could not install %1  -  %2")
+                                 .arg(name, cause.isEmpty() ? output.section(QLatin1Char('\n'), -1).trimmed()
+                                                            : cause));
+        }
+        emit packageBusyChanged();
+        emit storageChanged();
+    });
+    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart) return;  // anything else ends in finished, above
+        setPackageStatus(tr("Could not run Flatpak: %1").arg(process->errorString()));
+        package_ = nullptr;
+        process->deleteLater();
+        emit packageBusyChanged();
+    });
+
+    package_ = process;
+    emit packageBusyChanged();
+    setPackageStatus(tr("Installing %1 from Flathub ...").arg(name));
+    // For this user, so no password is asked. Flathub is added for the user
+    // too: the system's copy of it is the system's to install into.
+    process->start(QStringLiteral("sh"),
+                   {QStringLiteral("-c"),
+                    QStringLiteral("flatpak remote-add --user --if-not-exists flathub "
+                                   "https://dl.flathub.org/repo/flathub.flatpakrepo && "
+                                   "exec flatpak install --user --noninteractive -y flathub \"$1\""),
+                    QStringLiteral("sh"), app});
+}
+
+QVariantMap LauncherController::setupStep(const QString& gameId) const {
+    const omnios::Game* game = findGame(model_.library(), gameId);
+    if (game == nullptr) return {};
+    const omnios::LaunchPlan plan = omnios::planLaunch(*game, {});
+    if (plan.ok || plan.setupArgv.empty()) return {};
+    return {{QStringLiteral("label"), QString::fromStdString(plan.setupLabel)}};
+}
+
+void LauncherController::runSetupStep(const QString& gameId) {
+    const omnios::Game* game = findGame(model_.library(), gameId);
+    if (game == nullptr || packageBusy()) return;
+    const omnios::LaunchPlan plan = omnios::planLaunch(*game, {});
+    if (plan.ok || plan.setupArgv.empty()) return;
+    // Its own boxes first, so only the one that has to be answered is left.
+    omnios::prepareEmulator(plan.engineId, gamepad_.controllers());
+
+    auto* process = new QProcess(this);
+    captureOutput(process);
+    const QString label = QString::fromStdString(plan.setupLabel);
+    connect(process, &QProcess::finished, this, [this, process, label](int, QProcess::ExitStatus) {
+        package_ = nullptr;
+        process->deleteLater();
+        focusLauncherWindow();
+        refresh();  // playable now, if it went through
+        setPackageStatus(tr("%1  -  done").arg(label));
+        emit packageBusyChanged();
+    });
+    connect(process, &QProcess::errorOccurred, this, [this, process](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart) return;  // anything else ends in finished, above
+        package_ = nullptr;
+        process->deleteLater();
+        setPackageStatus(tr("Could not start: %1").arg(process->errorString()));
+        emit packageBusyChanged();
+    });
+    // RPCS3 stays open after installing, in its own window, and would be
+    // waited on for ever: once the game can be played, the step is done and
+    // the emulator is closed.
+    //
+    // Closed through Flatpak when it came from there: the process started
+    // here is only the sandbox's outside, and stopping it left the emulator
+    // running inside.
+    const omnios::Engine* engine = omnios::findEngine(plan.engineId);
+    const QString flatpakApp =
+        plan.setupArgv.front() == "flatpak" && engine != nullptr ? QString::fromStdString(std::string(engine->flatpak)) : QString();
+    auto* watch = new QTimer(process);
+    watch->setInterval(2000);
+    connect(watch, &QTimer::timeout, this, [this, process, gameId, watch, flatpakApp]() {
+        const omnios::Game* game = findGame(model_.library(), gameId);
+        if (game == nullptr || !omnios::planLaunch(*game, {}).ok) return;
+        watch->stop();
+        if (!flatpakApp.isEmpty()) QProcess::startDetached(QStringLiteral("flatpak"), {QStringLiteral("kill"), flatpakApp});
+        else process->terminate();
+    });
+    watch->start();
+
+    QStringList args;
+    for (std::size_t i = 1; i < plan.setupArgv.size(); ++i) args << QString::fromStdString(plan.setupArgv[i]);
+    package_ = process;
+    emit packageBusyChanged();
+    setPackageStatus(tr("%1  -  answer its question with a mouse or a keyboard").arg(label));
+    process->start(QString::fromStdString(plan.setupArgv.front()), args);
+}
+
 bool LauncherController::launch(const QString& gameId) {
     // Opening something new replaces what is running. Done before the router
     // is consulted so a refused launch does not close what was already there.
     const omnios::Game* game = findGame(model_.library(), gameId);
     if (game == nullptr) {
+        qWarning("launch: no game with id %s", qPrintable(gameId));
         setStatus(tr("No game with id %1").arg(gameId));
         return false;
     }
 
     const omnios::LaunchPlan plan = omnios::planLaunch(*game, {});
+    qInfo("launch %s: %s", qPrintable(gameId),
+          plan.ok ? plan.commandLine().c_str() : ("refused: " + plan.error).c_str());
     if (!plan.ok) {
         // The router's message is already written for a person; pass it
         // through rather than replacing it with something vaguer.
@@ -355,9 +535,19 @@ bool LauncherController::launch(const QString& gameId) {
         return true;
     }
 
+    // An emulator from Flathub starts in its setup wizard unless told what
+    // the wizard would ask, and most start on the keyboard unless given the
+    // pad (EmulatorSetup.h). Not fatal: at worst the wizard, or the keyboard.
+    if (!plan.engineId.empty() && !omnios::prepareEmulator(plan.engineId, gamepad_.controllers()))
+        qWarning("could not prepare %s's settings", plan.engineId.c_str());
+
     auto* process = new QProcess(this);
     captureOutput(process);
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    // The launcher's own Qt platform is not a game's. Emulators built on Qt
+    // choose theirs, and several choose X11 because Wayland breaks them: PCSX2
+    // crashed and Dolphin aborted when handed the session's "wayland".
+    env.remove(QStringLiteral("QT_QPA_PLATFORM"));
     for (const auto& variable : plan.environment) {
         env.insert(QString::fromStdString(variable.first),
                    QString::fromStdString(variable.second));
@@ -374,9 +564,11 @@ bool LauncherController::launch(const QString& gameId) {
     // Phase 9.4: when the game exits, the grid comes back. Without this the
     // shell would be left staring at whatever the game left on screen.
     connect(process, &QProcess::finished, this,
-            [this, process](int code, QProcess::ExitStatus) {
+            [this, process](int code, QProcess::ExitStatus status) {
                 focusLauncherWindow();
-                setStatus(code == 0
+                setStatus(status == QProcess::CrashExit
+                              ? tr("%1 crashed  —  see %2").arg(runningTitle_, kAppLog)
+                          : code == 0
                               ? tr("%1 exited").arg(runningTitle_)
                               : tr("%1 exited with code %2  —  see %3")
                                     .arg(runningTitle_).arg(code).arg(kAppLog));
@@ -388,7 +580,12 @@ bool LauncherController::launch(const QString& gameId) {
                 emit gameRunningChanged();
             });
     connect(process, &QProcess::errorOccurred, this,
-            [this, process](QProcess::ProcessError) {
+            [this, process](QProcess::ProcessError error) {
+                // Only a start that failed ends here. A crash is reported as
+                // an error too, and then as finished, which says so with its
+                // title; handled here as well, it lost the title and read
+                // " exited with code 11".
+                if (error != QProcess::FailedToStart) return;
                 focusLauncherWindow();
                 setStatus(tr("%1 could not start: %2").arg(runningTitle_, process->errorString()));
                 running_ = nullptr;
@@ -477,7 +674,12 @@ bool LauncherController::startApp(const QString& title, const QString& program,
                 emit gameRunningChanged();
             });
     connect(process, &QProcess::errorOccurred, this,
-            [this, process](QProcess::ProcessError) {
+            [this, process](QProcess::ProcessError error) {
+                // Only a start that failed ends here. A crash is reported as
+                // an error too, and then as finished, which says so with its
+                // title; handled here as well, it lost the title and read
+                // " exited with code 11".
+                if (error != QProcess::FailedToStart) return;
                 focusLauncherWindow();
                 setStatus(tr("%1 could not start: %2").arg(runningTitle_, process->errorString()));
                 running_ = nullptr;
@@ -1121,6 +1323,75 @@ void LauncherController::endSteamGame(const QString& said, bool returnHome) {
     if (returnHome) focusLauncherWindow();
     setStatus(said);
     emit gameRunningChanged();
+}
+
+void LauncherController::quietCriticalNotifications(bool quiet) {
+    // Plasma shows its critical notifications through Do Not Disturb unless
+    // told not to — "memory shortage", say — and they stay until closed with
+    // a mouse. So for the length of a game that is turned off too, and the
+    // user's own setting put back after. The setting they had is kept in a
+    // file, not only in memory, so a launcher that dies mid-game still puts
+    // it back the next time it starts (see the constructor).
+    const QString saved = QDir::homePath() + QStringLiteral("/.local/state/omnios/critical-in-dnd");
+    const QStringList where = {QStringLiteral("--file"), QStringLiteral("plasmanotifyrc"),
+                               QStringLiteral("--group"), QStringLiteral("Notifications"),
+                               QStringLiteral("--key"), QStringLiteral("CriticalInDndMode")};
+    if (quiet) {
+        if (!QFile::exists(saved)) {
+            QProcess read;
+            read.start(QStringLiteral("kreadconfig6"), where + QStringList{QStringLiteral("--default"), QStringLiteral("true")});
+            if (!read.waitForFinished(2000)) return;  // no KDE here: leave it alone
+            const QString theirs = QString::fromUtf8(read.readAllStandardOutput()).trimmed();
+            QDir().mkpath(QFileInfo(saved).path());
+            QFile file(saved);
+            if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return;
+            file.write(theirs.toUtf8());
+        }
+        QProcess::startDetached(QStringLiteral("kwriteconfig6"),
+                                where + QStringList{QStringLiteral("--notify"), QStringLiteral("false")});
+    } else {
+        QFile file(saved);
+        if (!file.open(QIODevice::ReadOnly)) return;  // never changed
+        const QString theirs = QString::fromUtf8(file.readAll()).trimmed();
+        file.close();
+        QProcess::startDetached(QStringLiteral("kwriteconfig6"),
+                                where + QStringList{QStringLiteral("--notify"),
+                                                    theirs.isEmpty() ? QStringLiteral("true") : theirs});
+        file.remove();
+    }
+}
+
+void LauncherController::updateNotificationInhibit() {
+    if (inhibitPending_) return;  // looked at again when Plasma answers
+    const bool wanted = gameRunning();
+    const QString service = QStringLiteral("org.freedesktop.Notifications");
+    const QString path = QStringLiteral("/org/freedesktop/Notifications");
+
+    if (wanted && notificationInhibit_ == 0) {
+        QDBusMessage call = QDBusMessage::createMethodCall(service, path, service, QStringLiteral("Inhibit"));
+        call << QStringLiteral("omni-launcher") << tr("A game is running") << QVariantMap();
+        inhibitPending_ = true;
+        auto* watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(call), this);
+        connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher* w) {
+            const QDBusPendingReply<uint> reply = *w;
+            w->deleteLater();
+            inhibitPending_ = false;
+            // Not Plasma, or none running: nothing to quieten, and nothing lost.
+            if (reply.isError()) {
+                qWarning("notifications not inhibited: %s", qPrintable(reply.error().message()));
+                return;
+            }
+            notificationInhibit_ = reply.value();
+            quietCriticalNotifications(true);
+            updateNotificationInhibit();  // the game may have ended while asking
+        });
+    } else if (!wanted && notificationInhibit_ != 0) {
+        QDBusMessage call = QDBusMessage::createMethodCall(service, path, service, QStringLiteral("UnInhibit"));
+        call << notificationInhibit_;
+        QDBusConnection::sessionBus().asyncCall(call);
+        notificationInhibit_ = 0;
+        quietCriticalNotifications(false);
+    }
 }
 
 void LauncherController::updatePadRouting() {

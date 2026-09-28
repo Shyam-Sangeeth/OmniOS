@@ -12,7 +12,8 @@
  *   echo a > /tmp/pad            # tap A (✕ on the DualSense); one per line
  *
  * Buttons, named by Xbox position: a b x y l1 r1 start back guide up down left
- * right; "quit" removes the device. See .claude/skills/boot-os/SKILL.md.
+ * right; ls-left ls-right ls-up ls-down push the left stick for half a
+ * second; "quit" removes the device. See .claude/skills/boot-os/SKILL.md.
  *
  * The DualSense is made to look like what the kernel's hid-playstation driver
  * reports for a real one over USB: Sony's ids and name, sticks on 0-255, and
@@ -48,6 +49,13 @@ static void tap_key(int code) {
 static void tap_hat(int axis, int value) {
     emit(EV_ABS, axis, value); sync_now(); usleep(60000);
     emit(EV_ABS, axis, 0); sync_now(); usleep(60000);
+}
+
+/* A stick pushed all the way one way for half a second, then let go. */
+static void push_stick(int axis, int dir, int ps5) {
+    const int full = ps5 ? (dir > 0 ? 255 : 0) : (dir > 0 ? 32767 : -32768);
+    emit(EV_ABS, axis, full); sync_now(); usleep(500000);
+    emit(EV_ABS, axis, ps5 ? 128 : 0); sync_now(); usleep(60000);
 }
 
 int main(int argc, char **argv) {
@@ -118,6 +126,10 @@ int main(int argc, char **argv) {
             else if (!strcmp(line, "down")) tap_hat(ABS_HAT0Y, 1);
             else if (!strcmp(line, "left")) tap_hat(ABS_HAT0X, -1);
             else if (!strcmp(line, "right")) tap_hat(ABS_HAT0X, 1);
+            else if (!strcmp(line, "ls-left")) push_stick(ABS_X, -1, ps5);
+            else if (!strcmp(line, "ls-right")) push_stick(ABS_X, 1, ps5);
+            else if (!strcmp(line, "ls-up")) push_stick(ABS_Y, -1, ps5);
+            else if (!strcmp(line, "ls-down")) push_stick(ABS_Y, 1, ps5);
             else if (!strcmp(line, "quit")) { ioctl(fd, UI_DEV_DESTROY); return 0; }
             usleep(250000);
         }

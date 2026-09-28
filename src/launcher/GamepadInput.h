@@ -25,6 +25,11 @@
 #include <QString>
 #include <QTimer>
 
+#include <cstdint>
+#include <vector>
+
+#include "omnios/EmulatorSetup.h"
+
 class GamepadInput : public QObject {
     Q_OBJECT
 
@@ -44,6 +49,10 @@ public:
     // "generic". It decides what the buttons are called on screen — a
     // DualSense has no "A", it has ✕ in the same place.
     QString kind() const { return kind_; }
+
+    // The pads connected now, the one last pressed first: whoever pressed
+    // Play is player 1 in the emulator it starts (EmulatorSetup.h).
+    std::vector<omnios::Controller> controllers() const;
 
 signals:
     // A button that maps onto a key the shell already understands.
@@ -69,6 +78,7 @@ private:
     bool available_  = false;
     bool appRunning_ = false;
     QString kind_ = QStringLiteral("generic");
+    std::uint32_t lastPad_ = 0;  // SDL's id for it; 0 is never one
 
     QTimer timer_;
     // The direction currently held, so it can repeat, and when it last fired.

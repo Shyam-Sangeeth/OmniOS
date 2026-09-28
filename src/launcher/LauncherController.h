@@ -18,6 +18,7 @@
 #include "AppListModel.h"
 #include "GameListModel.h"
 #include "GamepadInput.h"
+#include "NotificationWatcher.h"
 #include "SystemStatus.h"
 
 class LauncherController : public QObject {
@@ -68,6 +69,9 @@ class LauncherController : public QObject {
     // screen that names one: {south, east, west, north, l1, r1, start, guide}.
     // ✕ ○ □ △ on a PlayStation pad, A B X Y on an Xbox one, and so on.
     Q_PROPERTY(QVariantMap buttonNames READ buttonNames NOTIFY controllerKindChanged)
+    // Notifications that stay on screen until closed; the system menu offers
+    // to close them (NotificationWatcher.h).
+    Q_PROPERTY(int standingNotifications READ standingNotifications NOTIFY standingNotificationsChanged)
 
 public:
     explicit LauncherController(QObject* parent = nullptr);
@@ -93,6 +97,8 @@ public:
     bool    passwordChecking() const { return passwordCheck_ != nullptr; }
     bool    usingController() const { return usingController_; }
     QVariantMap buttonNames() const;
+    int     standingNotifications() const { return notifications_.count(); }
+    Q_INVOKABLE void clearNotifications() { notifications_.clearAll(); }
     QString packageStatus() const { return packageStatus_; }
     bool    ephemeral() const;
     QString storageNotice() const;
@@ -126,6 +132,23 @@ public:
 
     // Install hint for a game whose engine is missing; empty otherwise.
     Q_INVOKABLE QString installHint(const QString& gameId) const;
+    // Asked afresh rather than read from the game list, which is a snapshot
+    // taken at the last scan: an emulator installed since changes all three.
+    Q_INVOKABLE bool isPlayable(const QString& gameId) const;
+    // Why it cannot start, in words for a person; empty when it can.
+    Q_INVOKABLE QString launchProblem(const QString& gameId) const;
+    // The emulator a game is waiting for, when installing it from Flathub
+    // would make it playable: { app: "net.pcsx2.PCSX2", name: "PCSX2" }.
+    // Empty otherwise.
+    Q_INVOKABLE QVariantMap missingEngine(const QString& gameId) const;
+    // Installs that emulator for this user, from Flathub, with its progress
+    // in packageStatus; no password, and nothing to compile.
+    Q_INVOKABLE void installEngine(const QString& gameId);
+    // A one-time step the game's emulator needs first, as the router names it
+    // ({ label: "Install PS3 system software" }); empty when there is none.
+    Q_INVOKABLE QVariantMap setupStep(const QString& gameId) const;
+    // Runs that step: the emulator's own window, which the user answers.
+    Q_INVOKABLE void runSetupStep(const QString& gameId);
 
     // Ends whatever is running and comes back to the library. The system menu
     // asks first: whatever was not saved is lost.
@@ -202,6 +225,7 @@ signals:
     void passwordChanged();
     void usingControllerChanged();
     void controllerKindChanged();
+    void standingNotificationsChanged();
     // Asks the shell to make sure something inside it holds QML focus, before a
     // key is delivered to it.
     void focusWanted();
@@ -272,6 +296,16 @@ private:
     // launcher again: nothing else is listening then.
     void updatePadRouting();
 
+    // Do Not Disturb while a game runs: Plasma otherwise draws its
+    // notifications over it, and in the corner of a full-screen game they
+    // cover it until someone dismisses them — with a mouse. Asked for through
+    // Plasma's Inhibit on this process's own D-Bus connection, which Plasma
+    // lifts by itself if the launcher goes, so it can never be left on.
+    void updateNotificationInhibit();
+    void quietCriticalNotifications(bool quiet);
+    uint notificationInhibit_ = 0;  // Plasma's cookie; 0 while not inhibited
+    bool inhibitPending_ = false;
+
     // Rescans when the Steam games the tab would show have changed since the
     // last scan: a game finished installing, or was uninstalled, in Steam. Checked when
     // the launcher comes back to the front and every few seconds while it is
@@ -279,6 +313,7 @@ private:
     void refreshIfSteamChanged();
 
     GamepadInput   gamepad_;
+    NotificationWatcher notifications_;
     SystemStatus   system_;
     GameListModel  model_;
     AppListModel   apps_;

@@ -107,7 +107,9 @@ the taskbar in Game Mode is only what gets started from the library.
 What opens while Game Mode is on — a game, an app from the Apps tab — opens
 full screen, as on a console; dialogs stay ordinary, on top of their window.
 Leaving Game Mode turns those windows back into ordinary, maximised desktop
-windows, and coming back makes them full screen again. (Maximised rather than
+windows, and back in Game Mode each is full screen again once it is resumed —
+not as the launcher opens, which raised the game over the library Game Mode
+opens on. (Maximised rather than
 just windowed: a window born full screen has no size of its own to return to,
 and RetroArch's is the console's picture at 1x — an NES game became a 240×256
 window in a corner.) The same KWin script does all of it, and keeps the
@@ -636,8 +638,9 @@ From there, the system menu (Start, or F10) opens on *Resume* and *Quit* for
 what is running, and so does the running game's own tile menu. Resume raises
 the game's window through `omni-kwin-activate --pid`: a game's window class is
 whatever its engine picked, but its processes are known — the launcher's child
-and everything under it, or Steam's reaper and everything under that. Quit asks
-first, with *Keep playing* under the cursor, then sends SIGTERM to the whole
+and everything under it, or Steam's reaper and everything under that. Quit (no
+second question: the menu was opened on purpose, and the entry says what it
+does) sends SIGTERM to the whole
 tree and, three seconds on, SIGKILL to whatever ignored it — a hung game does.
 Each process is noted with its start time as well as its id, so nothing that
 has taken a freed id since is touched.
@@ -650,7 +653,38 @@ drives, listed in `libraryfolders.vdf`, are read too. Covers are the ones Steam
 already caches for its own library view, under `appcache/librarycache` — the
 tall capsule, or the wide header when that is all there is.
 
-A Steam tile has a menu (M, or □/X on a pad): Play, and three things only Steam
+**Emulator games get box art from libretro's thumbnail collection**
+(thumbnails.libretro.com, src/omnios/CoverArt.h and src/launcher/CoverFetcher.h).
+It files art per system under the names of the No-Intro and Redump sets, and
+publishes a plain listing of each system's names. So after a scan, for games
+with no cover (a `cover.jpg` or `cover.png` in a game's folder still comes
+first), the launcher downloads each system's listing once, keeps it for a month
+in `~/.omnios/library/thumbnails`, matches the games' file names against it
+there, and fetches only the images it needs into `~/.omnios/library/covers`.
+A match must be the same title: the bracketed tags are set aside (region,
+version, dump), then the game's own region wins, then a world or US release,
+never a beta or demo when there is a finished one, and of dated builds the
+newest. A title that is not there gets no cover rather than the nearest one,
+and is not asked about again for a month (`covers/none.json`). With no
+network nothing is noted, and it tries again on the next scan. What the server
+learns is which systems' listings were fetched and the images of the games
+that matched. Switch has no collection; PC and Steam games are not looked up.
+
+On a tile the art is cropped to fill it; on the game's page it is shown whole
+beside a dimmed copy filling the band, since box art is taller than the band.
+Verified in the VM: Nova the Squirrel, a homebrew NES game, got its box; the
+other homebrew test games are not in the collection and correctly got none.
+
+Every game tile has a menu, behind its three dots (•••), or M, or □/X on a pad:
+*Play*, or while it runs *Resume* and *Quit game*; *Details*, its page (whose
+button also says *Resume* for the game that is running, rather than a Play that
+would start it over); and for a game with no cover whose system the thumbnail
+collection has, *Look for cover art*, which asks again at once and says what it
+found; and *Uninstall*, which asks once ("Keep it" under the cursor), stops the
+game if it runs, and moves its files to the Trash — a game folder whole, and a
+loose `.cue` or `.m3u` with the tracks it names in the same folder
+(`gameFiles()`, GameScanner.h) — so it can be put back from the desktop. A
+Steam tile's menu instead has three things only Steam
 can do, handed to it through its own links — *Open in Steam*
 (`steam://nav/games/details/<id>`, the game's library page, where Properties
 is), *Verify game files* (`steam://validate/<id>`) and *Uninstall*
@@ -819,11 +853,41 @@ takes one per player — Azahar, RPCS3, Ryubing — it is the pad when one is
 connected as the game starts, and the keyboard's layout otherwise. Escape opens
 DuckStation's and PCSX2's pause menu, which is why they now start with
 `-bigpicture`: the menu belongs to that interface, and without it Escape (or
-Select + Start) paused the game and drew nothing — no Resume, no Exit.
+Select + Start) paused the game and drew nothing — no Resume, no Exit. In
+RetroArch, Escape used to quit the game on the spot; it now opens the Quick
+Menu, the same one Start + Select opens (Escape again resumes, and *Close
+Content* ends RetroArch and returns to the library). In RPCS3 Escape opens its
+Home Menu, the PS button's (it used to leave full screen). Dolphin, Azahar and
+Ryubing have no pause menu of their own: in Dolphin Escape did nothing, in
+Azahar it dropped the game into a small window over the library, and in
+Ryubing it leaves full screen and then stops the game. For their games Escape
+opens OmniOS's game menu instead, the one Meta opens (Resume, Quit game). The
+launcher adds Escape to that shortcut, beside Meta, only while such a game is
+in front, and takes it off again when the launcher is (where Escape goes back),
+when the game ends, and when Game Mode does.
 
 Meta+Esc is a shortcut Game Mode's KWin script registers, so it works whatever
 has the keyboard, and raises the launcher (putting Big Picture away) as Guide
 does.
+
+**Meta alone, in Game Mode, opens the running game's menu** — Resume (first,
+so Meta then Enter is back in the game), Quit game, Open in
+Steam for a Steam game, Library, System menu — or the system menu when nothing
+runs; pressed again, it closes the menu. It opens where the game's own three
+dots open theirs, beside its tile (the Games tab brought back and scrolled to
+it); something with no tile, such as an app, gets it at the corner. Plasma's start menu, a thing for a
+pointer, is what Meta opened over a game before. Plasma 6 has Meta as an
+ordinary global shortcut of plasmashell's ("activate application launcher",
+with Alt+F1; kwinrc's `ModifierOnlyShortcuts`, the older way, does nothing
+now), so on entering Game Mode `omni-session-select` takes Meta off it through
+kglobalaccel's `setForeignShortcutKeys`, keeping Alt+F1, and gives it to "OmniOS
+Menu", which the Game Mode KWin script registers to call the launcher on the
+session bus (`org.omnios.Launcher`, `/Launcher`, `ShowMenu`; LauncherBus.h). The
+keys it found are saved in `~/.local/state/omnios/game-mode-meta` and put back
+when Game Mode ends, or at the next desktop login if a session ended inside it.
+On the desktop, Meta is Plasma's start menu as always. Verified in the VM:
+Meta over Nova opened its menu, Enter resumed it, and back on the desktop Meta
+opened the start menu.
 
 **Which key is which is shown along the bottom of the game** for as long as it
 is played from the keyboard: one slim line of keycaps and the console's own
@@ -838,7 +902,7 @@ every key — and lets the pointer through. It shows when a game is started or
 resumed from the keyboard, goes when the library is back in front or a pad is
 used, and a game started from a pad shows none.
 
-Verified in the VM: Nova the Squirrel (Enter, the arrows; Esc quits RetroArch),
+Verified in the VM: Nova the Squirrel (Enter, the arrows; Escape's Quick Menu),
 Tetrade in DuckStation (Enter, the arrows, Z as ✕; Escape's pause menu and its
 Exit), BeatRush in Azahar with no pad (the arrows), Dolphin's Wii test (I and L
 moved the Nunchuk stick, on the keyboard alone and beside the pad), Meta+Esc

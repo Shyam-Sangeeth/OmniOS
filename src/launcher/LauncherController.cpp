@@ -30,6 +30,7 @@
 #include "InputMode.h"
 #include "KeyDelivery.h"
 #include "omnios/Apps.h"
+#include "omnios/CoverArt.h"
 #include "omnios/GameScanner.h"
 #include "omnios/KeyboardLayout.h"
 #include "omnios/Paths.h"
@@ -172,6 +173,23 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
                 if (state == Qt::ApplicationActive) refreshIfSteamChanged();
                 else takeBackFromSteam();
             });
+
+    coverSave_.setSingleShot(true);
+    coverSave_.setInterval(2000);
+    connect(&coverSave_, &QTimer::timeout, this, [this]() {
+        std::string error;
+        model_.library().save(omnios::libraryCacheFile(), error);
+    });
+    connect(&covers_, &CoverFetcher::coverReady, this, [this](const QString& id, const QString& path) {
+        model_.setCover(id, path);
+        coverSave_.start();
+    });
+    connect(&covers_, &CoverFetcher::notFound, this, [this](const QString& id, bool offline) {
+        const omnios::Game* game = findGame(model_.library(), id);
+        const QString title = game ? QString::fromStdString(game->title) : id;
+        setStatus(offline ? tr("Could not reach the cover art collection  -  is the network up?")
+                          : tr("No cover art for %1 in the collection").arg(title));
+    });
 
     steamGamePoll_.setInterval(2000);
     connect(&steamGamePoll_, &QTimer::timeout, this, &LauncherController::watchSteamGame);
@@ -325,6 +343,7 @@ void LauncherController::refresh() {
     library.save(omnios::libraryCacheFile(), error);
 
     model_.setLibrary(std::move(library));
+    covers_.fetchMissing(model_.library());
     apps_.refresh();
     emit storageChanged();
 
@@ -606,6 +625,7 @@ bool LauncherController::launch(const QString& gameId) {
 
     runningTitle_ = QString::fromStdString(game->title);
     runningGameId_ = gameId;
+    runningEngine_ = QString::fromStdString(plan.engineId);
 
     // Phase 9.4: when the game exits, the grid comes back. Without this the
     // shell would be left staring at whatever the game left on screen.
@@ -713,6 +733,7 @@ bool LauncherController::startApp(const QString& title, const QString& program,
     QElapsedTimer startedAt;
     startedAt.start();
     runningTitle_ = title;
+    runningEngine_.clear();
 
     connect(process, &QProcess::finished, this,
             [this, process, startedAt](int, QProcess::ExitStatus) {
@@ -1328,6 +1349,48 @@ void LauncherController::steamAction(const QString& gameId, const QString& actio
 
 void LauncherController::quitRunningGame() { stopRunning(true); }
 
+bool LauncherController::coverFindable(const QString& gameId) const {
+    const omnios::Game* game = findGame(model_.library(), gameId);
+    return game != nullptr && !omnios::thumbnailSystem(*game).empty();
+}
+
+void LauncherController::findCover(const QString& gameId) {
+    const omnios::Game* game = findGame(model_.library(), gameId);
+    if (game == nullptr) return;
+    setStatus(tr("Looking for cover art for %1 ...").arg(QString::fromStdString(game->title)));
+    covers_.retry(*game);
+}
+
+void LauncherController::uninstallGame(const QString& gameId) {
+    const omnios::Game* found = findGame(model_.library(), gameId);
+    if (found == nullptr) return;
+    if (found->platform == omnios::Platform::Steam) {
+        steamAction(gameId, QStringLiteral("uninstall"));
+        return;
+    }
+    const omnios::Game game = *found;  // the library changes under it below
+    const QString title = QString::fromStdString(game.title);
+    if (runningGameId() == gameId) stopRunning(false);
+
+    int failed = 0;
+    for (const std::filesystem::path& file : omnios::gameFiles(game)) {
+        if (!QFile::moveToTrash(QString::fromStdString(file.string()))) {
+            qWarning("uninstall %s: could not move %s to the Trash", qPrintable(gameId), file.string().c_str());
+            ++failed;
+        }
+    }
+    QFile::remove(QString::fromStdString(omnios::coverCacheFile(game).string()));
+    refresh();
+    setStatus(failed == 0 ? tr("%1 moved to the Trash").arg(title)
+                          : tr("%1: some of its files could not be moved to the Trash").arg(title));
+}
+
+void LauncherController::showMenu() {
+    guidePressed_.invalidate();
+    focusLauncherWindow();
+    emit menuWanted();
+}
+
 void LauncherController::resumeRunningGame() {
     guidePressed_.invalidate();
     QStringList pids;
@@ -1577,6 +1640,49 @@ void LauncherController::updateNotificationInhibit() {
 void LauncherController::updatePadRouting() {
     gamepad_.setAppRunning(gameRunning()
                            && QGuiApplication::applicationState() != Qt::ApplicationActive);
+    // Escape changes hands at the same moments.
+    updateEscapeKey();
+}
+
+void LauncherController::updateEscapeKey() {
+    const bool wanted = running_ != nullptr && omnios::escapeOpensGameMenu(runningEngine_.toStdString())
+                        && QGuiApplication::applicationState() != Qt::ApplicationActive;
+    // A call still running looks again when it ends.
+    if (wanted == escapeForMenu_ || escapeKeyCall_ != nullptr) return;
+    QString stateDir = qEnvironmentVariable("XDG_STATE_HOME");
+    if (stateDir.isEmpty()) stateDir = QDir::homePath() + QStringLiteral("/.local/state");
+    if (!QFile::exists(stateDir + QStringLiteral("/omnios/game-mode-meta"))) {
+        // Not Game Mode's Meta, or no longer: leaving Game Mode took the
+        // menu's keys away, Escape with them, and gave Meta back to Plasma.
+        escapeForMenu_ = false;
+        return;
+    }
+    escapeForMenu_ = wanted;
+    // Qt's key codes: Meta alone, and Escape.
+    QStringList args{QStringLiteral("--user"), QStringLiteral("call"), QStringLiteral("org.kde.kglobalaccel"),
+                     QStringLiteral("/kglobalaccel"), QStringLiteral("org.kde.KGlobalAccel"),
+                     QStringLiteral("setForeignShortcutKeys"), QStringLiteral("asa(ai)"),
+                     QStringLiteral("4"), QStringLiteral("kwin"), QStringLiteral("OmniOS Menu"),
+                     QStringLiteral("KWin"), QStringLiteral("OmniOS: game menu"),
+                     wanted ? QStringLiteral("2") : QStringLiteral("1"),
+                     QStringLiteral("4"), QStringLiteral("16777250"), QStringLiteral("0"), QStringLiteral("0"),
+                     QStringLiteral("0")};
+    if (wanted) {
+        args << QStringLiteral("4") << QStringLiteral("16777216") << QStringLiteral("0") << QStringLiteral("0")
+             << QStringLiteral("0");
+    }
+    auto* call = new QProcess(this);
+    escapeKeyCall_ = call;
+    const auto done = [this, call]() {
+        escapeKeyCall_ = nullptr;
+        call->deleteLater();
+        updateEscapeKey();
+    };
+    connect(call, &QProcess::finished, this, done);
+    connect(call, &QProcess::errorOccurred, this, [done](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart) done();
+    });
+    call->start(QStringLiteral("busctl"), args);
 }
 
 void LauncherController::stopRunning(bool returnHome) {

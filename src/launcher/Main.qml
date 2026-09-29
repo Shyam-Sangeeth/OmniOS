@@ -226,17 +226,19 @@ Window {
             delegate: Item {
                 width: gamesGrid.cellWidth
                 height: gamesGrid.cellHeight
+                readonly property Item menuAnchor: gameTile.menuAnchor
 
                 GameTile {
+                    id: gameTile
                     anchors.centerIn: parent
                     title: model.title
                     platformName: model.platformName
                     badgeColor: model.badgeColor
                     cover: model.cover
                     playable: model.playable
-                    // Steam games have things only Steam can do with them;
-                    // other titles have nothing to put in a menu yet.
-                    hasMenu: model.platformId === "steam"
+                    // Every game has a menu (openGameMenu); Steam's adds
+                    // what only Steam can do.
+                    hasMenu: true
                     selected: gamesGrid.activeFocus && parent.GridView.isCurrentItem
                               && !detailLoader.active
 
@@ -258,9 +260,12 @@ Window {
             Keys.onEnterPressed: window.openDetail()
             Keys.onTabPressed: window.selectTab(1)
             Keys.onBacktabPressed: window.selectTab(1)
-            Keys.onMenuPressed: window.openGameMenu(currentItem)
+            Keys.onMenuPressed: window.openGameMenu(window.tileMenuAnchor(currentIndex))
             Keys.onPressed: function (event) {
-                if (event.key === Qt.Key_M) { window.openGameMenu(currentItem); event.accepted = true }
+                if (event.key === Qt.Key_M) {
+                    window.openGameMenu(window.tileMenuAnchor(currentIndex))
+                    event.accepted = true
+                }
             }
         }
 
@@ -382,7 +387,7 @@ Window {
                         .arg(Launcher.runningTitle)
                   : Launcher.usingController
                     ? (window.currentTab === 0
-                       ? (window.currentGame && window.currentGame.platformId === "steam"
+                       ? (window.currentGame
                           ? qsTr("%1 Open    %2 Back    %3 Game menu    %4 %5 Switch tab    %6 Menu    %7 Rescan")
                                 .arg(b.south).arg(b.east).arg(b.west).arg(b.l1).arg(b.r1).arg(b.start).arg(b.north)
                           : qsTr("%1 Open    %2 Back    %3 %4 Switch tab    %5 Menu    %6 Rescan")
@@ -390,7 +395,7 @@ Window {
                        : qsTr("%1 Open    %2 Back    %3 App menu    %4 %5 Switch tab    %6 Menu")
                              .arg(b.south).arg(b.east).arg(b.west).arg(b.l1).arg(b.r1).arg(b.start))
                     : window.currentTab === 0
-                      ? (window.currentGame && window.currentGame.platformId === "steam"
+                      ? (window.currentGame
                          ? qsTr("[↑][↓][←][→] Move    [Enter] Open    [M] Game menu    [Tab] Switch tab    [F10] Menu    [F5] Rescan")
                          : qsTr("[↑][↓][←][→] Move    [Enter] Open    [Tab] Switch tab    [F10] Menu    [F5] Rescan"))
                       : qsTr("[↑][↓][←][→] Move    [Enter] Open    [M] App menu    [Tab] Switch tab    [F10] Menu"))
@@ -429,7 +434,11 @@ Window {
         onChosen: function (action, context) {
             // Two of the system menu's entries are doors into another menu
             // rather than actions of their own.
-            if (context === "power" && action === "resume") Launcher.resumeRunningGame()
+            if ((context === "power" || context === "running") && action === "resume") Launcher.resumeRunningGame()
+            else if (context === "running" && action === "quit") Launcher.quitRunningGame()
+            else if (context === "running" && action === "library") {}
+            else if (context === "running" && action === "system") window.openPowerMenu()
+            else if (context === "running") Launcher.steamAction(Launcher.runningGameId, action)
             else if (context === "power" && action === "clearnotes") Launcher.clearNotifications()
             else if (context === "power" && action === "sysupdate") window.confirmUpdate()
             else if (context === "power" && action === "syscheck") {
@@ -438,9 +447,9 @@ Window {
             }
             else if (context === "sysupdate" && action === "go") Launcher.updateSystem()
             else if (context === "sysupdate") {}
-            else if (action === "quit") window.confirmQuit()
-            else if (context === "quit" && action === "quit-confirmed") Launcher.quitRunningGame()
-            else if (context === "quit") {}
+            else if (action === "quit") Launcher.quitRunningGame()
+            else if (context === "uninstall" && action === "uninstall-confirmed") Launcher.uninstallGame(menuPanel.subject)
+            else if (context === "uninstall") {}
             else if (context === "power" && action === "sound") window.openAudioMenu()
             else if (context === "power" && action === "desktop") Launcher.switchToDesktop()
             else if (context === "power" && action === "install") Launcher.installOmniOS()
@@ -501,6 +510,7 @@ Window {
     function restoreFocus() {
         if (passwordPrompt.open) passwordPrompt.takeFocus()
         else if (wifiPrompt.open) wifiPrompt.takeFocus()
+        else if (menuPanel.visible) menuPanel.takeFocus()
         else if (detailLoader.item) detailLoader.item.forceActiveFocus()
         else activeGrid.forceActiveFocus()
     }
@@ -646,20 +656,77 @@ Window {
         else if (action === "uninstall") Launcher.removeApp(id)
     }
 
-    // A Steam game's menu: play it, or hand it to Steam for the rest.
+    // A game tile's three dots, scrolled into view: where its menu opens.
+    // Null for a row that is not a game.
+    function tileMenuAnchor(index) {
+        if (index < 0) return null
+        gamesGrid.positionViewAtIndex(index, GridView.Contain)
+        gamesGrid.forceLayout()
+        var cell = gamesGrid.itemAtIndex(index)
+        return cell ? cell.menuAnchor : null
+    }
+
+    // The running game's menu, for Meta in Game Mode (Launcher.menuWanted):
+    // back into it, out of it, or on to the library or the system menu. A
+    // Steam game adds its page in Steam. Resume comes first, so Meta and then
+    // Enter is back in the game. It opens where the game's own three dots open
+    // theirs, on the game's tile (the Games tab, scrolled to it and focused);
+    // at the corner for something that has no tile, such as an app.
+    function openRunningGameMenu() {
+        var isSteam = Launcher.runningGameId.indexOf("steam.") === 0
+        var index = GameLibrary.indexOfId(Launcher.runningGameId)
+        var anchor = null
+        if (index >= 0) {
+            detailLoader.active = false  // the tile is under a page left open
+            if (window.currentTab !== 0) window.selectTab(0)
+            gamesGrid.currentIndex = index
+            anchor = window.tileMenuAnchor(index)
+        }
+        menuPanel.openFor(anchor || menuAnchor, Launcher.runningTitle.toUpperCase(), [
+            { action: "resume", label: qsTr("Resume"), enabled: true },
+            { action: "quit",   label: qsTr("Quit game"), enabled: true }
+        ].concat(isSteam ? [{ action: "details", label: qsTr("Open in Steam"), enabled: true }] : [], [
+            { action: "library", label: qsTr("Library"), enabled: true },
+            { action: "system",  label: qsTr("System menu"), enabled: true }
+        ]), "running")
+    }
+
+    // Meta: the menu for what is running, or the system menu; pressed again
+    // while it is open, it closes.
+    Connections {
+        target: Launcher
+        function onMenuWanted() {
+            if (menuPanel.visible) menuPanel.close()
+            else if (Launcher.gameRunning) window.openRunningGameMenu()
+            else window.openPowerMenu()
+        }
+    }
+
+    // A game's menu, from its three dots (or M, or the pad's left face
+    // button): play it or, while it runs, resume or quit it; its page; and
+    // what only Steam can do for a Steam game, or another look for cover art
+    // for one that has none.
     function openGameMenu(anchorItem) {
         var game = currentGame
-        if (!game || game.platformId !== "steam" || !anchorItem) return
+        if (!game || !anchorItem) return
         var isRunning = Launcher.runningGameId === game.gameId
         var first = isRunning
             ? [{ action: "resume", label: qsTr("Resume"),    enabled: true },
                { action: "quit",   label: qsTr("Quit game"), enabled: true }]
             : [{ action: "play",   label: qsTr("Play"),      enabled: game.playable }]
-        menuPanel.openFor(anchorItem, game.title, first.concat([
-            { action: "details",   label: qsTr("Open in Steam"),      enabled: true },
-            { action: "validate",  label: qsTr("Verify game files"),  enabled: true },
-            { action: "uninstall", label: qsTr("Uninstall"),          enabled: true }
-        ]), "game", game.gameId)
+        var rest = [{ action: "page", label: qsTr("Details"), enabled: true }]
+        if (game.platformId === "steam") {
+            rest = rest.concat([
+                { action: "details",   label: qsTr("Open in Steam"),      enabled: true },
+                { action: "validate",  label: qsTr("Verify game files"),  enabled: true },
+                { action: "uninstall", label: qsTr("Uninstall"),          enabled: true }
+            ])
+        } else {
+            if (game.cover === "" && Launcher.coverFindable(game.gameId))
+                rest.push({ action: "cover", label: qsTr("Look for cover art"), enabled: true })
+            rest.push({ action: "remove", label: qsTr("Uninstall"), enabled: true })
+        }
+        menuPanel.openFor(anchorItem, game.title, first.concat(rest), "game", game.gameId)
     }
 
     // No translations ship yet, so plural forms are done here rather than
@@ -678,19 +745,30 @@ Window {
         ], "sysupdate")
     }
 
-    // Quitting loses whatever was not saved, so it is asked once more, with
-    // "Keep playing" first: the safe answer is the one under the cursor.
-    function confirmQuit() {
-        menuPanel.openFor(menuAnchor, qsTr("QUIT %1?").arg(Launcher.runningTitle.toUpperCase()), [
-            { action: "keep",           label: qsTr("Keep playing"),                        enabled: true },
-            { action: "quit-confirmed", label: qsTr("Quit  ·  unsaved progress is lost"),   enabled: true }
-        ], "quit")
+    // Uninstalling takes the game's files away (to the Trash), so it is asked
+    // once more, beside the same tile, with "Keep it" first: the safe answer is
+    // the one under the cursor. Quitting is not asked: a game's menu is
+    // opened on purpose, and Quit says what it does.
+    function confirmUninstall(id, anchorItem) {
+        var index = GameLibrary.indexOfId(id)
+        var game = index >= 0 ? GameLibrary.get(index) : null
+        if (!game) return
+        menuPanel.openFor(anchorItem || menuAnchor, qsTr("UNINSTALL %1?").arg(game.title.toUpperCase()), [
+            { action: "keep",                label: qsTr("Keep it"),                              enabled: true },
+            { action: "uninstall-confirmed", label: qsTr("Uninstall  ·  moves its files to the Trash"), enabled: true }
+        ], "uninstall", id)
     }
 
     function runGameAction(action) {
         var id = menuPanel.subject
+        if (action === "remove") {
+            window.confirmUninstall(id, window.tileMenuAnchor(GameLibrary.indexOfId(id)))
+            return
+        }
         if (action === "play") Launcher.launch(id)
         else if (action === "resume") Launcher.resumeRunningGame()
+        else if (action === "page") window.openDetail()
+        else if (action === "cover") Launcher.findCover(id)
         else Launcher.steamAction(id, action)
     }
 

@@ -181,7 +181,9 @@ load_game_mode_kwin_script() {
 const LAUNCHER = "omni-launcher";
 const madeFullScreen = new Set();
 // Taken out of full screen when Game Mode was left, and still open: full
-// screen again when it comes back, as the game they are.
+// screen again once back in Game Mode and brought to the front (Resume). Not
+// as the launcher opens: made full screen then, a game was raised over the
+// library that Game Mode is meant to open on.
 const leftFullScreen = new Set();
 
 function isLauncher(window) {
@@ -196,11 +198,6 @@ function opened(window) {
     if (isLauncher(window)) {
         window.skipTaskbar = true;
         window.skipPager = true;
-        for (const other of leftFullScreen) {
-            other.fullScreen = true;
-            madeFullScreen.add(other);
-        }
-        leftFullScreen.clear();
         return;
     }
     if (!gameModeOn() || !window.normalWindow || window.transient) return;
@@ -249,10 +246,23 @@ registerShortcut("OmniOS Library", "OmniOS: back to the library", "Meta+Esc", fu
     workspace.activeWindow = launcher;
 });
 
+// Meta alone in Game Mode: the launcher's menu for what is running, instead of
+// Plasma's start menu. Registered with no key; Game Mode gives it Meta, and
+// takes it back, through kglobalaccel (meta_to_game_mode, below).
+registerShortcut("OmniOS Menu", "OmniOS: game menu", "", function () {
+    callDBus("org.omnios.Launcher", "/Launcher", "org.omnios.Launcher", "ShowMenu");
+});
+
 workspace.windowList().forEach(function (window) {
     if (isLauncher(window)) opened(window);
 });
 workspace.windowAdded.connect(opened);
+workspace.windowActivated.connect(function (window) {
+    if (!window || !leftFullScreen.has(window) || !gameModeOn()) return;
+    leftFullScreen.delete(window);
+    window.fullScreen = true;
+    madeFullScreen.add(window);
+});
 workspace.windowRemoved.connect(closed);
 EOF
     id="$("${kwin[@]}" /Scripting org.kde.kwin.Scripting.loadScript \
@@ -261,15 +271,69 @@ EOF
     return 0
 }
 
+# ---- Meta in Game Mode --------------------------------------------------------
+#
+# Meta pressed alone opens Plasma's start menu, a thing for a pointer, over a
+# game. In Game Mode it opens the launcher's menu instead: the running game's
+# (Resume, Quit), or the system menu when nothing runs.
+#
+# Plasma 6 has Meta as an ordinary global shortcut of plasmashell's, "activate
+# application launcher" (with Alt+F1); kwinrc's ModifierOnlyShortcuts, the
+# older way, did nothing. So Game Mode takes Meta off that shortcut through
+# kglobalaccel, keeping Alt+F1, and gives it to "OmniOS Menu", which the Game
+# Mode KWin script registers to call the launcher (LauncherBus.h). The
+# plasmashell keys it found are saved and put back when Game Mode ends.
+#
+# Keys go over D-Bus as a(ai): a count, then each sequence as four Qt key
+# codes. Meta alone is 16777250 (Qt::Key_Meta) 0 0 0.
+meta_file="$state_dir/game-mode-meta"
+readonly -a start_menu_id=(4 plasmashell "activate application launcher" plasmashell "Activate Application Launcher")
+readonly -a omnios_menu_id=(4 kwin "OmniOS Menu" KWin "OmniOS: game menu")
+readonly -a meta_alone=(4 16777250 0 0 0)
+
+kglobalaccel() {
+    busctl --user call org.kde.kglobalaccel /kglobalaccel org.kde.KGlobalAccel "$@" 2>/dev/null
+}
+
+meta_to_game_mode() {
+    # Already saved means already in Game Mode: saving again would record the
+    # keys without Meta as the desktop's.
+    [ -s "$meta_file" ] && return 0
+    local keys
+    keys="$(kglobalaccel shortcutKeys as "${start_menu_id[@]}")" || return 0
+    case "$keys" in "a(ai) "*) ;; *) return 0 ;; esac
+    mkdir -p "$state_dir"
+    printf '%s\n' "${keys#a(ai) }" >"$meta_file"
+    # The same sequences, Meta alone left out: groups of five after the count.
+    local -a words=(${keys#a(ai) }) kept=()
+    local i
+    for ((i = 1; i + 4 < ${#words[@]}; i += 5)); do
+        [ "${words[*]:i:5}" = "${meta_alone[*]}" ] && continue
+        kept+=("${words[@]:i:5}")
+    done
+    kglobalaccel setForeignShortcutKeys 'asa(ai)' "${start_menu_id[@]}" $(( ${#kept[@]} / 5 )) "${kept[@]}"
+    kglobalaccel setForeignShortcutKeys 'asa(ai)' "${omnios_menu_id[@]}" 1 "${meta_alone[@]}"
+}
+
+meta_to_desktop() {
+    [ -s "$meta_file" ] || return 0
+    kglobalaccel setForeignShortcutKeys 'asa(ai)' "${omnios_menu_id[@]}" 0
+    # shellcheck disable=SC2046 # the saved count and codes, one argument each
+    kglobalaccel setForeignShortcutKeys 'asa(ai)' "${start_menu_id[@]}" $(cat "$meta_file")
+    rm -f "$meta_file"
+}
+
 enter_game_mode() {
     load_game_mode_kwin_script
     panel_to_game_mode
+    meta_to_game_mode
     open_launcher
 }
 
 leave_game_mode() {
     close_launcher
     panel_to_desktop
+    meta_to_desktop
 }
 
 # Game Mode is on while the launcher is open. Asked of the process rather than
@@ -286,6 +350,7 @@ if [ "$mode" = --autostart ]; then
         enter_game_mode
     else
         panel_to_desktop
+        meta_to_desktop
     fi
     exit 0
 fi

@@ -111,6 +111,14 @@ void GameListModel::setLibrary(omnios::GameLibrary library) {
     emit countChanged();
 }
 
+void GameListModel::setCover(const QString& id, const QString& path) {
+    if (!library_.setCover(id.toStdString(), std::filesystem::path(path.toStdString()))) return;
+    const int row = indexOfId(id);
+    if (row < 0) return;
+    const QModelIndex changed = index(row, 0);
+    emit dataChanged(changed, changed, {CoverRole});
+}
+
 QVariantMap GameListModel::get(int row) const {
     QVariantMap out;
     if (row < 0 || row >= rowCount()) return out;

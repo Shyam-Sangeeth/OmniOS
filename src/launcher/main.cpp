@@ -2,6 +2,8 @@
 //
 // Boots straight into the tile grid. There is no desktop behind it and no way
 // out except quitting, which is the point: this is the whole user interface.
+#include <QDBusConnection>
+#include <QDBusError>
 #include <QFile>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -13,6 +15,7 @@
 #include "ControlsOverlay.h"
 #include "GreeterController.h"
 #include "InstallerController.h"
+#include "LauncherBus.h"
 #include "LauncherController.h"
 #include "PadGlyphs.h"
 #include "TvController.h"
@@ -126,6 +129,16 @@ int main(int argc, char* argv[]) {
     QObject::connect(&controller, &LauncherController::gameRunningChanged, &controls, [&controls, &controller]() {
         if (!controller.gameRunning()) controls.hide();
     });
+
+    // On the session bus for KWin, which calls ShowMenu for Meta in Game
+    // Mode. A second launcher (there should not be one) finds the name taken
+    // and goes without.
+    LauncherBus bus;
+    QObject::connect(&bus, &LauncherBus::menuWanted, &controller, &LauncherController::showMenu);
+    QDBusConnection session = QDBusConnection::sessionBus();
+    if (!session.registerService(QStringLiteral("org.omnios.Launcher")) ||
+        !session.registerObject(QStringLiteral("/Launcher"), &bus, QDBusConnection::ExportScriptableSlots))
+        qWarning("omni-launcher: not on the session bus: %s", qPrintable(session.lastError().message()));
 
     return app.exec();
 }

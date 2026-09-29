@@ -24,6 +24,9 @@ Item {
     property bool   hasMenu: false
     // Emitted with the button itself, so the menu can anchor to it.
     signal menuRequested(var anchorItem)
+    // What the tile's menu opens beside, however it was asked for: the three
+    // dots, M, or Meta while this game runs.
+    readonly property Item menuAnchor: menuButton
 
     property int    baseWidth: Theme.gridWidth
     property int    baseHeight: Theme.gridHeight
@@ -168,7 +171,7 @@ Item {
             border.color: "#26FFFFFF"
             Behavior on color { ColorAnimation { duration: Theme.focusDuration } }
 
-            Column {
+            Row {  // three dots side by side: "more"
                 anchors.centerIn: parent
                 spacing: 3
                 Repeater {

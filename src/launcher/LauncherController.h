@@ -17,6 +17,7 @@
 #include <QVariantMap>
 
 #include "AppListModel.h"
+#include "CoverFetcher.h"
 #include "GameListModel.h"
 #include "GamepadInput.h"
 #include "NotificationWatcher.h"
@@ -170,6 +171,17 @@ public:
     // Found by process, since a game's window class is whatever its engine
     // chose; see omni-kwin-activate --pid.
     Q_INVOKABLE void resumeRunningGame();
+    // Meta pressed in Game Mode (LauncherBus): the launcher to the front, and
+    // the menu for what is running.
+    Q_INVOKABLE void showMenu();
+    // Whether libretro's collection could have box art for the game, and a
+    // look for it now (the game's menu, "Look for cover art").
+    Q_INVOKABLE bool coverFindable(const QString& gameId) const;
+    Q_INVOKABLE void findCover(const QString& gameId);
+    // A game's menu, "Uninstall": a Steam game through Steam (which asks); any
+    // other game's files moved to the Trash (omnios::gameFiles), so a mistake
+    // can be put back from the desktop, after it is stopped if it runs.
+    Q_INVOKABLE void uninstallGame(const QString& gameId);
 
     // ---- managing what is installed ---------------------------------------
     // Installing is GNOME Software's job; OmniOS only launches it. What is left
@@ -238,6 +250,9 @@ signals:
     void keyboardControlsWanted(const QString& title, const QVariantList& rows);
     // A controller was used: the keyboard's controls are not what matters.
     void keyboardControlsUnwanted();
+    // Meta in Game Mode (showMenu): the shell opens the running game's menu,
+    // or the system menu when nothing runs.
+    void menuWanted();
 
 protected:
     // Watches the whole application's input for keys and clicks that did not
@@ -325,6 +340,13 @@ private:
     // launcher again: nothing else is listening then.
     void updatePadRouting();
 
+    // Escape opens the game menu too, beside Meta, while a game whose
+    // emulator has no pause menu of its own (omnios::escapeOpensGameMenu) is
+    // in front; not while the launcher is, where Escape goes back. Through
+    // kglobalaccel, as omni-session-select gives Meta to that menu, and only
+    // while Game Mode has Meta (its state file), or Escape would outlive it.
+    void updateEscapeKey();
+
     // Do Not Disturb while a game runs: Plasma otherwise draws its
     // notifications over it, and in the corner of a full-screen game they
     // cover it until someone dismisses them — with a mouse. Asked for through
@@ -345,6 +367,10 @@ private:
     NotificationWatcher notifications_;
     SystemStatus   system_;
     GameListModel  model_;
+    // Box art for games that have none, after each scan; the library cache
+    // is saved a moment after covers arrive, once for a batch of them.
+    CoverFetcher   covers_;
+    QTimer         coverSave_;
     AppListModel   apps_;
     QProcess*      package_ = nullptr;
     QString        packageStatus_;
@@ -397,6 +423,9 @@ private:
     QProcess*     running_ = nullptr;
     QString       runningTitle_;
     QString       runningGameId_;
+    QString       runningEngine_;           // running_'s emulator, if a game's
+    bool          escapeForMenu_ = false;   // updateEscapeKey's last word
+    QProcess*     escapeKeyCall_ = nullptr; // one at a time, so none overtakes another
     QString       status_;
     bool          scanning_ = false;
 };

@@ -71,6 +71,13 @@ Item {
         touched()
     }
 
+    // Focus back on the open menu, after the window was away: opened from Meta
+    // while a game had the front, the launcher came forward just after, and
+    // Enter went to the grid under the menu.
+    function takeFocus() {
+        list.forceActiveFocus()
+    }
+
     function close() {
         idle.stop()
         visible = false

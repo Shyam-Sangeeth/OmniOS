@@ -21,8 +21,15 @@ Item {
     // A one-time step before it can play, such as the PS3's system software.
     readonly property var setup: gameId !== "" ? (Launcher.packageBusy, Launcher.setupStep(gameId)) : ({})
     readonly property bool canSetUp: setup.label !== undefined && !Launcher.packageBusy
+    // This game, running now: the page offers the way back into it, as its
+    // menu does, rather than a Play that would start it over.
+    readonly property bool running: gameId !== "" && Launcher.runningGameId === gameId
     function primary() {
-        if (playable) played()
+        if (running) {
+            Launcher.resumeRunningGame()
+            closed()
+        }
+        else if (playable) played()
         else if (canInstall) Launcher.installEngine(gameId)
         else if (canSetUp) Launcher.runSetupStep(gameId)
     }
@@ -66,11 +73,23 @@ Item {
                         GradientStop { position: 1.0; color: Theme.card }
                     }
                 }
+                // The art twice: filling the band, dimmed, and whole in front
+                // of it. Box art is taller than the band, and cropped to fill
+                // it only a strip of the box showed.
                 Image {
                     anchors.fill: parent
                     source: detail.game ? detail.game.cover : ""
                     visible: detail.game && detail.game.cover !== ""
                     fillMode: Image.PreserveAspectCrop
+                    opacity: 0.2
+                    asynchronous: true
+                }
+                Image {
+                    anchors { fill: parent; margins: 12 }
+                    source: detail.game ? detail.game.cover : ""
+                    visible: detail.game && detail.game.cover !== ""
+                    fillMode: Image.PreserveAspectFit
+                    horizontalAlignment: Image.AlignLeft
                     asynchronous: true
                 }
             }
@@ -143,14 +162,15 @@ Item {
 
                 // Play, or what it takes to be able to: Install, then Play.
                 Rectangle {
-                    readonly property bool active: detail.playable || detail.canInstall || detail.canSetUp
+                    readonly property bool active: detail.running || detail.playable || detail.canInstall || detail.canSetUp
                     width: Math.max(160, primaryLabel.implicitWidth + 40); height: 44; radius: 6
                     color: active ? Theme.accent : Theme.card
                     opacity: active ? 1.0 : 0.5
                     Text {
                         id: primaryLabel
                         anchors.centerIn: parent
-                        text: detail.playable ? qsTr("PLAY")
+                        text: detail.running ? qsTr("RESUME")
+                              : detail.playable ? qsTr("PLAY")
                               : detail.missing.app !== undefined
                                 ? (Launcher.packageBusy ? qsTr("INSTALLING ...") : qsTr("INSTALL %1").arg(detail.missing.name.toUpperCase()))
                                 : detail.setup.label !== undefined

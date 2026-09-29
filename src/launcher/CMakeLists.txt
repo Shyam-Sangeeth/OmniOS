@@ -18,6 +18,7 @@ qt_add_executable(omni-launcher
     MpvItem.cpp
     NotificationWatcher.cpp
     ControlsOverlay.cpp
+    CoverFetcher.cpp
     TvController.cpp)
 
 # The QML forms a module named "omnios". The files sit beside this file rather
@@ -64,6 +65,8 @@ qt_add_qml_module(omni-launcher
         MpvItem.h
         NotificationWatcher.h
         ControlsOverlay.h
+        CoverFetcher.h
+        LauncherBus.h
         TvController.h)
 
 # SDL3 for the controller. Optional on purpose: without it the shell still

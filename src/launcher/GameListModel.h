@@ -50,6 +50,9 @@ public:
 
     const omnios::GameLibrary& library() const { return library_; }
 
+    // One game's cover, arrived after the scan: that tile alone changes.
+    void setCover(const QString& id, const QString& path);
+
     // Index of a game by id, or -1. Used to restore focus after a rescan.
     Q_INVOKABLE int indexOfId(const QString& id) const;
 

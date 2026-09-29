@@ -30,7 +30,8 @@ add_library(omnios_core STATIC
     src/omnios/SteamLibrary.cpp
     src/omnios/Iptv.cpp
     src/omnios/Epg.cpp
-    src/omnios/EmulatorSetup.cpp)
+    src/omnios/EmulatorSetup.cpp
+    src/omnios/KeyboardLayout.cpp)
 
 target_include_directories(omnios_core PUBLIC src)
 

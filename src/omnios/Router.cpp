@@ -105,9 +105,12 @@ const CoreRow kCores[] = {
     {"gbc", "mgba",              "libretro-mgba"},
     {"gba", "mgba",              "libretro-mgba"},
     {"nds", "melonds",           "libretro-melonds"},
-    {"n64", "mupen64plus_next",  "libretro-mupen64plus-next"},
-    {"z64", "mupen64plus_next",  "libretro-mupen64plus-next"},
-    {"v64", "mupen64plus_next",  "libretro-mupen64plus-next"},
+    // ParaLLEl-N64, not Mupen64Plus-Next: Arch's build of Mupen64Plus-Next
+    // crashed in its audio code (aiLenChanged, audio_backend_libretro.c) as
+    // each of two libdragon games started, where ParaLLEl-N64 ran both.
+    {"n64", "parallel_n64",      "libretro-parallel-n64"},
+    {"z64", "parallel_n64",      "libretro-parallel-n64"},
+    {"v64", "parallel_n64",      "libretro-parallel-n64"},
     {"md",  "genesis_plus_gx",   "libretro-genesis-plus-gx"},
     {"gen", "genesis_plus_gx",   "libretro-genesis-plus-gx"},
     {"smd", "genesis_plus_gx",   "libretro-genesis-plus-gx"},
@@ -120,6 +123,18 @@ const CoreRow* coreFor(std::string_view extension) {
         if (row.extension == extension) return &row;
     return nullptr;
 }
+
+// Play!, a PS2 emulator that imitates the PS2's BIOS rather than needing
+// Sony's, as a RetroArch core. PCSX2 plays far more games, but only with a
+// BIOS dumped from the user's own console; with none, a PS2 game goes here
+// instead of being refused. By platform, not extension: a PS2 .iso or .cue
+// is a PS1 or a PS2 disc alike.
+constexpr CoreRow kPlayCore = {"", "play", "libretro-play"};
+
+// RetroArch settings for the Play! core alone. It draws through GLX, so
+// RetroArch has to make an X11 context for it: in its native Wayland one the
+// core found no GL functions and crashed on its first frame.
+constexpr std::string_view kRetroArchX11Config = "/usr/share/omnios/retroarch-x11.cfg";
 
 fs::path libretroDir() {
     const char* override = std::getenv("OMNIOS_LIBRETRO_DIR");
@@ -195,6 +210,21 @@ fs::path openBiosImage() {
     return "/usr/share/omnios/bios/openbios.bin";
 }
 
+bool biosInstalled(Platform platform) {
+    // A PS2 BIOS is 4 MB (8 with its extra ROMs); a PS1 one 512 KB. By size,
+    // since the same folder holds the PS3's 200 MB update and the Switch's
+    // small keys.
+    const bool ps2 = platform == Platform::PS2;
+    const std::uintmax_t minimum = ps2 ? 4u * 1024 * 1024 : 512u * 1024;
+    const std::uintmax_t maximum = ps2 ? 8u * 1024 * 1024 : 512u * 1024;
+    std::error_code ec;
+    for (fs::directory_iterator it(biosDir(), ec), end; !ec && it != end; it.increment(ec)) {
+        const std::uintmax_t size = it->is_regular_file(ec) ? it->file_size(ec) : 0;
+        if (size >= minimum && size <= maximum) return true;
+    }
+    return false;
+}
+
 fs::path flatpakConfigDir(std::string_view appId) {
     return homeDir() / ".var/app" / std::string(appId) / "config";
 }
@@ -263,6 +293,12 @@ LaunchPlan planLaunch(const Game& game, const LaunchOptions& options) {
                          std::string(platformDisplayName(game.platform)) + ".";
             return plan;
         }
+        // No PS2 BIOS of the user's own: Play! instead of PCSX2, which could
+        // not start without one (see kPlayCore).
+        std::error_code ec;
+        if (engine->id == "pcsx2" && !biosInstalled(Platform::PS2) &&
+            fs::is_regular_file(libretroDir() / "play_libretro.so", ec))
+            engine = findEngine("retroarch");
     }
 
     plan.engineId          = std::string(engine->id);
@@ -314,18 +350,10 @@ LaunchPlan planLaunch(const Game& game, const LaunchOptions& options) {
     // Said here, in words, rather than by an emulator's error dialog after it
     // has taken over the screen.
     if (!options.skipAvailabilityCheck && (engine->id == "duckstation" || engine->id == "pcsx2")) {
-        // A PS2 BIOS is 4 MB (8 with its extra ROMs); a PS1 one 512 KB. By
-        // size, since the same folder holds the PS3's 200 MB update and the
-        // Switch's small keys.
         const bool ps2 = engine->id == "pcsx2";
-        const std::uintmax_t minimum = ps2 ? 4u * 1024 * 1024 : 512u * 1024;
-        const std::uintmax_t maximum = ps2 ? 8u * 1024 * 1024 : 512u * 1024;
         std::error_code ec;
-        bool found = !ps2 && fs::exists(openBiosImage(), ec);
-        for (fs::directory_iterator it(biosDir(), ec), end; !found && !ec && it != end; it.increment(ec)) {
-            const std::uintmax_t size = it->is_regular_file(ec) ? it->file_size(ec) : 0;
-            if (size >= minimum && size <= maximum) found = true;
-        }
+        const bool found = biosInstalled(ps2 ? Platform::PS2 : Platform::PS1) ||
+                           (!ps2 && fs::exists(openBiosImage(), ec));
         if (!found) {
             plan.error = std::string(platformDisplayName(game.platform)) +
                          " games need the BIOS from your own console. Copy it into Games/bios, then play.";
@@ -372,13 +400,14 @@ LaunchPlan planLaunch(const Game& game, const LaunchOptions& options) {
     const CoreRow* core = nullptr;
     fs::path corePath;
     if (engine->id == "retroarch") {
-        core = coreFor(fileExtension(target.filename().string()));
+        core = game.platform == Platform::PS2 ? &kPlayCore : coreFor(fileExtension(target.filename().string()));
         if (core == nullptr) {
             plan.error = "RetroArch has no system for \"" + target.filename().string() +
                          "\" here, so " + game.title + " cannot start.";
             return plan;
         }
         corePath = libretroDir() / (std::string(core->core) + "_libretro.so");
+        plan.core = std::string(core->core);
         std::error_code ec;
         if (!options.skipAvailabilityCheck && !fs::is_regular_file(corePath, ec)) {
             plan.error = "RetroArch's " + std::string(core->core) + " core is not installed, so " +
@@ -428,7 +457,9 @@ LaunchPlan planLaunch(const Game& game, const LaunchOptions& options) {
     } else if (engine->id == "retroarch") {
         argv.emplace_back(std::string(engine->command));
         argv.emplace_back("--fullscreen");
-        argv.push_back("--appendconfig=" + std::string(kRetroArchConfig));
+        // Several files are given as one argument, separated by '|'.
+        argv.push_back("--appendconfig=" + std::string(kRetroArchConfig) +
+                       (core == &kPlayCore ? "|" + std::string(kRetroArchX11Config) : std::string()));
         argv.emplace_back("-L");
         argv.push_back(corePath.generic_string());
         argv.push_back(plan.target);
@@ -461,6 +492,11 @@ LaunchPlan planLaunch(const Game& game, const LaunchOptions& options) {
         if (engine->id == "duckstation" || engine->id == "pcsx2") {
             argv.emplace_back("-batch");
             argv.emplace_back("-fullscreen");
+            // Their pause menu (Escape, or Select + Start on a pad) belongs to
+            // their "Big Picture" interface. Without it the game paused and
+            // showed nothing — no Resume, no Exit — and the keys that open the
+            // menu did not close it. The game still starts straight away.
+            argv.emplace_back("-bigpicture");
             argv.emplace_back("--");
             argv.push_back(plan.target);
         } else if (engine->id == "rpcs3") {

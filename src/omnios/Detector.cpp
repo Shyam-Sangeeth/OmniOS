@@ -54,8 +54,20 @@ constexpr std::size_t kElfOsAbiOffset = 7;
 constexpr std::uint8_t kElfAbiSystemV = 0x00;
 constexpr std::uint8_t kElfAbiLinux   = 0x03;
 constexpr std::uint8_t kElfAbiFreeBsd = 0x09;
+// e_machine (offset 18, little-endian on every platform here). A 32-bit MIPS
+// executable is a PS2 program: a PC game is x86, and the PS1 and the PSP do
+// not run bare ELFs.
+constexpr std::size_t kElfClassOffset = 4;
+constexpr std::size_t kElfMachineOffset = 18;
+constexpr std::uint8_t kElfClass32 = 1;
+constexpr std::uint8_t kElfMachineMips = 8;
 
 Detection detectElf(const std::vector<std::uint8_t>& header) {
+    if (header.size() > kElfMachineOffset + 1 && header[kElfClassOffset] == kElfClass32 &&
+        header[kElfMachineOffset] == kElfMachineMips && header[kElfMachineOffset + 1] == 0) {
+        return make(Platform::PS2, DetectionSource::Magic, "elf_ps2",
+                    "32-bit MIPS ELF (PS2 executable)", 85);
+    }
     const std::uint8_t abi =
         header.size() > kElfOsAbiOffset ? header[kElfOsAbiOffset] : kElfAbiSystemV;
     if (abi == kElfAbiFreeBsd) {

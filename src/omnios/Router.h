@@ -59,6 +59,9 @@ struct LaunchPlan {
     std::map<std::string, std::string> environment;
     std::string engineId;
     std::string engineDisplayName;
+    // The libretro core RetroArch is given ("nestopia"); empty for any other
+    // engine. It decides what the keyboard's keys are called (KeyboardLayout.h).
+    std::string core;
     Tier        tier = Tier::Native;
     // Absolute path handed to the engine.
     std::string target;
@@ -97,6 +100,10 @@ bool flatpakInstalled(std::string_view appId);
 // Where a PS1 or PS2 emulator looks for the console's BIOS: ~/Games/bios.
 // The Switch's keys and the PS3's system software go there too.
 std::filesystem::path biosDir();
+
+// Whether Games/bios holds a BIOS of the user's own for `platform` (PS1 or
+// PS2), told apart by size.
+bool biosInstalled(Platform platform);
 
 // The free PS1 BIOS on the image (PCSX-Redux's OpenBIOS, MIT), for when the
 // user has no BIOS of their own. OMNIOS_OPENBIOS overrides where it is.

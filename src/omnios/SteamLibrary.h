@@ -66,6 +66,11 @@ struct SteamGameProcess {
 std::vector<SteamGameProcess> runningSteamGames(
     const std::filesystem::path& proc = std::filesystem::path("/proc"));
 
+// Whether the Steam client is running: a process named "steam" under `proc`.
+// While it is, Steam answers the controller's Guide button as well, opening
+// Big Picture over whatever is in front.
+bool steamClientRunning(const std::filesystem::path& proc = std::filesystem::path("/proc"));
+
 // Every process below `pid` — children, their children, and on — from the
 // parent ids under `proc`. What has to be stopped to stop a game: the reaper
 // cleans up after a game that exits, and nothing says it does the same when it

@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "Json.h"
+#include "KeyboardLayout.h"
 #include "Paths.h"
 #include "Router.h"
 
@@ -58,29 +59,52 @@ std::vector<Line> parse(std::string_view ini) {
 }
 
 // A PlayStation pad on the first controller SDL sees, by position, so a
-// DualSense and an Xbox pad agree. DuckStation and PCSX2 name everything the
-// same way except the four face buttons: "South" in one, "FaceSouth" in the
-// other (read from their binaries; "A", "B", "X", "Y" are refused by both,
-// as PCSX2's log says: "Invalid binding: 'SDL-0/A'"). A leading '@' marks a
-// face button, completed by facePad() below.
-const std::pair<const char*, const char*> kPlayStationPad[] = {
-    {"Up", "DPadUp"},        {"Right", "DPadRight"},      {"Down", "DPadDown"},
-    {"Left", "DPadLeft"},    {"Triangle", "@North"},      {"Circle", "@East"},
-    {"Cross", "@South"},     {"Square", "@West"},         {"Select", "Back"},
-    {"Start", "Start"},      {"L1", "LeftShoulder"},      {"R1", "RightShoulder"},
-    {"L2", "+LeftTrigger"},  {"R2", "+RightTrigger"},     {"L3", "LeftStick"},
-    {"R3", "RightStick"},    {"LLeft", "-LeftX"},         {"LRight", "+LeftX"},
-    {"LDown", "+LeftY"},     {"LUp", "-LeftY"},           {"RLeft", "-RightX"},
-    {"RRight", "+RightX"},   {"RDown", "+RightY"},        {"RUp", "-RightY"},
+// DualSense and an Xbox pad agree, and the keyboard beside it
+// (KeyboardLayout.h). DuckStation and PCSX2 name everything the same way
+// except the four face buttons. PCSX2 says "FaceSouth" and refuses "A"
+// ("Invalid binding: 'SDL-0/A'" in its log). DuckStation says "A" to "Y",
+// SDL's own positional names ("A" is the bottom button on any pad), and
+// refuses "South" ("Invalid binding: 'SDL-0/South'"), which it only uses for
+// hat directions. A leading '@' marks a face button, named by addPad().
+struct PlayStationBind { const char* button; const char* sdl; PadButton position; };
+const PlayStationBind kPlayStationPad[] = {
+    {"Up", "DPadUp", PadButton::Up},             {"Right", "DPadRight", PadButton::Right},
+    {"Down", "DPadDown", PadButton::Down},       {"Left", "DPadLeft", PadButton::Left},
+    {"Triangle", "@North", PadButton::North},    {"Circle", "@East", PadButton::East},
+    {"Cross", "@South", PadButton::South},       {"Square", "@West", PadButton::West},
+    {"Select", "Back", PadButton::Select},       {"Start", "Start", PadButton::Start},
+    {"L1", "LeftShoulder", PadButton::L1},       {"R1", "RightShoulder", PadButton::R1},
+    {"L2", "+LeftTrigger", PadButton::L2},       {"R2", "+RightTrigger", PadButton::R2},
+    {"L3", "LeftStick", PadButton::L3},          {"R3", "RightStick", PadButton::R3},
+    {"LLeft", "-LeftX", PadButton::LeftLeft},    {"LRight", "+LeftX", PadButton::LeftRight},
+    {"LDown", "+LeftY", PadButton::LeftDown},    {"LUp", "-LeftY", PadButton::LeftUp},
+    {"RLeft", "-RightX", PadButton::RightLeft},  {"RRight", "+RightX", PadButton::RightRight},
+    {"RDown", "+RightY", PadButton::RightDown},  {"RUp", "-RightY", PadButton::RightUp},
 };
 
-// The pad's bindings, with face buttons named `facePrefix` + direction.
-void addPad(std::vector<IniSetting>& settings, const std::string& facePrefix) {
-    for (const auto& [button, sdl] : kPlayStationPad) {
-        const std::string_view name(sdl);
-        const std::string binding = name.front() == '@' ? facePrefix + std::string(name.substr(1)) : std::string(name);
-        settings.push_back({"Pad1", button, "SDL-0/" + binding, IniSetting::Mode::Add, {}});
+// How an emulator names the four face buttons.
+enum class FaceNames { Letters, FacePrefixed };
+
+// The pad's bindings, with face buttons named as `faces` says, and the
+// keyboard's: both at once, as each button takes several bindings. Escape
+// opens the pause menu, which is the keyboard's way out of a game there, as
+// Select + Start is the pad's.
+void addPad(std::vector<IniSetting>& settings, FaceNames faces) {
+    for (const PlayStationBind& b : kPlayStationPad) {
+        const std::string_view name(b.sdl);
+        std::string binding(name);
+        if (name.front() == '@') {
+            const std::string_view direction = name.substr(1);
+            if (faces == FaceNames::FacePrefixed) {
+                binding = "Face" + std::string(direction);
+            } else {
+                binding = direction == "South" ? "A" : direction == "East" ? "B" : direction == "West" ? "X" : "Y";
+            }
+        }
+        settings.push_back({"Pad1", b.button, "SDL-0/" + binding, IniSetting::Mode::Add, {}});
+        settings.push_back({"Pad1", b.button, "Keyboard/" + qtKeyName(keyFor(b.position)), IniSetting::Mode::Add, {}});
     }
+    settings.push_back({"Hotkeys", "OpenPauseMenu", "Keyboard/Escape", IniSetting::Mode::Add, {}});
 }
 
 std::vector<IniSetting> duckStationSettings() {
@@ -100,7 +124,7 @@ std::vector<IniSetting> duckStationSettings() {
         // to OmniOS (it was started with -batch).
         {"Hotkeys", "OpenPauseMenu", "SDL-0/Back & SDL-0/Start", IniSetting::Mode::Add, {}},
     };
-    addPad(s, "");
+    addPad(s, FaceNames::Letters);
     return s;
 }
 
@@ -112,7 +136,7 @@ std::vector<IniSetting> pcsx2Settings() {
         {"AutoUpdater", "CheckAtStartup", "false", IniSetting::Mode::Set, {"true"}},
         {"Hotkeys", "OpenPauseMenu", "SDL-0/Back & SDL-0/Start", IniSetting::Mode::Add, {}},
     };
-    addPad(s, "Face");
+    addPad(s, FaceNames::FacePrefixed);
     return s;
 }
 
@@ -122,48 +146,65 @@ std::vector<IniSetting> pcsx2Settings() {
 // profiles\1\button_a, quotes a value holding commas, and gives each key a
 // "\default" twin which, while true, makes Azahar ignore the value and use
 // its default (the keyboard) instead.
-std::vector<IniSetting> azaharSettings() {
-    // A 3DS button; what it becomes (SDL2's SDL_GameControllerButton and
-    // SDL_GameControllerAxis numbers); Azahar's keyboard default.
-    struct Bind { const char* key; const char* pad; const char* keyboard; };
+//
+// One binding per button, so it is the pad or the keyboard: the pad when one
+// is connected as the game starts, the keyboard's layout (KeyboardLayout.h)
+// when none is. Either replaces the other and Azahar's own defaults, never a
+// binding the user chose.
+std::vector<IniSetting> azaharSettings(bool pad) {
+    // A 3DS button; its position on the pad and so its key; what it is on a
+    // pad (SDL2's SDL_GameControllerButton and SDL_GameControllerAxis
+    // numbers); Azahar's own keyboard default.
+    struct Bind { const char* key; PadButton position; const char* pad; const char* azahar; };
     static const Bind kButtons[] = {
-        {"button_a", "button:1", "code:65"},  // the right-hand face button, as on a 3DS
-        {"button_b", "button:0", "code:83"},
-        {"button_x", "button:3", "code:90"},
-        {"button_y", "button:2", "code:88"},
-        {"button_up", "button:11", "code:84"},
-        {"button_down", "button:12", "code:71"},
-        {"button_left", "button:13", "code:70"},
-        {"button_right", "button:14", "code:72"},
-        {"button_l", "button:9", "code:81"},
-        {"button_r", "button:10", "code:87"},
-        {"button_start", "button:6", "code:77"},
-        {"button_select", "button:4", "code:78"},
-        {"button_zl", "axis:4,direction:+,threshold:0.500000", "code:49"},
-        {"button_zr", "axis:5,direction:+,threshold:0.500000", "code:50"},
-        // Home is left on the keyboard: on a pad it is the Guide button,
-        // which belongs to OmniOS.
+        {"button_a", PadButton::East, "button:1", "code:65"},  // the right-hand face button, as on a 3DS
+        {"button_b", PadButton::South, "button:0", "code:83"},
+        {"button_x", PadButton::North, "button:3", "code:90"},
+        {"button_y", PadButton::West, "button:2", "code:88"},
+        {"button_up", PadButton::Up, "button:11", "code:84"},
+        {"button_down", PadButton::Down, "button:12", "code:71"},
+        {"button_left", PadButton::Left, "button:13", "code:70"},
+        {"button_right", PadButton::Right, "button:14", "code:72"},
+        {"button_l", PadButton::L1, "button:9", "code:81"},
+        {"button_r", PadButton::R1, "button:10", "code:87"},
+        {"button_start", PadButton::Start, "button:6", "code:77"},
+        {"button_select", PadButton::Select, "button:4", "code:78"},
+        {"button_zl", PadButton::L2, "axis:4,direction:+,threshold:0.500000", "code:49"},
+        {"button_zr", PadButton::R2, "axis:5,direction:+,threshold:0.500000", "code:50"},
+        // Home is left as it is: on a pad it is the Guide button, which
+        // belongs to OmniOS.
     };
     const std::string any = ",engine:sdl,guid:0,maptype:all,port:0\"";
     const std::string profile = "profiles\\1\\";
+    const auto code = [](PadButton position) { return std::to_string(qtKeyCode(keyFor(position))); };
+    // A stick on four keys, as Azahar writes one: its fields in order, D (its
+    // default) for half a push.
+    const auto keys = [](const std::string& down, const std::string& left, const std::string& right,
+                         const std::string& up) {
+        const auto key = [](const std::string& c) { return "code$0" + c + "$1engine$0keyboard"; };
+        return "\"down:" + key(down) + ",engine:analog_from_button,left:" + key(left) + ",modifier:" + key("68") +
+               ",modifier_scale:0.500000,right:" + key(right) + ",up:" + key(up) + "\"";
+    };
 
     std::vector<IniSetting> s;
-    const auto bind = [&](const std::string& key, const std::string& value, const std::string& keyboard) {
-        s.push_back({"Controls", profile + key, value, IniSetting::Mode::Set, {keyboard}});
+    const auto bind = [&](const std::string& key, const std::string& padValue, const std::string& keyboard,
+                          const std::string& azahar) {
+        s.push_back({"Controls", profile + key, pad ? padValue : keyboard, IniSetting::Mode::Set,
+                     {azahar, padValue, keyboard}});
         s.push_back({"Controls", profile + key + "\\default", "false", IniSetting::Mode::Set, {"true"}});
     };
     for (const Bind& b : kButtons)
-        bind(b.key, "\"api:controller," + std::string(b.pad) + any, "\"" + std::string(b.keyboard) + ",engine:keyboard\"");
+        bind(b.key, "\"api:controller," + std::string(b.pad) + any,
+             "\"code:" + code(b.position) + ",engine:keyboard\"", "\"" + std::string(b.azahar) + ",engine:keyboard\"");
     bind("circle_pad", "\"api:controller,axis_x:0,axis_y:1" + any,
-         "\"down:code$016777237$1engine$0keyboard,engine:analog_from_button,left:code$016777234$1engine$0keyboard,"
-         "modifier:code$068$1engine$0keyboard,modifier_scale:0.500000,right:code$016777236$1engine$0keyboard,"
-         "up:code$016777235$1engine$0keyboard\"");
+         keys(code(PadButton::LeftDown), code(PadButton::LeftLeft), code(PadButton::LeftRight), code(PadButton::LeftUp)),
+         keys("16777237", "16777234", "16777236", "16777235"));
     bind("c_stick", "\"api:controller,axis_x:2,axis_y:3" + any,
-         "\"down:code$075$1engine$0keyboard,engine:analog_from_button,left:code$074$1engine$0keyboard,"
-         "modifier:code$068$1engine$0keyboard,modifier_scale:0.500000,right:code$076$1engine$0keyboard,"
-         "up:code$073$1engine$0keyboard\"");
+         keys(code(PadButton::RightDown), code(PadButton::RightLeft), code(PadButton::RightRight),
+              code(PadButton::RightUp)),
+         keys("75", "74", "76", "73"));
     // What its controls page shows as the mapping type: "all controllers".
-    bind("input_maptype", "0", "2");
+    if (pad) s.push_back({"Controls", profile + "input_maptype", "0", IniSetting::Mode::Set, {"2"}});
     return s;
 }
 
@@ -216,22 +257,48 @@ std::string rpcs3Player(const Controller& pad) {
     return out;
 }
 
-// Dolphin's bindings for a pad through its SDL backend, whose names are by
-// position: "Button S" is the bottom face button on any pad.
-using Bindings = std::vector<std::pair<const char*, const char*>>;
+// Player 1 on the keyboard, in the layout every emulator here shares
+// (KeyboardLayout.h); keys named as Qt names them, which is how RPCS3's
+// keyboard handler stores them. The PS button stays RPCS3's own, Backspace.
+std::string rpcs3Keyboard() {
+    static const std::pair<const char*, PadButton> kButtons[] = {
+        {"Left Stick Left", PadButton::LeftLeft},   {"Left Stick Down", PadButton::LeftDown},
+        {"Left Stick Right", PadButton::LeftRight}, {"Left Stick Up", PadButton::LeftUp},
+        {"Right Stick Left", PadButton::RightLeft}, {"Right Stick Down", PadButton::RightDown},
+        {"Right Stick Right", PadButton::RightRight}, {"Right Stick Up", PadButton::RightUp},
+        {"Start", PadButton::Start},   {"Select", PadButton::Select}, {"Square", PadButton::West},
+        {"Cross", PadButton::South},   {"Circle", PadButton::East},   {"Triangle", PadButton::North},
+        {"Left", PadButton::Left},     {"Down", PadButton::Down},     {"Right", PadButton::Right},
+        {"Up", PadButton::Up},         {"R1", PadButton::R1},         {"R2", PadButton::R2},
+        {"R3", PadButton::R3},         {"L1", PadButton::L1},         {"L2", PadButton::L2},
+        {"L3", PadButton::L3},
+    };
+    std::string out = "Player 1 Input:\n  Handler: Keyboard\n  Device: Keyboard\n  Config:\n";
+    for (const auto& [name, position] : kButtons)
+        out += std::string("    ") + name + ": " + qtKeyName(keyFor(position)) + "\n";
+    out += "    PS Button: " + qtKeyName(Key::Backspace) + "\n";
+    return out;
+}
+
+// Dolphin's bindings: each control of the emulated pad, and the position on
+// the real one that plays it. A few settings are not bindings but values
+// (`literal`), such as which extension the Wii Remote has.
+struct DolphinBind { const char* control; PadButton position; const char* literal = nullptr; };
+using Bindings = std::vector<DolphinBind>;
 
 // A GameCube pad laid out as a GameCube pad is: A the big bottom button,
 // B left of it, X right, Y above. Z on the right shoulder.
 const Bindings kDolphinGameCube = {
-    {"Buttons/A", "`Button S`"}, {"Buttons/B", "`Button W`"}, {"Buttons/X", "`Button E`"},
-    {"Buttons/Y", "`Button N`"}, {"Buttons/Z", "`Shoulder R`"}, {"Buttons/Start", "`Start`"},
-    {"Main Stick/Up", "`Left Y+`"}, {"Main Stick/Down", "`Left Y-`"},
-    {"Main Stick/Left", "`Left X-`"}, {"Main Stick/Right", "`Left X+`"},
-    {"C-Stick/Up", "`Right Y+`"}, {"C-Stick/Down", "`Right Y-`"},
-    {"C-Stick/Left", "`Right X-`"}, {"C-Stick/Right", "`Right X+`"},
-    {"Triggers/L", "`Trigger L`"}, {"Triggers/R", "`Trigger R`"},
-    {"Triggers/L-Analog", "`Trigger L`"}, {"Triggers/R-Analog", "`Trigger R`"},
-    {"D-Pad/Up", "`Pad N`"}, {"D-Pad/Down", "`Pad S`"}, {"D-Pad/Left", "`Pad W`"}, {"D-Pad/Right", "`Pad E`"},
+    {"Buttons/A", PadButton::South}, {"Buttons/B", PadButton::West}, {"Buttons/X", PadButton::East},
+    {"Buttons/Y", PadButton::North}, {"Buttons/Z", PadButton::R1}, {"Buttons/Start", PadButton::Start},
+    {"Main Stick/Up", PadButton::LeftUp}, {"Main Stick/Down", PadButton::LeftDown},
+    {"Main Stick/Left", PadButton::LeftLeft}, {"Main Stick/Right", PadButton::LeftRight},
+    {"C-Stick/Up", PadButton::RightUp}, {"C-Stick/Down", PadButton::RightDown},
+    {"C-Stick/Left", PadButton::RightLeft}, {"C-Stick/Right", PadButton::RightRight},
+    {"Triggers/L", PadButton::L2}, {"Triggers/R", PadButton::R2},
+    {"Triggers/L-Analog", PadButton::L2}, {"Triggers/R-Analog", PadButton::R2},
+    {"D-Pad/Up", PadButton::Up}, {"D-Pad/Down", PadButton::Down},
+    {"D-Pad/Left", PadButton::Left}, {"D-Pad/Right", PadButton::Right},
 };
 
 // A Wii Remote with a Nunchuk, the way most Wii games are played: the
@@ -239,21 +306,72 @@ const Bindings kDolphinGameCube = {
 // Remote's trigger) on the right trigger, C and Z on the left shoulder and
 // trigger. Home is left off: on a pad that is Guide, and Guide is OmniOS's.
 const Bindings kDolphinWiimote = {
-    {"Source", "1"},
-    {"Buttons/A", "`Button S`"}, {"Buttons/B", "`Trigger R`"}, {"Buttons/1", "`Button W`"},
-    {"Buttons/2", "`Button N`"}, {"Buttons/-", "`Back`"}, {"Buttons/+", "`Start`"},
-    {"D-Pad/Up", "`Pad N`"}, {"D-Pad/Down", "`Pad S`"}, {"D-Pad/Left", "`Pad W`"}, {"D-Pad/Right", "`Pad E`"},
-    {"IR/Up", "`Right Y+`"}, {"IR/Down", "`Right Y-`"}, {"IR/Left", "`Right X-`"}, {"IR/Right", "`Right X+`"},
-    {"Shake/X", "`Button E`"}, {"Shake/Y", "`Button E`"}, {"Shake/Z", "`Button E`"},
-    {"Extension", "Nunchuk"},
-    {"Nunchuk/Buttons/C", "`Shoulder L`"}, {"Nunchuk/Buttons/Z", "`Trigger L`"},
-    {"Nunchuk/Stick/Up", "`Left Y+`"}, {"Nunchuk/Stick/Down", "`Left Y-`"},
-    {"Nunchuk/Stick/Left", "`Left X-`"}, {"Nunchuk/Stick/Right", "`Left X+`"},
+    {"Source", PadButton::Start, "1"},
+    {"Buttons/A", PadButton::South}, {"Buttons/B", PadButton::R2}, {"Buttons/1", PadButton::West},
+    {"Buttons/2", PadButton::North}, {"Buttons/-", PadButton::Select}, {"Buttons/+", PadButton::Start},
+    {"D-Pad/Up", PadButton::Up}, {"D-Pad/Down", PadButton::Down},
+    {"D-Pad/Left", PadButton::Left}, {"D-Pad/Right", PadButton::Right},
+    {"IR/Up", PadButton::RightUp}, {"IR/Down", PadButton::RightDown},
+    {"IR/Left", PadButton::RightLeft}, {"IR/Right", PadButton::RightRight},
+    {"Shake/X", PadButton::East}, {"Shake/Y", PadButton::East}, {"Shake/Z", PadButton::East},
+    {"Extension", PadButton::Start, "Nunchuk"},
+    {"Nunchuk/Buttons/C", PadButton::L1}, {"Nunchuk/Buttons/Z", PadButton::L2},
+    {"Nunchuk/Stick/Up", PadButton::LeftUp}, {"Nunchuk/Stick/Down", PadButton::LeftDown},
+    {"Nunchuk/Stick/Left", PadButton::LeftLeft}, {"Nunchuk/Stick/Right", PadButton::LeftRight},
 };
+
+// Dolphin's SDL backend names a pad's controls by position too: "Button S"
+// is the bottom face button on any pad.
+const char* dolphinSdlControl(PadButton position) {
+    switch (position) {
+        case PadButton::Up:         return "Pad N";
+        case PadButton::Down:       return "Pad S";
+        case PadButton::Left:       return "Pad W";
+        case PadButton::Right:      return "Pad E";
+        case PadButton::South:      return "Button S";
+        case PadButton::East:       return "Button E";
+        case PadButton::West:       return "Button W";
+        case PadButton::North:      return "Button N";
+        case PadButton::L1:         return "Shoulder L";
+        case PadButton::R1:         return "Shoulder R";
+        case PadButton::L2:         return "Trigger L";
+        case PadButton::R2:         return "Trigger R";
+        case PadButton::L3:         return "Thumb L";
+        case PadButton::R3:         return "Thumb R";
+        case PadButton::Start:      return "Start";
+        case PadButton::Select:     return "Back";
+        case PadButton::LeftUp:     return "Left Y+";
+        case PadButton::LeftDown:   return "Left Y-";
+        case PadButton::LeftLeft:   return "Left X-";
+        case PadButton::LeftRight:  return "Left X+";
+        case PadButton::RightUp:    return "Right Y+";
+        case PadButton::RightDown:  return "Right Y-";
+        case PadButton::RightLeft:  return "Right X-";
+        case PadButton::RightRight: return "Right X+";
+    }
+    return "";
+}
+
+// Dolphin's keyboard, which it reads through X11 (it runs under XWayland).
+constexpr const char* kDolphinKeyboard = "XInput2/0/Virtual core pointer";
 
 // Dolphin's name for a pad: backend, number among pads of that name, SDL's name.
 std::string dolphinDevice(const Controller& pad) {
     return "SDL/0/" + pad.name;
+}
+
+// What a binding is, on the pad's device and on the keyboard's. A control on
+// another device than the one the section is on is named with that device:
+// so on the pad, the key is added with "|" (either one plays it).
+std::string dolphinPadOnly(const DolphinBind& b) {
+    return b.literal ? b.literal : "`" + std::string(dolphinSdlControl(b.position)) + "`";
+}
+std::string dolphinPadAndKeyboard(const DolphinBind& b) {
+    if (b.literal) return b.literal;
+    return dolphinPadOnly(b) + " | `" + kDolphinKeyboard + ":" + x11KeyName(keyFor(b.position)) + "`";
+}
+std::string dolphinKeyboard(const DolphinBind& b) {
+    return b.literal ? b.literal : "`" + x11KeyName(keyFor(b.position)) + "`";
 }
 
 std::string readFile(const fs::path& file) {
@@ -310,8 +428,6 @@ std::string ryubingGamepadId(std::string_view guid) {
 }
 
 std::string applyRpcs3Pad(std::string_view yml, const std::vector<Controller>& controllers) {
-    if (controllers.empty()) return std::string(yml);
-    const Controller& pad = controllers.front();
 
     // Player 1's block: its header line and the indented lines under it.
     std::vector<std::string> lines;
@@ -327,8 +443,8 @@ std::string applyRpcs3Pad(std::string_view yml, const std::vector<Controller>& c
     std::size_t end = begin + 1;
     while (end < lines.size() && (lines[end].empty() || lines[end].front() == ' ')) ++end;
 
-    std::string handler = "Keyboard";  // RPCS3's player 1 with no config
-    std::string device = "Keyboard";
+    std::string handler;  // none: nothing set up, RPCS3's default keyboard
+    std::string device;
     std::size_t deviceLine = lines.size();
     for (std::size_t i = begin + 1; i < end && i < lines.size(); ++i) {
         const std::string_view line = lines[i];
@@ -343,12 +459,19 @@ std::string applyRpcs3Pad(std::string_view yml, const std::vector<Controller>& c
     const auto join = [&](std::size_t from, std::size_t to) {
         for (std::size_t i = from; i < to && i < lines.size(); ++i) out += lines[i] + "\n";
     };
-    if (handler == "Keyboard" || handler == "Null") {
+    const auto replace = [&](const std::string& player) {
         join(0, begin);
-        out += rpcs3Player(pad);
+        out += player;
         join(end, lines.size());
         return out;
-    }
+    };
+    // No pad: the keyboard's layout, where player 1 was not set up or was on
+    // a pad through SDL (one no longer there). A keyboard set up already is
+    // left as it is: RPCS3's defaults are written only by RPCS3's own dialog.
+    if (controllers.empty())
+        return handler.empty() || handler == "SDL" ? replace(rpcs3Keyboard()) : std::string(yml);
+    const Controller& pad = controllers.front();
+    if (handler.empty() || handler == "Keyboard" || handler == "Null") return replace(rpcs3Player(pad));
     if (handler != "SDL" || deviceLine == lines.size()) return std::string(yml);
     for (const Controller& connected : controllers)
         if (device == rpcs3Device(connected)) return std::string(yml);
@@ -357,8 +480,63 @@ std::string applyRpcs3Pad(std::string_view yml, const std::vector<Controller>& c
     return out;
 }
 
+namespace {
+
+// Player 1 on the keyboard, in the layout every emulator here shares
+// (KeyboardLayout.h): a Pro Controller, its A the right-hand button.
+Json ryubingKeyboard() {
+    const auto object = [](std::map<std::string, Json> members) { return Json::object(std::move(members)); };
+    const auto key = [](PadButton position) { return Json(ryujinxKeyName(keyFor(position))); };
+    return object({
+        {"left_joycon_stick", object({{"stick_up", key(PadButton::LeftUp)}, {"stick_down", key(PadButton::LeftDown)},
+                                      {"stick_left", key(PadButton::LeftLeft)},
+                                      {"stick_right", key(PadButton::LeftRight)},
+                                      {"stick_button", key(PadButton::L3)}})},
+        {"right_joycon_stick", object({{"stick_up", key(PadButton::RightUp)}, {"stick_down", key(PadButton::RightDown)},
+                                       {"stick_left", key(PadButton::RightLeft)},
+                                       {"stick_right", key(PadButton::RightRight)},
+                                       {"stick_button", key(PadButton::R3)}})},
+        {"left_joycon", object({{"button_minus", key(PadButton::Select)}, {"button_l", key(PadButton::L1)},
+                                {"button_zl", key(PadButton::L2)}, {"button_sl", Json("Unbound")},
+                                {"button_sr", Json("Unbound")}, {"dpad_up", key(PadButton::Up)},
+                                {"dpad_down", key(PadButton::Down)}, {"dpad_left", key(PadButton::Left)},
+                                {"dpad_right", key(PadButton::Right)}})},
+        {"right_joycon", object({{"button_plus", key(PadButton::Start)}, {"button_r", key(PadButton::R1)},
+                                 {"button_zr", key(PadButton::R2)}, {"button_sl", Json("Unbound")},
+                                 {"button_sr", Json("Unbound")}, {"button_x", key(PadButton::North)},
+                                 {"button_b", key(PadButton::South)}, {"button_y", key(PadButton::West)},
+                                 {"button_a", key(PadButton::East)}})},
+        {"version", Json(1.0)},
+        {"backend", Json("WindowKeyboard")},
+        {"id", Json("0")},
+        {"name", Json("Keyboard")},
+        {"controller_type", Json("ProController")},
+        {"player_index", Json("Player1")},
+    });
+}
+
+}  // namespace
+
 std::string applyRyubingPad(std::string_view json, const std::vector<Controller>& controllers) {
-    if (controllers.empty()) return std::string(json);
+    if (controllers.empty()) {
+        // No pad: the keyboard's layout, where player 1 was on a pad (one no
+        // longer there), missing, or still Ryubing's own keyboard default,
+        // which has its A on Z. A keyboard the user set up is kept.
+        std::string error;
+        Json config = Json::parse(json, error);
+        if (!error.empty() || !config.isObject()) return std::string(json);
+        std::vector<Json> players = config["input_config"].items();
+        Json* player1 = nullptr;
+        for (Json& player : players)
+            if (player["player_index"].asString() == "Player1") player1 = &player;
+        const bool replace = player1 == nullptr || (*player1)["backend"].asString() == "GamepadSDL2" ||
+                             ((*player1)["backend"].asString() == "WindowKeyboard" &&
+                              (*player1)["right_joycon"]["button_a"].asString() == "Z");
+        if (!replace) return std::string(json);
+        if (player1 != nullptr) *player1 = ryubingKeyboard(); else players.push_back(ryubingKeyboard());
+        config.set("input_config", Json::array(std::move(players)));
+        return config.dump(2);
+    }
     const Controller& pad = controllers.front();
     const std::string id = ryubingGamepadId(pad.guid);
     std::string error;
@@ -477,9 +655,7 @@ std::string applyIniSettings(std::string_view ini, const std::vector<IniSetting>
 
 std::string applyDolphinPad(std::string_view ini, std::string_view section,
                             const std::vector<Controller>& controllers) {
-    if (controllers.empty()) return std::string(ini);
     const Bindings& bindings = section.rfind("Wiimote", 0) == 0 ? kDolphinWiimote : kDolphinGameCube;
-    const Controller& pad = controllers.front();
 
     std::vector<std::string> lines;
     for (std::size_t pos = 0; pos < ini.size();) {
@@ -497,33 +673,60 @@ std::string applyDolphinPad(std::string_view ini, std::string_view section,
     std::size_t end = begin + 1;
     while (end < lines.size() && trim(lines[end]).rfind('[', 0) != 0) ++end;
 
-    std::string device;  // none: Dolphin's default, the keyboard
-    std::size_t deviceLine = lines.size();
+    // The section as it is: its device, and every other key's value.
+    std::string device;  // none: nothing set up yet
+    std::vector<std::pair<std::string, std::string>> values;
     for (std::size_t i = begin + 1; i < end && i < lines.size(); ++i) {
         const std::string_view line = trim(lines[i]);
         const std::size_t eq = line.find('=');
-        if (eq != std::string_view::npos && trim(line.substr(0, eq)) == "Device") {
-            device = std::string(trim(line.substr(eq + 1)));
-            deviceLine = i;
-        }
+        if (eq == std::string_view::npos) continue;
+        const std::string key(trim(line.substr(0, eq)));
+        const std::string value(trim(line.substr(eq + 1)));
+        if (key == "Device") device = value;
+        else values.emplace_back(key, value);
     }
+    const bool sdl = device.rfind("SDL/", 0) == 0;
+    const bool keyboard = device.rfind("XInput2/", 0) == 0;
+    if (!device.empty() && !sdl && !keyboard) return std::string(ini);  // another backend: the user's
+
+    // The pad when there is one, and the keyboard beside it. A pad that has
+    // gone stays the device, its bindings naming the keyboard as well; with
+    // no pad ever set up, the keyboard is the device.
+    std::string target = device.empty() ? kDolphinKeyboard : device;
+    if (!controllers.empty()) {
+        bool connected = false;
+        for (const Controller& pad : controllers) connected = connected || device == dolphinDevice(pad);
+        if (!connected) target = dolphinDevice(controllers.front());
+    }
+    const bool onPad = target.rfind("SDL/", 0) == 0;
+    // Moving from the keyboard (Dolphin's own default, or no setup at all)
+    // to a pad sets every binding; otherwise only the ones still at a value
+    // OmniOS wrote are brought up to date, and the user's own are kept.
+    const bool fresh = device.empty() || (keyboard && onPad);
+
+    std::string body;
+    body += header + "\nDevice = " + target + "\n";
+    std::vector<bool> used(values.size(), false);
+    for (const DolphinBind& b : bindings) {
+        const std::string mine = onPad ? dolphinPadAndKeyboard(b) : dolphinKeyboard(b);
+        std::string value = mine;
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            if (used[i] || values[i].first != b.control) continue;
+            used[i] = true;
+            const std::string& now = values[i].second;
+            const bool ours = now == dolphinPadOnly(b) || now == dolphinPadAndKeyboard(b) || now == dolphinKeyboard(b);
+            if (!fresh && !ours) value = now;
+            break;
+        }
+        body += std::string(b.control) + " = " + value + "\n";
+    }
+    for (std::size_t i = 0; i < values.size(); ++i)
+        if (!used[i] && !fresh) body += values[i].first + " = " + values[i].second + "\n";
 
     std::string out;
-    const auto join = [&](std::size_t from, std::size_t to) {
-        for (std::size_t i = from; i < to && i < lines.size(); ++i) out += lines[i] + "\n";
-    };
-    if (device.empty() || device.rfind("XInput2/", 0) == 0) {
-        join(0, begin);
-        out += header + "\nDevice = " + dolphinDevice(pad) + "\n";
-        for (const auto& [key, value] : bindings) out += std::string(key) + " = " + value + "\n";
-        join(end, lines.size());
-        return out;
-    }
-    if (device.rfind("SDL/", 0) != 0) return std::string(ini);  // another backend: the user's
-    for (const Controller& connected : controllers)
-        if (device == dolphinDevice(connected)) return std::string(ini);
-    lines[deviceLine] = "Device = " + dolphinDevice(pad);
-    join(0, lines.size());
+    for (std::size_t i = 0; i < begin && i < lines.size(); ++i) out += lines[i] + "\n";
+    out += body;
+    for (std::size_t i = end; i < lines.size(); ++i) out += lines[i] + "\n";
     return out;
 }
 
@@ -564,8 +767,8 @@ bool prepareEmulator(std::string_view engineId, const std::vector<Controller>& c
     }
     if (engineId == "dolphin") {
         // From the image, not Flathub: its settings are in ~/.config. Player
-        // 1's GameCube pad and Wii Remote both, since one Dolphin plays both.
-        if (controllers.empty()) return true;
+        // 1's GameCube pad and Wii Remote both, since one Dolphin plays both;
+        // with no pad, the keyboard's layout.
         const fs::path dir = homeDir() / ".config/dolphin-emu";
         const auto pad = [&](const char* file, const char* section) {
             return updateFile(dir / file, std::string("[") + section + "]\n",
@@ -579,7 +782,7 @@ bool prepareEmulator(std::string_view engineId, const std::vector<Controller>& c
         // A missing file needs its one profile counted, or Azahar makes a
         // default one and never reads these.
         return ini(flatpakConfigDir("org.azahar_emu.Azahar") / "azahar-emu/qt-config.ini",
-                   "[Controls]\nprofiles\\size=1\n", azaharSettings());
+                   "[Controls]\nprofiles\\size=1\n", azaharSettings(!controllers.empty()));
     }
     if (engineId == "rpcs3") {
         // Its message boxes, each one a stop a controller cannot get past:
@@ -593,10 +796,10 @@ bool prepareEmulator(std::string_view engineId, const std::vector<Controller>& c
                                    {"Meta", "infoBoxEnabledInstallPUP", "false", IniSetting::Mode::Set, {"true"}},
                                    {"Meta", "confirmationBoxExitGame", "false", IniSetting::Mode::Set, {"true"}},
                                });
-        // Until a pad is set up in it RPCS3 plays on the keyboard. With no
-        // file it uses Default.yml, whatever the active configuration says.
-        const bool pad = controllers.empty() ||
-                         updateFile(dir / "input_configs/global/Default.yml", "Player 1 Input:\n",
+        // Player 1 on the pad, or on the keyboard's layout when there is none.
+        // With no file RPCS3 uses Default.yml, whatever the active
+        // configuration says.
+        const bool pad = updateFile(dir / "input_configs/global/Default.yml", "Player 1 Input:\n",
                                     [&](const std::string& text) { return applyRpcs3Pad(text, controllers); });
         return boxes && pad;
     }

@@ -259,6 +259,17 @@ TEST("steam: a running game is found by its reaper, and nothing else is") {
     CHECK(runningSteamGames(proc / "missing").empty());
 }
 
+TEST("steam: the client is found by its process name") {
+    // steamwebhelper and a game's reaper are not the client.
+    const fs::path proc = freshDir("client");
+    writeFile(proc / "30" / "comm", "steamwebhelper\n");
+    writeFile(proc / "31" / "comm", "reaper\n");
+    CHECK(!steamClientRunning(proc));
+    writeFile(proc / "32" / "comm", "steam\n");
+    CHECK(steamClientRunning(proc));
+    CHECK(!steamClientRunning(proc / "missing"));
+}
+
 TEST("steam: stopping a game reaches everything under its reaper") {
     // reaper 10 -> wrapper 11 -> game 12 -> helper 13; 20 is unrelated. The
     // game's name has a space and a parenthesis, as comm can.

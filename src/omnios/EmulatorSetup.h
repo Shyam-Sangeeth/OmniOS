@@ -12,6 +12,12 @@
 // and an Xbox pad play the same, and on Nintendo's systems (whose A is on the
 // right) A is the right-hand button whatever the pad prints on it.
 //
+// The keyboard is mapped too, in one layout shared by every emulator
+// (KeyboardLayout.h): beside the pad where an emulator takes several bindings
+// per button (DuckStation, PCSX2, Dolphin, RetroArch), and instead of it,
+// when no pad is connected as the game starts, where it takes one (Azahar,
+// RPCS3, Ryubing).
+//
 // Only ever over the emulator's own defaults: a setting the user changed in
 // the emulator is left as they chose it.
 #pragma once
@@ -53,18 +59,24 @@ struct Controller {
 std::string ryubingGamepadId(std::string_view guid);
 
 // RPCS3's input config (input_configs/global/Default.yml) with player 1 on
-// the first of `controllers`. Player 1 still on RPCS3's default keyboard is
-// replaced by an SDL pad; an SDL pad that is no longer connected is pointed
-// at the one that is; any other handler is the user's and left alone.
+// the first of `controllers`. Player 1 not set up, or still on the keyboard,
+// is replaced by an SDL pad; an SDL pad that is no longer connected is
+// pointed at the one that is; any other handler is the user's and left
+// alone. With no controllers, player 1 not set up or on SDL gets the
+// keyboard's layout, and a keyboard already set up is kept.
 std::string applyRpcs3Pad(std::string_view yml, const std::vector<Controller>& controllers);
 
 // Ryubing's Config.json with player 1 on the first of `controllers`, on the
-// same terms as RPCS3's above. Returned unchanged if it does not parse.
+// same terms as RPCS3's above; with none, Ryubing's own keyboard default is
+// replaced by the shared layout too. Returned unchanged if it does not parse.
 std::string applyRyubingPad(std::string_view json, const std::vector<Controller>& controllers);
 
 // Dolphin's GCPadNew.ini (section "GCPad1") or WiimoteNew.ini ("Wiimote1")
-// with that player on the first of `controllers`, on the same terms as
-// RPCS3's above; Dolphin's default is the keyboard ("XInput2/...").
+// with that player on the first of `controllers` and the keyboard both (each
+// binding "`pad control` | `keyboard:key`"), or on the keyboard alone when no
+// pad was ever set up. Moving off Dolphin's keyboard default sets every
+// binding; otherwise a binding the user changed is kept. Another backend
+// than SDL or the keyboard is the user's and left alone.
 std::string applyDolphinPad(std::string_view ini, std::string_view section,
                             const std::vector<Controller>& controllers);
 

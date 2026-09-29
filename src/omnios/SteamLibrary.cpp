@@ -257,6 +257,22 @@ fs::path steamCover(const std::string& appId) {
     return {};
 }
 
+bool steamClientRunning(const fs::path& proc) {
+    std::error_code ec;
+    if (!fs::is_directory(proc, ec)) return false;
+    for (const fs::directory_entry& entry :
+         fs::directory_iterator(proc, fs::directory_options::skip_permission_denied, ec)) {
+        const std::string name = entry.path().filename().string();
+        if (name.empty() || !std::all_of(name.begin(), name.end(),
+                                         [](unsigned char c) { return std::isdigit(c) != 0; }))
+            continue;
+        std::ifstream in(entry.path() / "comm");
+        std::string comm;
+        if (in && std::getline(in, comm) && comm == "steam") return true;
+    }
+    return false;
+}
+
 std::vector<SteamGameProcess> runningSteamGames(const fs::path& proc) {
     std::vector<SteamGameProcess> games;
     std::error_code ec;

@@ -194,7 +194,7 @@ TEST("router: RetroArch is given the core for the file, full screen") {
 
     CHECK(planLaunch(gameOn(Platform::Retro, "/g/a.NES"), plain()).argv[4].find("nestopia") != std::string::npos);
     CHECK(planLaunch(gameOn(Platform::Retro, "/g/a.sfc"), plain()).argv[4].find("snes9x") != std::string::npos);
-    CHECK(planLaunch(gameOn(Platform::Retro, "/g/a.z64"), plain()).argv[4].find("mupen64plus_next") != std::string::npos);
+    CHECK(planLaunch(gameOn(Platform::Retro, "/g/a.z64"), plain()).argv[4].find("parallel_n64") != std::string::npos);
     CHECK(planLaunch(gameOn(Platform::Retro, "/g/a.md"), plain()).argv[4].find("genesis_plus_gx") != std::string::npos);
 }
 
@@ -281,6 +281,7 @@ TEST("router: an emulator installed from Flathub runs through flatpak, with the 
     CHECK(plan.argv[2].rfind("--filesystem=", 0) == 0);
     CHECK_EQ(plan.argv[3], std::string("net.pcsx2.PCSX2"));
     CHECK_EQ(plan.argv[4], std::string("-batch"));
+    CHECK_EQ(plan.argv[6], std::string("-bigpicture"));  // for its pause menu
     CHECK_EQ(plan.argv.back(), fs::path(game).generic_string());
 }
 
@@ -315,7 +316,9 @@ TEST("router: a PS1 game plays on the free BIOS; a PS2 game needs a PS2 BIOS") {
     CHECK(ps1().ok);
 
     // A PS1 BIOS, or OpenBIOS itself, in Games/bios is not a PS2 BIOS, nor is
-    // the PS3's update that sits beside them.
+    // the PS3's update that sits beside them. (No Play! core either: see the
+    // next test.)
+    ScratchHome::set("OMNIOS_LIBRETRO_DIR", (home.root / "no-cores").string());
     fs::create_directories(home.root / "Games/bios");
     fs::copy_file(openbios, home.root / "Games/bios/openbios.bin");
     { std::ofstream(home.root / "Games/bios/PS3UPDAT.PUP") << std::string(9 * 1024 * 1024, 'p'); }
@@ -323,6 +326,36 @@ TEST("router: a PS1 game plays on the free BIOS; a PS2 game needs a PS2 BIOS") {
     { std::ofstream(home.root / "Games/bios/scph39001.bin") << std::string(4 * 1024 * 1024, 's'); }
     CHECK(ps2().ok);
     ScratchHome::set("OMNIOS_OPENBIOS", "");
+    ScratchHome::set("OMNIOS_LIBRETRO_DIR", "");
+}
+
+TEST("router: a PS2 game with no PS2 BIOS plays in Play!, and in PCSX2 once there is one") {
+    if (commandExists("pcsx2-qt")) return;
+    ScratchHome home;
+    fs::create_directories(home.root / ".local/share/flatpak/app/net.pcsx2.PCSX2/current");
+    const fs::path cores = home.root / "cores";
+    fs::create_directories(cores);
+    { std::ofstream(cores / "play_libretro.so") << "core"; }
+    ScratchHome::set("OMNIOS_LIBRETRO_DIR", cores.string());
+    LaunchOptions options = plain();
+    options.skipAvailabilityCheck = false;
+    const std::string game = (home.root / "Games/ps2/Chrome Dino.elf").string();
+
+    // RetroArch itself need not be on this machine to see what would run.
+    LaunchPlan plan = planLaunch(gameOn(Platform::PS2, game), plain());
+    CHECK(plan.ok);
+    CHECK_EQ(plan.engineId, std::string("retroarch"));
+    CHECK(std::find(plan.argv.begin(), plan.argv.end(), (cores / "play_libretro.so").generic_string()) != plan.argv.end());
+    CHECK(std::find(plan.argv.begin(), plan.argv.end(),
+                    "--appendconfig=/usr/share/omnios/retroarch.cfg|/usr/share/omnios/retroarch-x11.cfg") !=
+          plan.argv.end());
+
+    fs::create_directories(home.root / "Games/bios");
+    { std::ofstream(home.root / "Games/bios/scph39001.bin") << std::string(4 * 1024 * 1024, 's'); }
+    plan = planLaunch(gameOn(Platform::PS2, game), options);
+    CHECK(plan.ok);
+    CHECK_EQ(plan.engineId, std::string("pcsx2"));
+    ScratchHome::set("OMNIOS_LIBRETRO_DIR", "");
 }
 
 namespace {

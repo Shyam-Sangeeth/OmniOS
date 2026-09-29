@@ -13,7 +13,9 @@
  *
  * Buttons, named by Xbox position: a b x y l1 r1 start back guide up down left
  * right; ls-left ls-right ls-up ls-down push the left stick for half a
- * second; "quit" removes the device. See .claude/skills/boot-os/SKILL.md.
+ * second; start+back presses both at once; "long" makes button presses last
+ * half a second (for a slow emulator), "short" puts them back; "quit"
+ * removes the device. See .claude/skills/boot-os/SKILL.md.
  *
  * The DualSense is made to look like what the kernel's hid-playstation driver
  * reports for a real one over USB: Sony's ids and name, sticks on 0-255, and
@@ -41,8 +43,13 @@ static void emit(int type, int code, int value) {
 
 static void sync_now(void) { emit(EV_SYN, SYN_REPORT, 0); }
 
+/* How long a tap holds a button down: 60 ms, or half a second after "long"
+ * for an emulator running at a few frames a second, which reads the pad
+ * once a frame and would miss a short one. */
+static int hold_us = 60000;
+
 static void tap_key(int code) {
-    emit(EV_KEY, code, 1); sync_now(); usleep(60000);
+    emit(EV_KEY, code, 1); sync_now(); usleep(hold_us);
     emit(EV_KEY, code, 0); sync_now(); usleep(60000);
 }
 
@@ -64,10 +71,18 @@ int main(int argc, char **argv) {
     fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK);
     if (fd < 0) { perror("uinput"); return 1; }
 
+    /* The buttons each real pad's kernel driver reports. xpad has no trigger
+     * buttons, only the ABS_Z/ABS_RZ axes; hid-playstation has both. It
+     * matters: an SDL that maps a pad from its database by button number (as
+     * DuckStation's does) counted two buttons too many on an "Xbox" pad that
+     * had them, and read Start as something else. */
     int keys[] = {BTN_SOUTH, BTN_EAST, BTN_NORTH, BTN_WEST, BTN_TL, BTN_TR,
                   BTN_TL2, BTN_TR2, BTN_SELECT, BTN_START, BTN_MODE, BTN_THUMBL, BTN_THUMBR};
     ioctl(fd, UI_SET_EVBIT, EV_KEY);
-    for (unsigned i = 0; i < sizeof keys / sizeof keys[0]; ++i) ioctl(fd, UI_SET_KEYBIT, keys[i]);
+    for (unsigned i = 0; i < sizeof keys / sizeof keys[0]; ++i) {
+        if (!ps5 && (keys[i] == BTN_TL2 || keys[i] == BTN_TR2)) continue;
+        ioctl(fd, UI_SET_KEYBIT, keys[i]);
+    }
 
     ioctl(fd, UI_SET_EVBIT, EV_ABS);
     int axes[] = {ABS_X, ABS_Y, ABS_RX, ABS_RY, ABS_Z, ABS_RZ, ABS_HAT0X, ABS_HAT0Y};
@@ -126,6 +141,12 @@ int main(int argc, char **argv) {
             else if (!strcmp(line, "down")) tap_hat(ABS_HAT0Y, 1);
             else if (!strcmp(line, "left")) tap_hat(ABS_HAT0X, -1);
             else if (!strcmp(line, "right")) tap_hat(ABS_HAT0X, 1);
+            else if (!strcmp(line, "start+back")) {
+                emit(EV_KEY, BTN_START, 1); emit(EV_KEY, BTN_SELECT, 1); sync_now(); usleep(150000);
+                emit(EV_KEY, BTN_START, 0); emit(EV_KEY, BTN_SELECT, 0); sync_now(); usleep(60000);
+            }
+            else if (!strcmp(line, "long")) hold_us = 500000;
+            else if (!strcmp(line, "short")) hold_us = 60000;
             else if (!strcmp(line, "ls-left")) push_stick(ABS_X, -1, ps5);
             else if (!strcmp(line, "ls-right")) push_stick(ABS_X, 1, ps5);
             else if (!strcmp(line, "ls-up")) push_stick(ABS_Y, -1, ps5);

@@ -120,6 +120,19 @@ TEST("detector: extension beats the folder hint") {
     CHECK(detection.source == DetectionSource::Extension);
 }
 
+TEST("detector: a 32-bit MIPS ELF is a PS2 program, an x86 one a Linux one") {
+    std::vector<std::uint8_t> mips(64, 0);
+    const std::uint8_t elf[] = {0x7F, 'E', 'L', 'F', 1, 1, 1, 0};
+    std::copy(std::begin(elf), std::end(elf), mips.begin());
+    mips[18] = 8;  // EM_MIPS
+    CHECK_EQ(idOf(detectHeader(mips, "Chrome Dino.elf")), std::string("ps2"));
+
+    std::vector<std::uint8_t> x86 = mips;
+    x86[4] = 2;     // 64-bit
+    x86[18] = 62;   // EM_X86_64
+    CHECK_EQ(idOf(detectHeader(x86, "game")), std::string("linux"));
+}
+
 TEST("detector: a .dol is a Wii program in the wii folder, a GameCube one elsewhere") {
     const std::vector<std::uint8_t> nothing(64, 0);
     CHECK_EQ(idOf(detectHeader(nothing, "boot.dol", Platform::Wii)), std::string("wii"));

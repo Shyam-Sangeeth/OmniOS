@@ -113,13 +113,19 @@ libretro-nestopia
 libretro-snes9x
 libretro-mgba
 libretro-melonds
-libretro-mupen64plus-next
+libretro-parallel-n64
 libretro-genesis-plus-gx
+## PS2 games with no BIOS of the user's own: Play! imitates the PS2's BIOS
+## (Router.cpp, kPlayCore). PCSX2 still plays them once there is one.
+libretro-play
 
 ## Launcher toolchain — Phase 10. Qt6 + QML, and the compiler the core needs.
 qt6-base
 qt6-declarative
 qt6-svg
+## The keyboard controls overlay, above a full-screen game (ControlsOverlay.h).
+## Plasma brings it too; named here because the launcher links it.
+layer-shell-qt
 cmake
 ninja
 gcc

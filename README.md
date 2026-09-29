@@ -106,8 +106,19 @@ the taskbar in Game Mode is only what gets started from the library.
 
 What opens while Game Mode is on — a game, an app from the Apps tab — opens
 full screen, as on a console; dialogs stay ordinary, on top of their window.
-Leaving Game Mode turns those windows back into ordinary desktop windows. The
-same KWin script does both, and keeps the launcher off the taskbar.
+Leaving Game Mode turns those windows back into ordinary, maximised desktop
+windows, and coming back makes them full screen again. (Maximised rather than
+just windowed: a window born full screen has no size of its own to return to,
+and RetroArch's is the console's picture at 1x — an NES game became a 240×256
+window in a corner.) The same KWin script does all of it, and keeps the
+launcher off the taskbar.
+
+Leaving Game Mode closes the launcher, and a game keeps running. So the
+launcher writes what is running — its process id and start time, or a Steam
+game's app id — to `$XDG_RUNTIME_DIR/omnios-running.json`, and one that starts
+again takes that game up: *Resume* and *Quit* work on it, and Play replaces it.
+Without that, the new launcher knew of no game, and Play started a second copy
+beside the first, both reading the pad.
 
 Game Mode used to be a second session on Hyprland. Moving it into Plasma took
 out a compositor restart on every switch, a second polkit agent, a second config
@@ -609,6 +620,18 @@ While anything runs, the pad leaves the launcher alone, so its presses reach
 the game. Once Guide has brought the launcher to the front it drives the
 launcher again: nothing else is listening then.
 
+Except Steam. While its client runs it answers Guide too, by opening Big
+Picture over everything, and it gets there after the launcher does. Worse, Big
+Picture left open behind the library goes on reading the pad: in the VM, presses
+meant for the library moved through its menus unseen until one chose something
+and brought it forward. So when the launcher loses the front within five
+seconds of Guide with Steam running, and did not hand it over itself, it asks
+Steam to close Big Picture and raises itself again. Every raise of the launcher
+also minimises Big Picture (`omni-kwin-activate --minimize-big-picture`),
+because Steam did not always close it — signed out, it never did. Steam's own
+fix is its *Guide Button Focuses Steam* setting, off; that is a per-account
+setting, and putting it in `config.vdf` did nothing.
+
 From there, the system menu (Start, or F10) opens on *Resume* and *Quit* for
 what is running, and so does the running game's own tile menu. Resume raises
 the game's window through `omni-kwin-activate --pid`: a game's window class is
@@ -654,7 +677,7 @@ of PS5 titles today, not the platform.
 **RetroArch** plays nothing by itself: each system is a core, and started
 without one it opens its own menu instead of the game. The router picks the
 core by extension — `.nes` Nestopia, `.sfc`/`.smc` Snes9x, `.gb`/`.gbc`/`.gba`
-mGBA, `.nds` melonDS, `.n64`/`.z64`/`.v64` Mupen64Plus-Next,
+mGBA, `.nds` melonDS, `.n64`/`.z64`/`.v64` ParaLLEl-N64,
 `.md`/`.gen`/`.smd`/`.sms`/`.gg` Genesis Plus GX — all from Arch's repositories
 and on the image; a file it has no core for is refused with a reason, and a
 missing core names its package. Games start full screen with
@@ -667,11 +690,22 @@ anything in any game; through SDL, a pad without a profile gets RetroArch's
 built-in "Standard Gamepad" mapping, by position. Proven with Nova the
 Squirrel (a GPL NES game): the virtual PS5 pad's Start, D-pad and ○ (the NES's
 A, on the right as on a NES pad) took it from the title to the level select.
-The same held for Blind Jump (GBA, MIT) and Gothicvania (SNES, MIT). Sblobber64
-(N64, MIT) started, then crashed inside the Mupen64Plus-Next core as its game
-began — in the VM, under software OpenGL; to be tried on real hardware. A
-game that crashes is reported as "… crashed" in the corner, not as an exit
-code.
+The same held for Blind Jump (GBA, MIT) and Gothicvania (SNES, MIT). For the
+N64, ParaLLEl-N64 rather than the better-known Mupen64Plus-Next: Arch's build
+of the latter crashed in its audio code (`aiLenChanged`, symbolised through
+Arch's debuginfod) the moment either of two libdragon games — Sblobber64,
+FissionFailure64, both MIT — began playing sound, with either of its
+renderers, while ParaLLEl-N64 ran both, and FissionFailure64 took Start and
+the D-pad. (N64 runs at a few frames a second under the VM's software
+graphics, so the virtual pad's presses had to be held for half a second to
+be seen.) No commercial N64 game was tried, and the choice may want
+revisiting on real hardware. A game that crashes is reported as "… crashed" in the corner, not as an exit
+code. RetroArch's desktop settings window is turned off too: it is built at
+startup even when never shown, and on a fresh configuration building it
+crashed RetroArch in two first launches out of three (found booting the
+rebuilt ISO; the stack trace, symbolised through Arch's debuginfod, ended in
+`ui_companion_qt_init`). With it off, three fresh first launches in a row
+played.
 **Dolphin** is started into the game (`-e`),
 full screen and in batch mode (`-b`, so it closes when the game stops), and
 with `QT_QPA_PLATFORM=xcb`: its window is X11 only, and handed the session's
@@ -763,6 +797,56 @@ zeroed), RPCS3's log shows player 1 bound to it and connected, and Azahar
 loads and saves the bindings unchanged. None has been played with a real
 game yet.
 
+**And the keyboard, in one layout for every emulator** (src/omnios/KeyboardLayout.h),
+by position like the pad, starting from RetroArch's own defaults:
+
+| Keys | Pad |
+|---|---|
+| arrow keys | D-pad |
+| Z · X · A · S | bottom · right · left · top face button (✕ ○ □ △; a Nintendo A is X) |
+| Q · W / E · R / C · V | L1 · R1 / L2 · R2 / L3 · R3 |
+| Enter / left Shift | Start / Select |
+| I J K L / T F G H | left stick / right stick (up, left, down, right) |
+| Meta+Esc | the library, as Guide is on a pad |
+
+Where an emulator takes several bindings per button the keyboard sits beside
+the pad, and both play at once: RetroArch (its hotkeys on E, R, L, K, I, H, F
+and T are turned off, or they would rewind, fast-forward and so on), DuckStation
+and PCSX2 (a second line per button), Dolphin (one expression per button,
+`` `Button S` | `XInput2/0/Virtual core pointer:Z` ``, the key named with the
+keyboard's device; with no pad ever set up, the keyboard is the device). Where it
+takes one per player — Azahar, RPCS3, Ryubing — it is the pad when one is
+connected as the game starts, and the keyboard's layout otherwise. Escape opens
+DuckStation's and PCSX2's pause menu, which is why they now start with
+`-bigpicture`: the menu belongs to that interface, and without it Escape (or
+Select + Start) paused the game and drew nothing — no Resume, no Exit.
+
+Meta+Esc is a shortcut Game Mode's KWin script registers, so it works whatever
+has the keyboard, and raises the launcher (putting Big Picture away) as Guide
+does.
+
+**Which key is which is shown along the bottom of the game** for as long as it
+is played from the keyboard: one slim line of keycaps and the console's own
+names for what they play, grouped to stay short — "Z X A S ✕ ○ □ △" on a
+PlayStation, "X Z S A A B X Y" on a 3DS, "T F G H C buttons" on an N64. The
+stick clicks (C, V) are left off it. On a screen too narrow for the line it is
+shrunk to fit, never wrapped. It comes from `keyboardControls()` in the same
+file, so the bar and the settings cannot disagree. Plasma keeps a full-screen window above every ordinary one, so the bar
+is a layer-shell surface on the overlay layer (LayerShellQt, Plasma's own
+library), anchored to the bottom edge, which takes no focus — the game keeps
+every key — and lets the pointer through. It shows when a game is started or
+resumed from the keyboard, goes when the library is back in front or a pad is
+used, and a game started from a pad shows none.
+
+Verified in the VM: Nova the Squirrel (Enter, the arrows; Esc quits RetroArch),
+Tetrade in DuckStation (Enter, the arrows, Z as ✕; Escape's pause menu and its
+Exit), BeatRush in Azahar with no pad (the arrows), Dolphin's Wii test (I and L
+moved the Nunchuk stick, on the keyboard alone and beside the pad), Meta+Esc
+from RetroArch and Dolphin, and the controls over RetroArch, DuckStation and
+Azahar — the bar itself over DuckStation (still there a minute in, gone on
+Meta+Esc and on a pad's Start, back on Resume) and Azahar. RPCS3, Ryubing and
+PCSX2 are set up the same way but not yet played from the keyboard.
+
 PS1 and PS2 games start from a BIOS, and Sony's cannot come with OmniOS. **For
 the PS1 there is a free one:** OpenBIOS, written by the PCSX-Redux authors
 under the MIT licence, is on the image
@@ -779,8 +863,20 @@ OpenBIOS boots it, and the pad's Start, D-pad and left stick play it.
 DuckStation is also set to its Vulkan renderer: its "Automatic" choice was
 OpenGL, which full screen on Wayland drew the game a few centimetres wide in
 a corner.
-**For the PS2 nothing of the kind exists**: its BIOS has to be dumped from the
-user's own PS2 (with a homebrew BIOS dumper). A game folder holding a disc
+**For the PS2 there is no free BIOS, but there is an emulator that needs
+none:** Play!, which imitates the PS2's BIOS, is on the image as a RetroArch
+core (`libretro-play`). With no PS2 BIOS of the user's own in `~/Games/bios`, a
+PS2 game goes to it instead of being refused; once there is one, to PCSX2,
+which plays far more games. Play! draws through GLX, so for it alone
+RetroArch is given an X11 context
+([retroarch-x11.cfg](iso/airootfs/usr/share/omnios/retroarch-x11.cfg)): in its
+native Wayland one the core crashed on its first frame ("No GLX display"). A
+32-bit MIPS `.elf` is detected as a PS2 program. Proven in the VM with Chrome
+Dino (a BSD-licensed PS2 homebrew): tile, Play, the game drawn full screen
+with no BIOS anywhere, and the pad reaching RetroArch (Start + Select opened
+its menu) — though not that homebrew, which loads the PS2's own pad driver,
+a part Play!'s imitation BIOS does not provide. PCSX-ReARMed, which does the
+same for the PS1, is only in the AUR; the PS1 has OpenBIOS instead. A game folder holding a disc
 image and its tracks (`.cue` + `.bin`) is launched through its playlist or
 image, not the folder. Without a usable BIOS — for the PS2, a 4-8 MB file,
 since the same folder holds the PS3's update and the Switch's keys — the

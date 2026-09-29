@@ -60,6 +60,33 @@ Window {
                               ? GameLibrary.get(gamesGrid.currentIndex)
                               : null
 
+    // A rescan rebuilds the whole list, and Steam's library is rescanned on
+    // its own whenever Steam adds a game. The grid keeps its index through
+    // that, not its game: a new tile ahead of the focused one moved the focus
+    // onto the newcomer. And a library that was empty came back with games but
+    // no current one, so A opened a detail page for nothing — no title, no
+    // Play, nothing to focus, and the controller dead until Escape on a
+    // keyboard. So the focused game is noted before and found again after.
+    property string focusedGameId: ""
+    Connections {
+        target: GameLibrary
+        function onModelAboutToBeReset() {
+            window.focusedGameId = (window.currentGame && window.currentGame.gameId) || ""
+        }
+        function onModelReset() { Qt.callLater(window.refocusGame) }
+    }
+    function refocusGame() {
+        var index = window.focusedGameId !== "" ? GameLibrary.indexOfId(window.focusedGameId) : -1
+        // Gone from under an open page: close it rather than show another game.
+        if (index < 0 && window.focusedGameId !== "" && detailLoader.active) {
+            detailLoader.active = false
+            gamesGrid.forceActiveFocus()
+        }
+        if (index < 0 && GameLibrary.count > 0)
+            index = Math.max(0, Math.min(gamesGrid.currentIndex, GameLibrary.count - 1))
+        gamesGrid.currentIndex = GameLibrary.count > 0 ? index : -1
+    }
+
     // Background tint follows whatever is focused, in any tab.
     property color accentOfFocus: {
         if (currentTab === 0)
@@ -350,7 +377,7 @@ Window {
             readonly property var b: Launcher.buttonNames
             text: Theme.hint(Launcher.gameRunning
                   ? qsTr("%1  Library    %2  Resume or quit    ·    %3 is running")
-                        .arg(Launcher.usingController ? b.guide : qsTr("Guide button"))
+                        .arg(Launcher.usingController ? b.guide : "[Meta][Esc]")
                         .arg(Launcher.usingController ? b.start : "[F10]")
                         .arg(Launcher.runningTitle)
                   : Launcher.usingController
@@ -668,7 +695,7 @@ Window {
     }
 
     function openDetail() {
-        if (GameLibrary.count === 0) return
+        if (!window.currentGame) return
         detailLoader.active = true
         // Already open, onLoaded does not run again.
         if (detailLoader.item) detailLoader.item.forceActiveFocus()

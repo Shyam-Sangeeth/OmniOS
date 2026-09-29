@@ -12,8 +12,11 @@
 #include <QFileInfo>
 #include <QDebug>
 #include <QGuiApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeyEvent>
 #include <QMap>
+#include <QSaveFile>
 #include <QWindow>
 #include <QProcessEnvironment>
 #include <QRegularExpression>
@@ -28,6 +31,7 @@
 #include "KeyDelivery.h"
 #include "omnios/Apps.h"
 #include "omnios/GameScanner.h"
+#include "omnios/KeyboardLayout.h"
 #include "omnios/Paths.h"
 #include "omnios/EmulatorSetup.h"
 #include "omnios/Router.h"
@@ -55,15 +59,6 @@ void captureOutput(QProcess* process) {
     process->setStandardOutputFile(kAppLog, QIODevice::Truncate);
 }
 
-// Brings the launcher's window to the front. A Wayland app cannot raise itself
-// — KWin treats that as focus stealing and flashes the taskbar entry instead —
-// so omni-kwin-activate asks KWin to, through its scripting interface. That is
-// what gets the library back over a running game, and back into focus after an
-// app closes, when nothing has focus and a controller's presses would land
-// nowhere.
-//
-// Detached and unchecked: the launcher must still work under another
-// compositor, or none, just without being raised.
 // Asks these processes to stop, and three seconds on ends any that ignored
 // it — a hung game does. Each is recognised by its start time as well as its
 // number, so nothing that has taken a number since is ever hit.
@@ -82,8 +77,22 @@ void stopProcesses(QObject* context, const std::vector<int>& pids) {
     });
 }
 
+// Brings the launcher's window to the front. A Wayland app cannot raise itself
+// — KWin treats that as focus stealing and flashes the taskbar entry instead —
+// so omni-kwin-activate asks KWin to, through its scripting interface. That is
+// what gets the library back over a running game, and back into focus after an
+// app closes, when nothing has focus and a controller's presses would land
+// nowhere.
+//
+// Detached and unchecked: the launcher must still work under another
+// compositor, or none, just without being raised.
+//
+// Steam's Big Picture is minimised on the way: left open behind the library it
+// goes on reading the pad, and a press meant for the library could choose
+// something in it and bring it forward (omni-kwin-activate).
 void focusLauncherWindow() {
-    QProcess::startDetached(QStringLiteral("omni-kwin-activate"), {QStringLiteral("omni-launcher")});
+    QProcess::startDetached(QStringLiteral("omni-kwin-activate"),
+                            {QStringLiteral("--minimize-big-picture"), QStringLiteral("omni-launcher")});
 }
 
 // The first line the package manager marked as an error, with the prefix
@@ -126,6 +135,9 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
     connect(&gamepad_, &GamepadInput::homeRequested, this, &LauncherController::goHome);
     connect(&gamepad_, &GamepadInput::kindChanged, this, &LauncherController::controllerKindChanged);
     connect(this, &LauncherController::gameRunningChanged, this, &LauncherController::updateNotificationInhibit);
+    connect(this, &LauncherController::gameRunningChanged, this, &LauncherController::saveRunningState);
+    adoptedPoll_.setInterval(2000);
+    connect(&adoptedPoll_, &QTimer::timeout, this, &LauncherController::watchAdoptedGame);
     connect(&notifications_, &NotificationWatcher::countChanged, this,
             &LauncherController::standingNotificationsChanged);
     // A launcher that stopped mid-game left the user's critical-notification
@@ -145,6 +157,9 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
                                  QStringLiteral("/ScreenSaver"),
                                  QStringLiteral("org.freedesktop.ScreenSaver.SimulateUserActivity")});
     });
+    // A pad picked up in the middle of a game: the keyboard's controls bar
+    // has nothing more to say.
+    connect(&gamepad_, &GamepadInput::activity, this, &LauncherController::keyboardControlsUnwanted);
 
     // Steam installs and removes games in its own window, not through the
     // shell, so the Games tab watches for the result rather than being told.
@@ -155,6 +170,7 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
             [this](Qt::ApplicationState state) {
                 updatePadRouting();
                 if (state == Qt::ApplicationActive) refreshIfSteamChanged();
+                else takeBackFromSteam();
             });
 
     steamGamePoll_.setInterval(2000);
@@ -171,6 +187,7 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
         updateTimer_.start();
     }
 
+    adoptRunningGame();
     refresh();
 }
 
@@ -250,6 +267,33 @@ void LauncherController::goHome() {
     // Whatever is running keeps running; this is the console's "show me the
     // library" button, not a way to close a game.
     focusLauncherWindow();
+    // The Steam client answers Guide too, by opening Big Picture over
+    // everything, and it gets there after the launcher does. Noted, so that
+    // losing the front straight after is recognised (takeBackFromSteam).
+    if (omnios::steamClientRunning()) guidePressed_.start();
+    else guidePressed_.invalidate();
+}
+
+void LauncherController::takeBackFromSteam() {
+    // Only just after Guide, and only when the launcher did not hand the
+    // front to something itself: every launch, resume and Steam action
+    // forgets the press.
+    if (!guidePressed_.isValid() || guidePressed_.elapsed() > 5000) return;
+    guidePressed_.invalidate();
+    qInfo("Guide: lost the front with Steam running; putting Big Picture away");
+    // A Wayland app cannot see whose window came up, so this does not know it
+    // was Big Picture; closing and minimising it when it is not open do
+    // nothing. Minimised as well as closed: Steam did not always close it, and
+    // open behind the library it went on reading the pad (omni-kwin-activate).
+    const auto takeBack = []() {
+        QProcess::startDetached(QStringLiteral("steam"), {QStringLiteral("steam://close/bigpicture")});
+        focusLauncherWindow();
+    };
+    takeBack();
+    // Again, twice: Big Picture may still be opening at the first, and
+    // closing it hands the front to Steam's other window if it has one.
+    QTimer::singleShot(1500, this, takeBack);
+    QTimer::singleShot(4000, this, takeBack);
 }
 
 QString LauncherController::gamesPath() const {
@@ -425,6 +469,7 @@ QVariantMap LauncherController::setupStep(const QString& gameId) const {
 }
 
 void LauncherController::runSetupStep(const QString& gameId) {
+    guidePressed_.invalidate();
     const omnios::Game* game = findGame(model_.library(), gameId);
     if (game == nullptr || packageBusy()) return;
     const omnios::LaunchPlan plan = omnios::planLaunch(*game, {});
@@ -480,6 +525,7 @@ void LauncherController::runSetupStep(const QString& gameId) {
 }
 
 bool LauncherController::launch(const QString& gameId) {
+    guidePressed_.invalidate();
     // Opening something new replaces what is running. Done before the router
     // is consulted so a refused launch does not close what was already there.
     const omnios::Game* game = findGame(model_.library(), gameId);
@@ -596,12 +642,30 @@ bool LauncherController::launch(const QString& gameId) {
                 emit gameRunningChanged();
             });
 
+    connect(process, &QProcess::started, this, &LauncherController::saveRunningState);
     process->start(QString::fromStdString(plan.argv.front()), args);
     running_ = process;
     updatePadRouting();
     setStatus(tr("Starting %1 …").arg(runningTitle_));
     emit gameRunningChanged();
+    offerKeyboardControls(gameId, runningTitle_);
     return true;
+}
+
+void LauncherController::offerKeyboardControls(const QString& gameId, const QString& title) {
+    // Only from the keyboard: a controller's buttons are where they always are.
+    if (usingController_ || gameId.isEmpty()) return;
+    const omnios::Game* game = findGame(model_.library(), gameId);
+    if (game == nullptr) return;
+    const omnios::LaunchPlan plan = omnios::planLaunch(*game, {});
+    if (!plan.ok) return;
+    QVariantList rows;
+    for (const omnios::KeyHint& hint : omnios::keyboardControls(*game, plan)) {
+        QStringList keys;
+        for (const std::string& key : hint.keys) keys << QString::fromStdString(key);
+        rows << QVariantMap{{QStringLiteral("keys"), keys}, {QStringLiteral("button"), QString::fromStdString(hint.button)}};
+    }
+    if (!rows.isEmpty()) emit keyboardControlsWanted(title, rows);
 }
 
 bool LauncherController::launchApp(const QString& appId) {
@@ -641,6 +705,7 @@ bool LauncherController::launchApp(const QString& appId) {
 
 bool LauncherController::startApp(const QString& title, const QString& program,
                                   const QStringList& args) {
+    guidePressed_.invalidate();
     stopRunning(false);
 
     auto* process = new QProcess(this);
@@ -690,6 +755,7 @@ bool LauncherController::startApp(const QString& title, const QString& program,
                 emit gameRunningChanged();
             });
 
+    connect(process, &QProcess::started, this, &LauncherController::saveRunningState);
     process->start(program, args);
     running_ = process;
     updatePadRouting();
@@ -1225,6 +1291,7 @@ void LauncherController::switchToDesktop() {
 }
 
 void LauncherController::steamAction(const QString& gameId, const QString& action) {
+    guidePressed_.invalidate();
     const omnios::Game* game = findGame(model_.library(), gameId);
     if (game == nullptr || game->platform != omnios::Platform::Steam) return;
     // The app id becomes part of a URL handed to Steam; the reader already
@@ -1262,6 +1329,7 @@ void LauncherController::steamAction(const QString& gameId, const QString& actio
 void LauncherController::quitRunningGame() { stopRunning(true); }
 
 void LauncherController::resumeRunningGame() {
+    guidePressed_.invalidate();
     QStringList pids;
     if (!steamGame_.appId.isEmpty()) {
         const std::string appId = steamGame_.appId.toStdString();
@@ -1270,6 +1338,9 @@ void LauncherController::resumeRunningGame() {
             pids << QString::number(game.pid);
             for (const int pid : omnios::descendantsOf(game.pid)) pids << QString::number(pid);
         }
+    } else if (adopted_.pid != 0) {
+        pids << QString::number(adopted_.pid);
+        for (const int pid : omnios::descendantsOf(adopted_.pid)) pids << QString::number(pid);
     } else if (running_ != nullptr && running_->processId() > 0) {
         // A wrapper script is common (Steam's own, emulators' launchers), so
         // the window can belong to a child.
@@ -1284,6 +1355,7 @@ void LauncherController::resumeRunningGame() {
     }
     QProcess::startDetached(QStringLiteral("omni-kwin-activate"),
                             QStringList{QStringLiteral("--pid")} + pids);
+    offerKeyboardControls(runningGameId(), runningTitle());
 }
 
 void LauncherController::watchSteamGame() {
@@ -1322,6 +1394,114 @@ void LauncherController::endSteamGame(const QString& said, bool returnHome) {
     updatePadRouting();
     if (returnHome) focusLauncherWindow();
     setStatus(said);
+    emit gameRunningChanged();
+}
+
+QString LauncherController::runningTitle() const {
+    if (!steamGame_.appId.isEmpty()) return steamGame_.title;
+    if (adopted_.pid != 0) return adopted_.title;
+    return runningTitle_;
+}
+
+QString LauncherController::runningGameId() const {
+    if (!steamGame_.appId.isEmpty()) return steamGame_.gameId;
+    if (adopted_.pid != 0) return adopted_.gameId;
+    return runningGameId_;
+}
+
+namespace {
+
+// The runtime directory lasts as long as the login, like the game it records;
+// a file left from before a reboot cannot be read as a game still running.
+QString runningStateFile() {
+    QString runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
+    if (runtime.isEmpty()) runtime = QDir::tempPath();
+    return runtime + QStringLiteral("/omnios-running.json");
+}
+
+}  // namespace
+
+void LauncherController::saveRunningState() {
+    QJsonObject state;
+    if (!steamGame_.appId.isEmpty()) {
+        state.insert(QStringLiteral("steamAppId"), steamGame_.appId);
+    } else {
+        int pid = adopted_.pid;
+        if (running_ != nullptr && running_->processId() > 0) pid = static_cast<int>(running_->processId());
+        // As text: a start time in clock ticks can outgrow what JSON's
+        // doubles hold exactly.
+        if (const std::uint64_t start = pid > 0 ? omnios::processStartTime(pid) : 0) {
+            state.insert(QStringLiteral("pid"), pid);
+            state.insert(QStringLiteral("start"), QString::number(start));
+        }
+    }
+    const QString path = runningStateFile();
+    if (state.isEmpty()) {
+        QFile::remove(path);
+        return;
+    }
+    state.insert(QStringLiteral("gameId"), runningGameId());
+    state.insert(QStringLiteral("title"), runningTitle());
+    QSaveFile file(path);
+    if (file.open(QIODevice::WriteOnly)) {
+        file.write(QJsonDocument(state).toJson(QJsonDocument::Compact));
+        file.commit();
+    }
+}
+
+void LauncherController::adoptRunningGame() {
+    QFile file(runningStateFile());
+    if (!file.open(QIODevice::ReadOnly)) return;
+    const QJsonObject state = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    const QString title = state.value(QStringLiteral("title")).toString();
+    const QString gameId = state.value(QStringLiteral("gameId")).toString();
+
+    if (const QString appId = state.value(QStringLiteral("steamAppId")).toString(); !appId.isEmpty()) {
+        // Only a game Steam is running now. One still starting — Steam
+        // updating it, say — is let go: nothing here can tell that apart
+        // from one that never will.
+        bool running = false;
+        for (const omnios::SteamGameProcess& game : omnios::runningSteamGames())
+            running = running || QString::fromStdString(game.appId) == appId;
+        if (!running) {
+            QFile::remove(runningStateFile());
+            return;
+        }
+        steamGame_.appId = appId;
+        steamGame_.gameId = gameId;
+        steamGame_.title = title;
+        steamGame_.seen = true;
+        steamGame_.since.start();
+        steamGamePoll_.start();
+    } else {
+        const int pid = state.value(QStringLiteral("pid")).toInt();
+        const std::uint64_t start = state.value(QStringLiteral("start")).toString().toULongLong();
+        if (pid <= 0 || start == 0 || omnios::processStartTime(pid) != start) {
+            QFile::remove(runningStateFile());
+            return;
+        }
+        adopted_ = AdoptedGame{pid, start, gameId, title};
+        adoptedPoll_.start();
+    }
+    qInfo("adopted %s, still running from before", qPrintable(gameId));
+    updatePadRouting();
+    setStatus(tr("%1 is running").arg(title));
+    emit gameRunningChanged();
+}
+
+void LauncherController::watchAdoptedGame() {
+    if (adopted_.pid == 0) {
+        adoptedPoll_.stop();
+        return;
+    }
+    if (omnios::processStartTime(adopted_.pid) == adopted_.start) return;
+    const QString title = adopted_.title;
+    adopted_ = AdoptedGame{};
+    adoptedPoll_.stop();
+    updatePadRouting();
+    focusLauncherWindow();
+    setStatus(tr("%1 exited").arg(title));
     emit gameRunningChanged();
 }
 
@@ -1414,6 +1594,24 @@ void LauncherController::stopRunning(bool returnHome) {
         }
         stopProcesses(this, pids);
         endSteamGame(tr("%1 closed").arg(steamGame_.title), returnHome);
+    }
+    if (adopted_.pid != 0) {
+        // Not a child of this launcher, so no QProcess to stop: the process
+        // and everything under it, as for a Steam game — if it is still the
+        // process that was adopted.
+        std::vector<int> pids;
+        if (omnios::processStartTime(adopted_.pid) == adopted_.start) {
+            pids.push_back(adopted_.pid);
+            for (const int pid : omnios::descendantsOf(adopted_.pid)) pids.push_back(pid);
+        }
+        stopProcesses(this, pids);
+        const QString title = adopted_.title;
+        adopted_ = AdoptedGame{};
+        adoptedPoll_.stop();
+        updatePadRouting();
+        if (returnHome) focusLauncherWindow();
+        setStatus(tr("%1 closed").arg(title));
+        emit gameRunningChanged();
     }
     if (running_ == nullptr) return;
 

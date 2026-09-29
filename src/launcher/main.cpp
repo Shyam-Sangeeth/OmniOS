@@ -10,6 +10,7 @@
 #include <QSGRendererInterface>
 #include <cstdlib>
 
+#include "ControlsOverlay.h"
 #include "GreeterController.h"
 #include "InstallerController.h"
 #include "LauncherController.h"
@@ -112,6 +113,19 @@ int main(int argc, char* argv[]) {
     // change to the resource layout cannot silently produce a blank screen.
     engine.loadFromModule("omnios", "Main");
     if (engine.rootObjects().isEmpty()) return 1;
+
+    // Which key is which, along the bottom of a game started from the
+    // keyboard; gone once the library is in front again, a pad is used, or
+    // the game has ended.
+    ControlsOverlay controls(&engine);
+    QObject::connect(&controller, &LauncherController::keyboardControlsWanted, &controls, &ControlsOverlay::show);
+    QObject::connect(&controller, &LauncherController::keyboardControlsUnwanted, &controls, [&controls]() {
+        qInfo("keyboard controls: a pad was used");
+        controls.hide();
+    });
+    QObject::connect(&controller, &LauncherController::gameRunningChanged, &controls, [&controls, &controller]() {
+        if (!controller.gameRunning()) controls.hide();
+    });
 
     return app.exec();
 }

@@ -48,11 +48,14 @@ plasma_running() {
 }
 
 open_launcher() {
+    # Steam's Big Picture minimised either way: left open behind the library,
+    # it goes on reading the pad (see omni-kwin-activate).
     if pgrep -u "$uid" -f "$launcher_pattern" >/dev/null 2>&1; then
         # Already open, perhaps behind a game: bring it forward.
-        omni-kwin-activate omni-launcher
+        omni-kwin-activate --minimize-big-picture omni-launcher
         return
     fi
+    omni-kwin-activate --minimize-big-picture omni-launcher
     # Its own session, so it outlives whatever asked for it — a menu entry, a
     # script, an ssh login — and logs where it always has.
     setsid -f omni-launcher-qml >>/tmp/omnios-shell.log 2>&1 </dev/null
@@ -159,8 +162,10 @@ panel_to_desktop() {
 # - while the launcher is open, what opens is a game or an app from the
 #   library, and a console shows it full screen — dialogs excepted, which
 #   belong on top of their window rather than instead of it;
-# - when the launcher closes, those windows go back to ordinary desktop
-#   windows, since leaving Game Mode leaves them running on the desktop.
+# - when the launcher closes, those windows go back to ordinary (maximised)
+#   desktop windows, since leaving Game Mode leaves them running on the
+#   desktop; and full screen again when it opens, if they are still there;
+# - Meta+Esc brings the launcher back over a game: the keyboard's Guide.
 #
 # A script rather than window rules: a rule file written after KWin started
 # was not picked up for new windows in testing, and a rule cannot ask whether
@@ -175,6 +180,9 @@ load_game_mode_kwin_script() {
     cat >"$script" <<'EOF'
 const LAUNCHER = "omni-launcher";
 const madeFullScreen = new Set();
+// Taken out of full screen when Game Mode was left, and still open: full
+// screen again when it comes back, as the game they are.
+const leftFullScreen = new Set();
 
 function isLauncher(window) {
     return window.resourceClass === LAUNCHER;
@@ -188,6 +196,11 @@ function opened(window) {
     if (isLauncher(window)) {
         window.skipTaskbar = true;
         window.skipPager = true;
+        for (const other of leftFullScreen) {
+            other.fullScreen = true;
+            madeFullScreen.add(other);
+        }
+        leftFullScreen.clear();
         return;
     }
     if (!gameModeOn() || !window.normalWindow || window.transient) return;
@@ -205,12 +218,36 @@ function opened(window) {
     });
 }
 
+// Maximised, not just out of full screen: a window that was born full screen
+// has no size of its own to go back to but whatever it asked for first, and
+// for RetroArch that is the console's picture at 1x — an NES game ended up as
+// a 240x256 window in the corner of the desktop.
 function closed(window) {
     madeFullScreen.delete(window);
+    leftFullScreen.delete(window);
     if (!isLauncher(window)) return;
-    for (const other of madeFullScreen) other.fullScreen = false;
+    for (const other of madeFullScreen) {
+        other.fullScreen = false;
+        if (other.maximizable) other.setMaximize(true, true);
+        leftFullScreen.add(other);
+    }
     madeFullScreen.clear();
 }
+
+// The keyboard's Guide button: Meta+Esc brings the library back over a game,
+// as Guide does on a pad. A shortcut KWin itself holds, so it works whatever
+// has the keyboard; nothing happens outside Game Mode, where there is no
+// launcher to bring back. Steam's Big Picture is put away on the way, as the
+// launcher does (omni-kwin-activate --minimize-big-picture).
+registerShortcut("OmniOS Library", "OmniOS: back to the library", "Meta+Esc", function () {
+    const launcher = workspace.windowList().find(isLauncher);
+    if (!launcher) return;
+    for (const window of workspace.windowList()) {
+        if (window.resourceClass === "steam" && window.fullScreen) window.minimized = true;
+    }
+    launcher.minimized = false;
+    workspace.activeWindow = launcher;
+});
 
 workspace.windowList().forEach(function (window) {
     if (isLauncher(window)) opened(window);

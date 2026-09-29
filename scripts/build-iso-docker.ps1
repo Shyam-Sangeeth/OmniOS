@@ -92,7 +92,7 @@ pacman -Sy --noconfirm archlinux-keyring || echo '    (keyring hook failed; cont
 # without it the build still succeeds — and ships a Game Mode that ignores
 # every gamepad, which no VM test notices because the VM has none. Every image
 # up to 2026-09-26 was built that way.
-pacman -S --noconfirm --needed archiso cmake ninja gcc git pkgconf qt6-base qt6-declarative qt6-tools sdl3 mpv
+pacman -S --noconfirm --needed archiso cmake ninja gcc git pkgconf qt6-base qt6-declarative qt6-tools sdl3 mpv layer-shell-qt
 echo '==> building'
 ./scripts/build-iso.sh $buildFlags
 echo '==> copying the ISO out of the build volume'

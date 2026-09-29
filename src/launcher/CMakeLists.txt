@@ -17,6 +17,7 @@ qt_add_executable(omni-launcher
     PadGlyphs.cpp
     MpvItem.cpp
     NotificationWatcher.cpp
+    ControlsOverlay.cpp
     TvController.cpp)
 
 # The QML forms a module named "omnios". The files sit beside this file rather
@@ -48,6 +49,7 @@ qt_add_qml_module(omni-launcher
         FilterPopup.qml
         TvPlayer.qml
         PromptPanel.qml
+        ControlsOverlay.qml
     SOURCES
         GameListModel.h
         AppListModel.h
@@ -61,6 +63,7 @@ qt_add_qml_module(omni-launcher
         PadGlyphs.h
         MpvItem.h
         NotificationWatcher.h
+        ControlsOverlay.h
         TvController.h)
 
 # SDL3 for the controller. Optional on purpose: without it the shell still
@@ -74,6 +77,18 @@ if(SDL3_FOUND)
     target_link_libraries(omni-launcher PRIVATE SDL3::SDL3)
 else()
     message(WARNING "SDL3 not found - the launcher will be keyboard-only")
+endif()
+
+# LayerShellQt, Plasma's library for layer-shell surfaces: the keyboard
+# controls overlay goes on the overlay layer, above a full-screen game
+# (ControlsOverlay.h). Optional: without it the overlay is an ordinary window,
+# which a full-screen game covers.
+find_package(LayerShellQt QUIET)
+if(LayerShellQt_FOUND)
+    target_compile_definitions(omni-launcher PRIVATE OMNIOS_HAS_LAYERSHELL)
+    target_link_libraries(omni-launcher PRIVATE LayerShellQt::Interface)
+else()
+    message(WARNING "LayerShellQt not found - the keyboard controls overlay will not show over games")
 endif()
 
 # zlib, for TV's guides, which come gzipped. Qt has it inside but does not

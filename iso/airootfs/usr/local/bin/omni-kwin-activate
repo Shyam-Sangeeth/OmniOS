@@ -3,6 +3,7 @@
 #
 #   omni-kwin-activate omni-launcher
 #   omni-kwin-activate --pid 4242 4243 4250
+#   omni-kwin-activate --minimize-big-picture omni-launcher
 #
 # A Wayland app cannot raise itself: that is focus stealing, and KWin answers it
 # by flashing the taskbar entry instead. KWin's own scripting can, so this hands
@@ -16,8 +17,22 @@
 # the one raised.
 set -uo pipefail
 
-usage() { echo "usage: omni-kwin-activate APP_ID | --pid PID..." >&2; exit 2; }
+usage() { echo "usage: omni-kwin-activate [--minimize-big-picture] APP_ID | --pid PID..." >&2; exit 2; }
 [ $# -ge 1 ] || usage
+
+# Steam's Big Picture minimised first, in the same script. The Steam client
+# answers the controller's Guide button by opening Big Picture over everything;
+# the launcher takes the front back, but Big Picture left open behind it goes on
+# reading the pad — every press moved through its menus unseen, until one chose
+# something that brought it forward again. Minimised, it stops. Steam is asked
+# to close it as well, and did not always (seen signed out). Found as Steam's
+# full-screen window: its class is "steam", and its caption is translated.
+minimize_big_picture=false
+if [ "$1" = "--minimize-big-picture" ]; then
+    minimize_big_picture=true
+    shift
+    [ $# -ge 1 ] || usage
+fi
 
 if [ "$1" = "--pid" ]; then
     shift
@@ -43,6 +58,11 @@ export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=${XDG_RUN
 script="$(mktemp --suffix=.js)"
 trap 'rm -f "$script"' EXIT
 cat >"$script" <<EOF
+if ($minimize_big_picture) {
+    for (const window of workspace.windowList()) {
+        if (window.resourceClass === "steam" && window.fullScreen) window.minimized = true;
+    }
+}
 for (const window of workspace.windowList()) {
     if (window.normalWindow && $match) {
         window.minimized = false;

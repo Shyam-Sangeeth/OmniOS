@@ -6,6 +6,7 @@
 // quitting a game returns you to the grid rather than to a black screen.
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 #include <QElapsedTimer>
@@ -83,9 +84,11 @@ public:
     QString version() const;
     bool    scanning() const { return scanning_; }
     QString status() const { return status_; }
-    bool    gameRunning() const { return running_ != nullptr || !steamGame_.appId.isEmpty(); }
-    QString runningTitle() const { return steamGame_.appId.isEmpty() ? runningTitle_ : steamGame_.title; }
-    QString runningGameId() const { return steamGame_.appId.isEmpty() ? runningGameId_ : steamGame_.gameId; }
+    bool    gameRunning() const {
+        return running_ != nullptr || !steamGame_.appId.isEmpty() || adopted_.pid != 0;
+    }
+    QString runningTitle() const;
+    QString runningGameId() const;
     int     updateCount() const { return updateCount_; }
     bool    restartRequired() const { return restartRequired_; }
     // A prompt waiting for a password counts: the operation behind it has been
@@ -229,6 +232,12 @@ signals:
     // Asks the shell to make sure something inside it holds QML focus, before a
     // key is delivered to it.
     void focusWanted();
+    // A game was started or resumed from the keyboard: show which key is which
+    // of its console's buttons (ControlsOverlay). `rows` is a list of
+    // {keys: [...], button: "..."}.
+    void keyboardControlsWanted(const QString& title, const QVariantList& rows);
+    // A controller was used: the keyboard's controls are not what matters.
+    void keyboardControlsUnwanted();
 
 protected:
     // Watches the whole application's input for keys and clicks that did not
@@ -291,6 +300,26 @@ private:
     // to the front only when `returnHome`.
     void endSteamGame(const QString& said, bool returnHome);
 
+    // What is running is written to a file in the runtime directory whenever
+    // it changes, so a launcher that starts again — back from Desktop Mode,
+    // which closes it, or after a crash — takes up the game the last one left
+    // running. Without that it knew of no game, offered no Resume or Quit, and
+    // Play started a second copy beside the first, both reading the pad.
+    // Guide was pressed with the Steam client running, and the launcher lost
+    // the front straight after: Steam's Big Picture, which it closes.
+    void takeBackFromSteam();
+
+    // The keyboard's controls for game `gameId`, for keyboardControlsWanted;
+    // empty for one OmniOS sets up no keyboard for, or when the keyboard is
+    // not what is being used.
+    void offerKeyboardControls(const QString& gameId, const QString& title);
+
+    void saveRunningState();
+    void adoptRunningGame();
+    // An adopted game is not a child of this launcher, so nothing reports its
+    // end; its process is watched for instead.
+    void watchAdoptedGame();
+
     // The pad drives the launcher unless something runs over it. With a game
     // running but the launcher brought to the front (Guide), it drives the
     // launcher again: nothing else is listening then.
@@ -347,6 +376,18 @@ private:
     };
     SteamGame      steamGame_;
     QTimer         steamGamePoll_;
+    // A game or app an earlier launcher started (adoptRunningGame). The start
+    // time tells it from whatever takes its process id after it ends.
+    struct AdoptedGame {
+        int           pid = 0;  // 0: none
+        std::uint64_t start = 0;
+        QString       gameId;
+        QString       title;
+    };
+    AdoptedGame    adopted_;
+    QTimer         adoptedPoll_;
+    // When Guide was last pressed with Steam running; invalid otherwise.
+    QElapsedTimer  guidePressed_;
 
     int            updateCount_ = -1;
     bool           restartRequired_ = false;

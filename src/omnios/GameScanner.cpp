@@ -397,7 +397,10 @@ ScanReport GameScanner::scan(GameLibrary& library) const {
             // Preserve what a scan cannot rederive: fetched cover art and any
             // engine the user pinned by hand.
             if (const Game* cached = library.find(game.id); cached != nullptr) {
-                if (game.coverPath.empty()) game.coverPath = cached->coverPath;
+                // A cover whose file has gone is dropped, so it is fetched again.
+                std::error_code coverEc;
+                if (game.coverPath.empty() && fs::is_regular_file(cached->coverPath, coverEc))
+                    game.coverPath = cached->coverPath;
                 if (game.engineOverride.empty()) game.engineOverride = cached->engineOverride;
                 ++report.updated;
             } else {
@@ -420,6 +423,63 @@ ScanReport GameScanner::scan(GameLibrary& library) const {
 
     library.sortByTitle();
     return report;
+}
+
+namespace {
+
+// The files a .cue (its FILE lines) or an .m3u (its lines) names, as written.
+std::vector<std::string> namedFiles(const fs::path& list) {
+    std::vector<std::string> names;
+    std::ifstream in(list);
+    const bool cue = fileExtension(list.filename().string()) == "cue";
+    for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        std::string_view text = line;
+        while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) text.remove_prefix(1);
+        if (text.empty() || text.front() == '#') continue;
+        if (!cue) {
+            names.emplace_back(text);
+            continue;
+        }
+        if (text.rfind("FILE ", 0) != 0) continue;
+        text.remove_prefix(5);
+        if (!text.empty() && text.front() == '"') {
+            const std::size_t end = text.find('"', 1);
+            if (end != std::string_view::npos) names.emplace_back(text.substr(1, end - 1));
+        } else {
+            // FILE name.bin BINARY: the name is all but the last word.
+            const std::size_t space = text.rfind(' ');
+            names.emplace_back(text.substr(0, space));
+        }
+    }
+    return names;
+}
+
+}  // namespace
+
+std::vector<fs::path> gameFiles(const Game& game) {
+    std::vector<fs::path> files;
+    std::error_code ec;
+    if (!fs::exists(game.path, ec)) return files;
+    files.push_back(game.path);
+    if (fs::is_directory(game.path, ec)) return files;
+
+    const fs::path folder = game.path.parent_path();
+    std::vector<fs::path> lists = {game.path};
+    for (std::size_t i = 0; i < lists.size(); ++i) {
+        const std::string ext = fileExtension(lists[i].filename().string());
+        if (ext != "cue" && ext != "m3u") continue;
+        for (const std::string& name : namedFiles(lists[i])) {
+            const fs::path named = fs::path(name).filename();  // this folder only
+            if (named.empty() || named != fs::path(name)) continue;
+            const fs::path file = folder / named;
+            if (!fs::is_regular_file(file, ec)) continue;
+            if (std::find(files.begin(), files.end(), file) != files.end()) continue;
+            files.push_back(file);
+            lists.push_back(file);  // an .m3u's .cue names tracks of its own
+        }
+    }
+    return files;
 }
 
 }  // namespace omnios

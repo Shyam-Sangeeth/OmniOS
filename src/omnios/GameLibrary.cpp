@@ -140,6 +140,14 @@ const Game* GameLibrary::find(std::string_view id) const {
     return it == games_.end() ? nullptr : &*it;
 }
 
+bool GameLibrary::setCover(std::string_view id, const std::filesystem::path& cover) {
+    const auto it = std::find_if(games_.begin(), games_.end(),
+                                 [id](const Game& game) { return game.id == id; });
+    if (it == games_.end()) return false;
+    it->coverPath = cover;
+    return true;
+}
+
 std::vector<const Game*> GameLibrary::byPlatform(Platform platform) const {
     std::vector<const Game*> matches;
     for (const Game& game : games_) {

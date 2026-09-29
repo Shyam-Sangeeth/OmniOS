@@ -730,6 +730,10 @@ std::string applyDolphinPad(std::string_view ini, std::string_view section,
     return out;
 }
 
+bool escapeOpensGameMenu(std::string_view engineId) {
+    return engineId == "dolphin" || engineId == "azahar" || engineId == "ryubing";
+}
+
 bool prepareEmulator(std::string_view engineId, const std::vector<Controller>& controllers) {
     const auto ini = [](const fs::path& file, const std::string& fresh, const std::vector<IniSetting>& settings) {
         return updateFile(file, fresh, [&](const std::string& text) { return applyIniSettings(text, settings); });
@@ -789,12 +793,16 @@ bool prepareEmulator(std::string_view engineId, const std::vector<Controller>& c
         // the welcome on first start, "installed" after the system software,
         // "are you sure" on leaving a game. (Its "install firmware?" question
         // has no setting; Router.cpp says so where it offers the install.)
+        // And Escape opens its Home Menu, the pause menu the PS button opens
+        // (Resume, Exit Game), rather than leaving full screen as it did.
         const fs::path dir = flatpakConfigDir("net.rpcs3.RPCS3") / "rpcs3";
         const bool boxes = ini(dir / "GuiConfigs/CurrentSettings.ini", "",
                                {
                                    {"Meta", "infoBoxEnabledWelcome", "false", IniSetting::Mode::Set, {"true"}},
                                    {"Meta", "infoBoxEnabledInstallPUP", "false", IniSetting::Mode::Set, {"true"}},
                                    {"Meta", "confirmationBoxExitGame", "false", IniSetting::Mode::Set, {"true"}},
+                                   {"Shortcuts", "gw_home_menu", "Esc", IniSetting::Mode::Set, {"Shift+F10"}},
+                                   {"Shortcuts", "game_window_exit_fullscreen", "", IniSetting::Mode::Set, {"Esc"}},
                                });
         // Player 1 on the pad, or on the keyboard's layout when there is none.
         // With no file RPCS3 uses Default.yml, whatever the active

@@ -31,7 +31,8 @@ add_library(omnios_core STATIC
     src/omnios/Iptv.cpp
     src/omnios/Epg.cpp
     src/omnios/EmulatorSetup.cpp
-    src/omnios/KeyboardLayout.cpp)
+    src/omnios/KeyboardLayout.cpp
+    src/omnios/CoverArt.cpp)
 
 target_include_directories(omnios_core PUBLIC src)
 

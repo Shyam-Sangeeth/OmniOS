@@ -85,4 +85,11 @@ std::string applyDolphinPad(std::string_view ini, std::string_view section,
 // the settings file could not be written.
 bool prepareEmulator(std::string_view engineId, const std::vector<Controller>& controllers = {});
 
+// Whether Escape in engine `engineId`'s games should open OmniOS's game menu
+// (Resume, Quit game), for want of a pause menu of the engine's own: Dolphin
+// (Escape does nothing), Azahar (it leaves full screen, for a small window
+// over the library) and Ryubing (it leaves full screen, then stops the game).
+// RetroArch, DuckStation, PCSX2 and RPCS3 open their own on Escape.
+bool escapeOpensGameMenu(std::string_view engineId);
+
 }  // namespace omnios

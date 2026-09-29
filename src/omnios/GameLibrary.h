@@ -81,6 +81,10 @@ public:
 
     const Game* find(std::string_view id) const;
 
+    // Sets one game's cover art (fetched after the scan). False when there is
+    // no game with that id.
+    bool setCover(std::string_view id, const std::filesystem::path& cover);
+
     const std::vector<Game>& games() const { return games_; }
     std::size_t              size() const { return games_.size(); }
     bool                     empty() const { return games_.empty(); }

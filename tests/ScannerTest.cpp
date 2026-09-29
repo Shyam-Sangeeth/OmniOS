@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -191,9 +192,11 @@ TEST("scanner: a rescan keeps fetched art and a user-pinned engine") {
     CHECK(first != nullptr);
     if (first == nullptr) return;
 
-    // Simulate Phase 7.4 filling in art and the user pinning an engine.
+    // Simulate cover art being fetched and the user pinning an engine.
+    const std::filesystem::path cover = tree.root() / "fetched-cover.png";
+    std::ofstream(cover) << "png";
     Game edited = *first;
-    edited.coverPath      = "/home/omni/.omnios/library/ps2.ico/cover.jpg";
+    edited.coverPath      = cover;
     edited.engineOverride = "retroarch";
     library.add(edited);
 
@@ -202,10 +205,54 @@ TEST("scanner: a rescan keeps fetched art and a user-pinned engine") {
     const Game* second = library.find("ps2.ico");
     CHECK(second != nullptr);
     if (second != nullptr) {
-        CHECK_EQ(second->coverPath.generic_string(),
-                 std::string("/home/omni/.omnios/library/ps2.ico/cover.jpg"));
+        CHECK(second->coverPath == cover);
         CHECK_EQ(second->engineOverride, std::string("retroarch"));
     }
+
+    // A cover whose file has gone is dropped, so it can be fetched again.
+    std::filesystem::remove(cover);
+    scanner.scan(library);
+    const Game* third = library.find("ps2.ico");
+    CHECK(third != nullptr && third->coverPath.empty());
+}
+
+TEST("scanner: a game's files are its path and what its disc list names, in its folder only") {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / "omnios-gamefiles";
+    fs::remove_all(root);
+    fs::create_directories(root / "ps1" / "Folder Game");
+    const auto touch = [](const fs::path& file, const std::string& text = "x") { std::ofstream(file) << text; };
+    touch(root / "ps1" / "Disc (Track 1).bin");
+    touch(root / "ps1" / "Disc (Track 2).bin");
+    touch(root / "ps1" / "Other.bin");
+    touch(root / "outside.bin");
+    touch(root / "ps1" / "Disc.cue",
+          "FILE \"Disc (Track 1).bin\" BINARY\r\n  TRACK 01 MODE2/2352\r\nFILE \"Disc (Track 2).bin\" BINARY\r\n"
+          "FILE \"../outside.bin\" BINARY\r\nFILE \"missing.bin\" BINARY\r\n");
+    touch(root / "ps1" / "Set.m3u", "# a two-disc set\nDisc.cue\n");
+    touch(root / "ps1" / "Folder Game" / "a.cue");
+
+    Game loose;
+    loose.path = root / "ps1" / "Disc.cue";
+    const std::vector<fs::path> cue = gameFiles(loose);
+    CHECK_EQ(cue.size(), std::size_t{3});  // the .cue and its two tracks, not ../ nor a missing one
+    CHECK(std::find(cue.begin(), cue.end(), root / "ps1" / "Disc (Track 2).bin") != cue.end());
+    CHECK(std::find(cue.begin(), cue.end(), root / "ps1" / "Other.bin") == cue.end());
+
+    Game set;
+    set.path = root / "ps1" / "Set.m3u";
+    CHECK_EQ(gameFiles(set).size(), std::size_t{4});  // the .m3u, its .cue, the .cue's tracks
+
+    Game folder;
+    folder.path = root / "ps1" / "Folder Game";
+    CHECK_EQ(gameFiles(folder).size(), std::size_t{1});  // the folder, whole
+
+    Game gone;
+    gone.path = root / "nothing.nes";
+    CHECK(gameFiles(gone).empty());
+
+    std::error_code ec;
+    fs::remove_all(root, ec);
 }
 
 TEST("scanner: a Windows game directory launches its executable") {

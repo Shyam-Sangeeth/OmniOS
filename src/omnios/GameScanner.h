@@ -60,4 +60,11 @@ std::uint64_t pathSize(const std::filesystem::path& path);
 // filename into something worth putting on a tile.
 std::string titleFromFilename(std::string_view filename);
 
+// What `game` is on disk, for uninstalling it: its path (a file, or the folder
+// a folder game is), and for a .cue or .m3u lying loose beside its tracks, the
+// files it names too — an .m3u's .cue and that .cue's tracks as well. Only
+// files that exist in the same folder: a list that names "../x" or an absolute
+// path does not reach outside it.
+std::vector<std::filesystem::path> gameFiles(const Game& game);
+
 }  // namespace omnios

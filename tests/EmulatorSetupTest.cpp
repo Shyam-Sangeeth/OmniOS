@@ -87,6 +87,14 @@ TEST("emulator setup: DuckStation and PCSX2 name the face buttons their own way"
     CHECK(ps2.find("Triangle = SDL-0/FaceNorth") != std::string::npos);
     CHECK(ps2.find("SDL-0/A\n") == std::string::npos);
     CHECK(prepareEmulator("dolphin"));  // the keyboard, with no pad
+    // RPCS3, in the file it writes on its first start: Escape opens its Home
+    // Menu, and no longer leaves full screen.
+    const fs::path rpcs3File = home / ".var/app/net.rpcs3.RPCS3/config/rpcs3/GuiConfigs/CurrentSettings.ini";
+    fs::create_directories(rpcs3File.parent_path());
+    std::ofstream(rpcs3File) << "[Meta]\ninfoBoxEnabledWelcome=true\n";
+    CHECK(prepareEmulator("rpcs3"));
+    const std::string rpcs3 = read(rpcs3File);
+    CHECK(rpcs3.find("[Shortcuts]\ngw_home_menu = Esc\ngame_window_exit_fullscreen = \n") != std::string::npos);
 #ifdef _WIN32
     _putenv_s("HOME", oldHome.c_str());
 #else
@@ -350,4 +358,16 @@ TEST("emulator setup: Dolphin plays on the keyboard with no pad") {
     const std::string wii = applyDolphinPad("", "Wiimote1", {});
     CHECK(wii.find("Source = 1\nButtons/A = `Z`\nButtons/B = `R`\n") != std::string::npos);
     CHECK(wii.find("Extension = Nunchuk\n") != std::string::npos);
+}
+
+TEST("emulator setup: Escape opens OmniOS's game menu only where the emulator has no pause menu") {
+    CHECK(escapeOpensGameMenu("dolphin"));
+    CHECK(escapeOpensGameMenu("azahar"));
+    CHECK(escapeOpensGameMenu("ryubing"));
+    CHECK(!escapeOpensGameMenu("retroarch"));
+    CHECK(!escapeOpensGameMenu("duckstation"));
+    CHECK(!escapeOpensGameMenu("pcsx2"));
+    CHECK(!escapeOpensGameMenu("rpcs3"));
+    CHECK(!escapeOpensGameMenu("steam"));
+    CHECK(!escapeOpensGameMenu(""));
 }

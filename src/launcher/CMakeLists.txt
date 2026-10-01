@@ -37,6 +37,7 @@ qt_add_qml_module(omni-launcher
         Theme.qml
         GameTile.qml
         MenuPanel.qml
+        SaveSlots.qml
         OmniLogo.qml
         GameDetail.qml
         InstallerWindow.qml

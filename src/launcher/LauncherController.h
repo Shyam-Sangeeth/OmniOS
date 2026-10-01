@@ -180,15 +180,19 @@ public:
     // chose; see omni-kwin-activate --pid.
     Q_INVOKABLE void resumeRunningGame();
 
-    // Save states for the running game (canSaveState), slot 0, through
-    // RetroArch's command interface on its standard input (stdin_cmd_enable,
-    // in /usr/share/omnios/retroarch.cfg): nothing listens on the network.
-    // Saving says when the state is written, or that it was not; loading
-    // goes back into the game, at the state.
+    // Save states for the running game (canSaveState), in kStateSlots slots,
+    // through RetroArch's command interface on its standard input
+    // (stdin_cmd_enable, in /usr/share/omnios/retroarch.cfg): nothing listens
+    // on the network. Saving says when the state is written, or that it was
+    // not; loading goes back into the game, at the state.
+    static constexpr int kStateSlots = 6;
     bool canSaveState() const;
     Q_INVOKABLE bool hasSavedState() const;
-    Q_INVOKABLE void saveState();
-    Q_INVOKABLE void loadState();
+    // Each slot, for the save and load panel (SaveSlots.qml):
+    // { slot, used, time (ms), picture (a file URL, or ""), when ("Today 01:43") }.
+    Q_INVOKABLE QVariantList stateSlots() const;
+    Q_INVOKABLE void saveState(int slot);
+    Q_INVOKABLE void loadState(int slot);
     // Meta pressed in Game Mode (LauncherBus): the launcher to the front, and
     // the menu for what is running.
     Q_INVOKABLE void showMenu();
@@ -467,7 +471,17 @@ private:
     QString       runningContent_;          // the file RetroArch was given, for its states
     QTimer        stateWatch_;              // a save asked for, until its file is written
     QElapsedTimer stateAsked_;
-    qint64        stateBefore_ = 0;         // the state file's time before, in ms; 0 for none
+    QList<qint64> stateBefore_;             // each slot's file time before it, in ms; 0 for none
+    // RetroArch's slot now, as far as the launcher knows: the one it starts
+    // the game on (omnios::retroarchStartSlot), then moved one step at a time.
+    int           stateSlotNow_ = 0;
+    // Commands for RetroArch, one per stateFeed_ tick, and what follows them.
+    QStringList   stateQueue_;
+    QTimer        stateFeed_;
+    bool          stateLoading_ = false;    // the queue ends in a load: back into the game after
+    // Steps RetroArch's slot to `slot`.
+    void queueSlotSteps(int slot);
+    qint64 stateTime(int slot) const;
     bool          escapeForMenu_ = false;   // updateEscapeKey's last word
     QProcess*     escapeKeyCall_ = nullptr; // one at a time, so none overtakes another
     QString       status_;

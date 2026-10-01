@@ -5,7 +5,10 @@
 #include <QDBusMessage>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
+#include <QDate>
 #include <QDateTime>
+#include <QLocale>
+#include <QUrl>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -174,20 +177,44 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
                 else takeBackFromSteam();
             });
 
+    // RetroArch's commands, one at a time. It takes one as a button pressed
+    // for a frame, so the same one twice in a frame (two slot steps, say)
+    // counted once; and this RetroArch ignores the commands that name a slot
+    // (SAVE_STATE_SLOT n), so slots are stepped to.
+    stateFeed_.setInterval(200);
+    connect(&stateFeed_, &QTimer::timeout, this, [this]() {
+        if (!canSaveState()) {
+            stateQueue_.clear();
+            stateFeed_.stop();
+            return;
+        }
+        if (!stateQueue_.isEmpty()) {
+            running_->write((stateQueue_.takeFirst() + QLatin1Char('\n')).toUtf8());
+            return;
+        }
+        stateFeed_.stop();
+        if (stateLoading_) resumeRunningGame();
+        else {
+            stateAsked_.start();
+            stateWatch_.start();
+        }
+    });
+
     // A save asked for, watched until RetroArch has written the file: it
     // says nothing back on its standard input, and its own message about it
-    // is drawn in the game, behind the launcher.
+    // is drawn in the game, behind the launcher. Whichever slot's file is
+    // written is the slot RetroArch is on, if that is not the one expected
+    // (changed in RetroArch's own menu).
     stateWatch_.setInterval(250);
     connect(&stateWatch_, &QTimer::timeout, this, [this]() {
-        const std::filesystem::path state = runningContent_.isEmpty()
-                                                ? std::filesystem::path()
-                                                : omnios::retroarchStateFile(runningContent_.toStdString());
-        const qint64 written = state.empty() ? 0
-            : QFileInfo(QString::fromStdString(state.string())).lastModified().toMSecsSinceEpoch();
-        if (written > stateBefore_) {
+        for (int slot = 0; slot < kStateSlots && slot < stateBefore_.size(); ++slot) {
+            if (stateTime(slot) <= stateBefore_[slot]) continue;
             stateWatch_.stop();
-            setStatus(tr("Saved  -  Load state in this menu comes back to here"), true);
-        } else if (!canSaveState() || stateAsked_.elapsed() > 5000) {
+            stateSlotNow_ = slot;
+            setStatus(tr("Saved in slot %1  -  Load state comes back to here").arg(slot + 1), true);
+            return;
+        }
+        if (!canSaveState() || stateAsked_.elapsed() > 5000) {
             stateWatch_.stop();
             setStatus(tr("The state was not saved  -  see %1").arg(kAppLog), true);
         }
@@ -651,6 +678,9 @@ bool LauncherController::launch(const QString& gameId) {
     runningGameId_ = gameId;
     runningEngine_ = QString::fromStdString(plan.engineId);
     runningContent_ = QString::fromStdString(plan.target);
+    // The slot RetroArch will start on, read before it starts.
+    stateSlotNow_ = plan.engineId == "retroarch" ? omnios::retroarchStartSlot(plan.target) : 0;
+    stateQueue_.clear();
 
     // Phase 9.4: when the game exits, the grid comes back. Without this the
     // shell would be left staring at whatever the game left on screen.
@@ -704,24 +734,70 @@ bool LauncherController::canSaveState() const {
 }
 
 bool LauncherController::hasSavedState() const {
-    return canSaveState() && !omnios::retroarchStateFile(runningContent_.toStdString()).empty();
+    if (!canSaveState()) return false;
+    for (int slot = 0; slot < kStateSlots; ++slot)
+        if (!omnios::retroarchStateFile(runningContent_.toStdString(), slot).empty()) return true;
+    return false;
 }
 
-void LauncherController::saveState() {
-    if (!canSaveState() || stateWatch_.isActive()) return;
-    const std::filesystem::path before = omnios::retroarchStateFile(runningContent_.toStdString());
-    stateBefore_ = before.empty()
-                       ? 0
-                       : QFileInfo(QString::fromStdString(before.string())).lastModified().toMSecsSinceEpoch();
-    stateAsked_.start();
-    running_->write("SAVE_STATE\n");
-    stateWatch_.start();
+QVariantList LauncherController::stateSlots() const {
+    QVariantList list;
+    for (int slot = 0; slot < kStateSlots; ++slot) {
+        const std::filesystem::path state =
+            canSaveState() ? omnios::retroarchStateFile(runningContent_.toStdString(), slot) : std::filesystem::path();
+        QVariantMap entry{{QStringLiteral("slot"), slot}, {QStringLiteral("used"), !state.empty()}};
+        if (!state.empty()) {
+            const QDateTime saved = QFileInfo(QString::fromStdString(state.string())).lastModified();
+            entry.insert(QStringLiteral("time"), saved.toMSecsSinceEpoch());
+            const qint64 days = saved.date().daysTo(QDate::currentDate());
+            const QString time = QLocale().toString(saved.time(), QLocale::ShortFormat);
+            entry.insert(QStringLiteral("when"),
+                         days == 0   ? tr("Today %1").arg(time)
+                         : days == 1 ? tr("Yesterday %1").arg(time)
+                                     : QLocale().toString(saved, QLocale::ShortFormat));
+            // The picture RetroArch keeps with the state, when it does
+            // (savestate_thumbnail_enable). Its time goes in the address: the
+            // same file saved over is a new picture, which an image cache
+            // keyed by the address would not otherwise fetch.
+            const QFileInfo picture(QString::fromStdString(omnios::retroarchStatePicture(state).string()));
+            if (picture.exists()) {
+                QUrl url = QUrl::fromLocalFile(picture.absoluteFilePath());
+                url.setQuery(QStringLiteral("t=%1").arg(picture.lastModified().toMSecsSinceEpoch()));
+                entry.insert(QStringLiteral("picture"), url.toString());
+            }
+        }
+        list << entry;
+    }
+    return list;
 }
 
-void LauncherController::loadState() {
-    if (!hasSavedState()) return;
-    running_->write("LOAD_STATE\n");
-    resumeRunningGame();
+qint64 LauncherController::stateTime(int slot) const {
+    const std::filesystem::path state = omnios::retroarchStateFile(runningContent_.toStdString(), slot);
+    return state.empty() ? 0 : QFileInfo(QString::fromStdString(state.string())).lastModified().toMSecsSinceEpoch();
+}
+
+void LauncherController::queueSlotSteps(int slot) {
+    for (; stateSlotNow_ < slot; ++stateSlotNow_) stateQueue_ << QStringLiteral("STATE_SLOT_PLUS");
+    for (; stateSlotNow_ > slot; --stateSlotNow_) stateQueue_ << QStringLiteral("STATE_SLOT_MINUS");
+}
+
+void LauncherController::saveState(int slot) {
+    if (!canSaveState() || stateWatch_.isActive() || stateFeed_.isActive() || slot < 0 || slot >= kStateSlots)
+        return;
+    stateBefore_.clear();
+    for (int i = 0; i < kStateSlots; ++i) stateBefore_ << stateTime(i);
+    queueSlotSteps(slot);
+    stateQueue_ << QStringLiteral("SAVE_STATE");
+    stateLoading_ = false;
+    stateFeed_.start();
+}
+
+void LauncherController::loadState(int slot) {
+    if (!canSaveState() || stateFeed_.isActive() || slot < 0 || slot >= kStateSlots || stateTime(slot) == 0) return;
+    queueSlotSteps(slot);
+    stateQueue_ << QStringLiteral("LOAD_STATE");
+    stateLoading_ = true;
+    stateFeed_.start();
 }
 
 void LauncherController::notePlayed(const QString& gameId) {

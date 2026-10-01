@@ -980,22 +980,44 @@ Meta over Nova opened its menu, Enter resumed it, and back on the desktop Meta
 opened the start menu.
 
 **Save state and Load state** are in that menu, and in the running game's own
-three-dot menu, for a game in RetroArch: slot 0, the one RetroArch's Quick
-Menu also saves to. The launcher started RetroArch, so it holds its standard
-input, and `/usr/share/omnios/retroarch.cfg` turns on RetroArch's command
-interface there (`stdin_cmd_enable`): *Save state* writes `SAVE_STATE` to it,
-*Load state* `LOAD_STATE` and then goes back into the game. Not the network
-command interface, which would take commands from anyone on the network while
-a game runs. RetroArch answers nothing on its standard input, and its own
-"Saved state" message is drawn in the game, behind the launcher, so the
-launcher watches for the state file to be written (`retroarchStateFile()`,
-EmulatorSetup.h: savestate_directory, a folder per core, or beside the game,
-as the user's retroarch.cfg says) and says "Saved", or after five seconds that
-it was not. *Load state* is greyed out until there is a state. Saving works
-while RetroArch is paused behind the launcher. A game the launcher took up
-again after starting afresh (back from Desktop Mode) is not its child, so it
-has neither entry. Verified in the VM with Nova: saved by the first block,
-played on past it, and *Load state* put her back by the block.
+three-dot menu, for a game in RetroArch. Each opens the game's six save slots
+(SaveSlots.qml), each with the picture RetroArch keeps of the game as it was
+saved, stretched to the system's screen (4:3, or 3:2 for a GBA; Nestopia's is
+602x224 for the NES's 4:3), and when it was saved. Saving lands on the first
+empty slot, so a press of A never saves over anything, and says "Save over
+this" on a used one; loading lands on the newest save, greys out the empty
+ones, and goes back into the game. They are RetroArch's own slots, the same
+ones its Quick Menu uses.
+
+The launcher started RetroArch, so it holds its standard input, and
+`/usr/share/omnios/retroarch.cfg` turns on RetroArch's command interface there
+(`stdin_cmd_enable`). Not the network command interface, which would take
+commands from anyone on the network while a game runs. Three things about
+RetroArch 1.22 decided how it is used, all found by sending it commands in the
+VM:
+
+- It ignores the commands that name a slot (`SAVE_STATE_SLOT 2`). The launcher
+  steps to the slot instead (`STATE_SLOT_PLUS`, `STATE_SLOT_MINUS`) and then
+  sends `SAVE_STATE` or `LOAD_STATE`.
+- It takes a command as a button pressed for a frame, so the same one twice in
+  one write counted once. The launcher sends one command every 0.2 s.
+- It reopens a game on the slot it was last on, kept in the game's runtime log
+  (`playlists/logs/<core>/<name>.lrtl`, `"state_slot"`), over `state_slot` in
+  any retroarch.cfg. So the launcher reads where it will start
+  (`retroarchStartSlot()`, EmulatorSetup.h: that log, else the user's
+  retroarch.cfg, else 0) before starting it, and counts its steps from there.
+
+RetroArch answers nothing on its standard input, and its own "Saved state"
+message is drawn in the game, behind the launcher, so the launcher watches the
+slots' files (`retroarchStateFile()`: savestate_directory, a folder per core,
+or beside the game, as the user's retroarch.cfg says) and says "Saved in slot
+N", or after five seconds that nothing was saved. Whichever slot's file was
+written is the slot RetroArch is on, so a slot changed in RetroArch's own menu
+is caught there, and said. Saving works while RetroArch is paused behind the
+launcher. A game the launcher took up again after starting afresh (back from
+Desktop Mode) is not its child, so it has neither entry. Verified in the VM
+with Nova, starting from RetroArch's slot 10: saved into slot 2 (nine steps
+down), played on, and loading slot 1 put her back where its picture shows.
 
 **Which key is which is shown along the bottom of the game** for as long as it
 is played from the keyboard: one slim line of keycaps and the console's own

@@ -698,8 +698,10 @@ Window {
             else if (context === "running" && action === "quit") Launcher.quitRunningGame()
             else if (context === "running" && action === "library") {}
             else if (context === "running" && action === "system") window.openPowerMenu()
-            else if ((context === "running" || context === "game") && action === "savestate") Launcher.saveState()
-            else if ((context === "running" || context === "game") && action === "loadstate") Launcher.loadState()
+            else if ((context === "running" || context === "game") && action === "savestate")
+                window.openSaveSlots("save")
+            else if ((context === "running" || context === "game") && action === "loadstate")
+                window.openSaveSlots("load")
             else if (context === "running") Launcher.steamAction(Launcher.runningGameId, action)
             else if (context === "power" && action === "clearnotes") Launcher.clearNotifications()
             else if (context === "power" && action === "sysupdate") window.confirmUpdate()
@@ -726,6 +728,19 @@ Window {
             else if (context === "power") Launcher.powerAction(action)
             else if (context === "game") window.runGameAction(action)
             else window.runTileAction(action)
+        }
+        onClosed: window.restoreFocus()
+    }
+
+    // The running game's save slots, from Save state and Load state.
+    SaveSlots {
+        id: saveSlots
+        anchors.fill: parent
+        buttons: Launcher.buttonNames
+        usingController: Launcher.usingController
+        onChosen: function (mode, slot) {
+            if (mode === "save") Launcher.saveState(slot)
+            else Launcher.loadState(slot)
         }
         onClosed: window.restoreFocus()
     }
@@ -772,7 +787,7 @@ Window {
     // took the key first, so Start opened the system menu as well as
     // finishing a search, and Y rescanned rather than typing a space.
     readonly property bool keysTaken: passwordPrompt.open || wifiPrompt.open
-                                      || fieldKeyboard.open || filterPopup.isOpen
+                                      || fieldKeyboard.open || filterPopup.isOpen || saveSlots.visible
 
     // Focus back where it belongs: an open prompt if there is one, then a
     // game's page if one is open (the grid is only behind it; with focus
@@ -781,6 +796,7 @@ Window {
         if (passwordPrompt.open) passwordPrompt.takeFocus()
         else if (wifiPrompt.open) wifiPrompt.takeFocus()
         else if (menuPanel.visible) menuPanel.takeFocus()
+        else if (saveSlots.visible) saveSlots.takeFocus()
         // These hold the focus themselves while open.
         else if (filterPopup.isOpen || fieldKeyboard.open) {}
         else if (detailLoader.item) detailLoader.item.forceActiveFocus()
@@ -1062,10 +1078,21 @@ Window {
     Connections {
         target: Launcher
         function onMenuWanted() {
-            if (menuPanel.visible) menuPanel.close()
+            if (saveSlots.visible) saveSlots.close()
+            else if (menuPanel.visible) menuPanel.close()
             else if (Launcher.gameRunning) window.openRunningGameMenu()
             else window.openPowerMenu()
         }
+    }
+
+    // The save slots of the running game, to save into or load from, with its
+    // pictures in the shape of its system's screen: a GBA's is 3:2, the rest
+    // RetroArch plays here are 4:3.
+    function openSaveSlots(mode) {
+        var index = GameLibrary.indexOfId(Launcher.runningGameId)
+        var game = index >= 0 ? GameLibrary.get(index) : null
+        saveSlots.pictureAspect = game && game.platformId === "gba" ? 3 / 2 : 4 / 3
+        saveSlots.openFor(mode, Launcher.runningTitle, Launcher.stateSlots())
     }
 
     // Save state and Load state, for a running game that can (RetroArch's):

@@ -734,7 +734,46 @@ bool escapeOpensGameMenu(std::string_view engineId) {
     return engineId == "dolphin" || engineId == "azahar" || engineId == "ryubing";
 }
 
-fs::path retroarchStateFile(const fs::path& content) {
+fs::path retroarchStatePicture(const fs::path& state) {
+    return state.empty() ? fs::path() : fs::path(state.string() + ".png");
+}
+
+int retroarchStartSlot(const fs::path& content) {
+    const auto number = [](const std::string& text, int& out) {
+        if (text.empty()) return false;
+        try {
+            std::size_t used = 0;
+            const int value = std::stoi(text, &used);
+            if (used != text.size() || value < 0) return false;
+            out = value;
+            return true;
+        } catch (...) {
+            return false;
+        }
+    };
+    int slot = 0;
+    // The game's runtime log, in a folder per core.
+    const fs::path logs = homeDir() / ".config/retroarch/playlists/logs";
+    const std::string name = content.stem().string() + ".lrtl";
+    std::error_code ec;
+    for (fs::directory_iterator it(logs, ec), end; !ec && it != end; it.increment(ec)) {
+        const fs::path log = it->path() / name;
+        if (!fs::is_regular_file(log, ec)) continue;
+        std::string error;
+        const Json json = Json::parse(readFile(log), error);
+        if (json.isObject() && number(json["state_slot"].asString(), slot)) return slot;
+    }
+    // Else the user's settings.
+    for (const Line& line : parse(readFile(homeDir() / ".config/retroarch/retroarch.cfg"))) {
+        if (line.key != "state_slot") continue;
+        std::string value = line.value;
+        if (value.size() >= 2 && value.front() == '"' && value.back() == '"') value = value.substr(1, value.size() - 2);
+        if (number(value, slot)) return slot;
+    }
+    return 0;
+}
+
+fs::path retroarchStateFile(const fs::path& content, int slot) {
     // The user's own settings: savestate_directory = "~/somewhere", with
     // "default" or nothing meaning RetroArch's own.
     fs::path dir = homeDir() / ".config/retroarch/states";
@@ -747,7 +786,7 @@ fs::path retroarchStateFile(const fs::path& content) {
         if (line.key == "savestates_in_content_dir") inContentDir = value == "true";
     }
 
-    const std::string name = content.stem().string() + ".state";
+    const std::string name = content.stem().string() + ".state" + (slot > 0 ? std::to_string(slot) : std::string());
     std::vector<fs::path> candidates{dir / name};
     std::error_code ec;
     for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))

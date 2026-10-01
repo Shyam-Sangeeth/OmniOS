@@ -395,6 +395,12 @@ TEST("emulator setup: RetroArch's save state is found where its settings put it"
     const fs::path sorted = home / ".config/retroarch/states/Nestopia/Nova The Squirrel.state";
     touch(sorted);
     CHECK(retroarchStateFile(game) == sorted);
+    // Slots after the first are numbered; slot 2's is not slot 0's.
+    CHECK(retroarchStateFile(game, 2).empty());
+    const fs::path second = home / ".config/retroarch/states/Nestopia/Nova The Squirrel.state2";
+    touch(second);
+    CHECK(retroarchStateFile(game, 2) == second);
+    CHECK(retroarchStatePicture(second) == fs::path(second.string() + ".png"));
     // Another game's state is not this one's.
     CHECK(retroarchStateFile(home / "Games/retro/Gothicvania.sfc").empty());
     // A directory of the user's own, written with "~".
@@ -404,6 +410,42 @@ TEST("emulator setup: RetroArch's save state is found where its settings put it"
     const fs::path mine = home / "My States/Nova The Squirrel.state";
     touch(mine);
     CHECK(retroarchStateFile(game) == mine);
+
+#ifdef _WIN32
+    _putenv_s("HOME", oldHome.c_str());
+#else
+    setenv("HOME", oldHome.c_str(), 1);
+#endif
+    std::error_code ec;
+    fs::remove_all(home, ec);
+}
+
+TEST("emulator setup: RetroArch starts a game on its last slot, else the settings' one") {
+    namespace fs = std::filesystem;
+    const fs::path home = fs::temp_directory_path() / "omnios-slot-home";
+    fs::remove_all(home);
+    const char* old = std::getenv("HOME");
+    const std::string oldHome = old ? old : "";
+#ifdef _WIN32
+    _putenv_s("HOME", home.string().c_str());
+#else
+    setenv("HOME", home.string().c_str(), 1);
+#endif
+    const fs::path game = home / "Games/retro/Nova The Squirrel.nes";
+    const auto write = [](const fs::path& file, const std::string& text) {
+        fs::create_directories(file.parent_path());
+        std::ofstream(file) << text;
+    };
+
+    CHECK_EQ(retroarchStartSlot(game), 0);
+    write(home / ".config/retroarch/retroarch.cfg", "video_fullscreen = \"true\"\nstate_slot = \"3\"\n");
+    CHECK_EQ(retroarchStartSlot(game), 3);
+    // The game's own runtime log wins: RetroArch reopens a game on its slot.
+    write(home / ".config/retroarch/playlists/logs/Nestopia/Nova The Squirrel.lrtl",
+          "{\n  \"version\": \"1.0\",\n  \"play_count\": \"10\",\n  \"state_slot\": \"10\"\n}\n");
+    CHECK_EQ(retroarchStartSlot(game), 10);
+    // Another game's log is not this one's.
+    CHECK_EQ(retroarchStartSlot(home / "Games/retro/Gothicvania.sfc"), 3);
 
 #ifdef _WIN32
     _putenv_s("HOME", oldHome.c_str());

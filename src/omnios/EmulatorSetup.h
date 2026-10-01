@@ -93,12 +93,23 @@ bool prepareEmulator(std::string_view engineId, const std::vector<Controller>& c
 // RetroArch, DuckStation, PCSX2 and RPCS3 open their own on Escape.
 bool escapeOpensGameMenu(std::string_view engineId);
 
-// RetroArch's save state in slot 0 for game file `content`, as RetroArch
-// names it: the file's name less its extension, then ".state". It is in
+// RetroArch's save state in `slot` for game file `content`, as RetroArch
+// names it: the file's name less its extension, then ".state", and the slot's
+// number after that from slot 1 on (".state1"); the picture of the game it
+// keeps with one is the same name and ".png" (retroarchStatePicture). It is in
 // savestate_directory (~/.config/retroarch/states unless the user's
 // retroarch.cfg says otherwise), or in the folder there for the core
 // (sort_savestates_enable, on by default), or beside the game
 // (savestates_in_content_dir). The newest of those; empty when there is none.
-std::filesystem::path retroarchStateFile(const std::filesystem::path& content);
+std::filesystem::path retroarchStateFile(const std::filesystem::path& content, int slot = 0);
+std::filesystem::path retroarchStatePicture(const std::filesystem::path& state);
+
+// The save slot RetroArch will start game file `content` on. It reopens a
+// game on the slot it was last on, kept in the game's runtime log
+// (~/.config/retroarch/playlists/logs/<core>/<name>.lrtl, "state_slot"); for
+// a game with none, state_slot in the user's retroarch.cfg; else 0. The
+// launcher's Save state and Load state step from there, since this RetroArch
+// ignores the commands that name a slot.
+int retroarchStartSlot(const std::filesystem::path& content);
 
 }  // namespace omnios

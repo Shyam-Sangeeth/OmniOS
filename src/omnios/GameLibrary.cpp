@@ -148,6 +148,14 @@ bool GameLibrary::setCover(std::string_view id, const std::filesystem::path& cov
     return true;
 }
 
+bool GameLibrary::setLastPlayed(std::string_view id, std::int64_t when) {
+    const auto it = std::find_if(games_.begin(), games_.end(),
+                                 [id](const Game& game) { return game.id == id; });
+    if (it == games_.end()) return false;
+    it->lastPlayed = when;
+    return true;
+}
+
 std::vector<const Game*> GameLibrary::byPlatform(Platform platform) const {
     std::vector<const Game*> matches;
     for (const Game& game : games_) {

@@ -6,6 +6,7 @@ qt_standard_project_setup(REQUIRES 6.5)
 qt_add_executable(omni-launcher
     main.cpp
     GameListModel.cpp
+    RecentGamesModel.cpp
     AppListModel.cpp
     GamepadInput.cpp
     SystemStatus.cpp
@@ -53,6 +54,7 @@ qt_add_qml_module(omni-launcher
         ControlsOverlay.qml
     SOURCES
         GameListModel.h
+        RecentGamesModel.h
         AppListModel.h
         GamepadInput.h
         SystemStatus.h

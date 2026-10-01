@@ -46,7 +46,8 @@ struct Game {
 
     std::uint64_t sizeBytes = 0;
     // When it was last played, in seconds since 1970; 0 for never, or not
-    // known. Only Steam records it today (its manifest's LastPlayed).
+    // known. Steam records it (its manifest's LastPlayed), and the launcher
+    // when it starts a game; a rescan keeps the later of the two.
     std::int64_t  lastPlayed = 0;
     // Cover art in ~/.omnios/library/<id>/; empty until bundled art is
     // extracted or SteamGridDB fills it in (Phase 7.4).
@@ -84,6 +85,9 @@ public:
     // Sets one game's cover art (fetched after the scan). False when there is
     // no game with that id.
     bool setCover(std::string_view id, const std::filesystem::path& cover);
+    // Sets when one game was last played, as the launcher starts it. False
+    // when there is no game with that id.
+    bool setLastPlayed(std::string_view id, std::int64_t when);
 
     const std::vector<Game>& games() const { return games_; }
     std::size_t              size() const { return games_.size(); }

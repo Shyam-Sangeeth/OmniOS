@@ -334,10 +334,14 @@ void LauncherController::refresh() {
     // rather than lost.
     steamStamp_ = omnios::steamLibraryStamp(omnios::GameScanner().steamLibraries());
 
-    omnios::GameLibrary library;
+    // From the library in hand once there is one: the cache on disk can be
+    // a moment behind it (covers are saved two seconds after they arrive).
+    // From the cache at first, so the tiles keep their covers and history.
+    omnios::GameLibrary library = model_.library();
     std::string error;
     // A corrupt cache is not fatal — the scan is the authority and rebuilds it.
-    library.load(omnios::libraryCacheFile(), error);
+    if (library.empty()) library.load(omnios::libraryCacheFile(), error);
+    coverSave_.stop();  // saved below, with the rest
 
     const omnios::ScanReport report = omnios::GameScanner().scan(library);
     library.save(omnios::libraryCacheFile(), error);
@@ -597,6 +601,7 @@ bool LauncherController::launch(const QString& gameId) {
         updatePadRouting();
         setStatus(tr("Starting %1 in Steam …").arg(steamGame_.title));
         emit gameRunningChanged();
+        notePlayed(gameId);
         return true;
     }
 
@@ -669,7 +674,15 @@ bool LauncherController::launch(const QString& gameId) {
     setStatus(tr("Starting %1 …").arg(runningTitle_));
     emit gameRunningChanged();
     offerKeyboardControls(gameId, runningTitle_);
+    notePlayed(gameId);
     return true;
+}
+
+void LauncherController::notePlayed(const QString& gameId) {
+    model_.setLastPlayed(gameId, QDateTime::currentSecsSinceEpoch());
+    std::string error;
+    if (!model_.library().save(omnios::libraryCacheFile(), error))
+        qWarning("could not save the library: %s", error.c_str());
 }
 
 void LauncherController::offerKeyboardControls(const QString& gameId, const QString& title) {

@@ -28,8 +28,6 @@ Window {
     // 0 = Games, 1 = Apps. Games first: this is a console, and the library is
     // the point of it.
     property int currentTab: 0
-    readonly property var tabs: [gamesGrid, appsGrid]
-    readonly property var activeGrid: tabs[currentTab]
 
     // The last thing worth saying, and only for as long as it is worth saying
     // it. Cleared on a timer so the corner does not carry a stale sentence for
@@ -56,9 +54,27 @@ Window {
         function onPackageStatusChanged() { window.showStatus(Launcher.packageStatus) }
     }
 
-    property var currentGame: gamesGrid.currentIndex >= 0 && GameLibrary.count > 0
-                              ? GameLibrary.get(gamesGrid.currentIndex)
-                              : null
+    // The focused game: the "Continue playing" row's while that row has the
+    // focus (it stays its own while a menu or page opened from it is up),
+    // otherwise the grid's. recentRevision makes it follow the row's order,
+    // which changes under the same index when a game is played.
+    property bool recentActive: false
+    property int recentIndex: 0
+    property int recentRevision: 0
+    Connections {
+        target: RecentGames
+        function onCountChanged() { window.recentRevision++ }
+    }
+    property var currentGame: {
+        void window.recentRevision
+        if (recentActive && RecentGames.count > 0) {
+            var row = RecentGames.sourceRow(Math.min(recentIndex, RecentGames.count - 1))
+            if (row >= 0) return GameLibrary.get(row)
+        }
+        return gamesGrid.currentIndex >= 0 && GameLibrary.count > 0
+               ? GameLibrary.get(gamesGrid.currentIndex)
+               : null
+    }
 
     // A rescan rebuilds the whole list, and Steam's library is rescanned on
     // its own whenever Steam adds a game. The grid keeps its index through
@@ -71,7 +87,10 @@ Window {
     Connections {
         target: GameLibrary
         function onModelAboutToBeReset() {
-            window.focusedGameId = (window.currentGame && window.currentGame.gameId) || ""
+            // The grid's own game, not the row's: this puts the grid back.
+            var game = gamesGrid.currentIndex >= 0 && GameLibrary.count > 0
+                       ? GameLibrary.get(gamesGrid.currentIndex) : null
+            window.focusedGameId = (game && game.gameId) || ""
         }
         function onModelReset() { Qt.callLater(window.refocusGame) }
     }
@@ -80,7 +99,7 @@ Window {
         // Gone from under an open page: close it rather than show another game.
         if (index < 0 && window.focusedGameId !== "" && detailLoader.active) {
             detailLoader.active = false
-            gamesGrid.forceActiveFocus()
+            window.focusGames()
         }
         if (index < 0 && GameLibrary.count > 0)
             index = Math.max(0, Math.min(gamesGrid.currentIndex, GameLibrary.count - 1))
@@ -218,6 +237,87 @@ Window {
             model: GameLibrary
             highlightMoveDuration: Theme.focusDuration
 
+            // "Continue playing": the games played last, newest first, above
+            // the library and scrolling with it, so the one you were on is
+            // a press away however long the library grows. Gone until
+            // something has been played.
+            header: Item {
+                readonly property ListView list: recentList
+                width: gamesGrid.width
+                height: RecentGames.count > 0 ? recentTitle.height + 6 + gamesGrid.cellHeight + 14 : 0
+                visible: RecentGames.count > 0
+
+                Text {
+                    id: recentTitle
+                    text: qsTr("CONTINUE PLAYING")
+                    color: Theme.textSecondary
+                    font.pixelSize: 12
+                    font.letterSpacing: 3
+                }
+
+                ListView {
+                    id: recentList
+                    anchors { top: recentTitle.bottom; topMargin: 6; left: parent.left; right: parent.right }
+                    height: gamesGrid.cellHeight
+                    orientation: ListView.Horizontal
+                    clip: true
+                    model: RecentGames
+                    highlightMoveDuration: Theme.focusDuration
+
+                    onCurrentIndexChanged: window.recentIndex = currentIndex
+
+                    // A whole cell with the tile centred, as in the grid, so
+                    // the focused tile's scale and ring are not clipped.
+                    delegate: Item {
+                        width: gamesGrid.cellWidth
+                        height: gamesGrid.cellHeight
+                        readonly property Item menuAnchor: recentTile.menuAnchor
+
+                        GameTile {
+                            id: recentTile
+                            anchors.centerIn: parent
+                            title: model.title
+                            platformName: model.platformName
+                            badgeColor: model.badgeColor
+                            cover: model.cover
+                            playable: model.playable
+                            hasMenu: true
+                            selected: recentList.activeFocus && parent.ListView.isCurrentItem
+                                      && !detailLoader.active
+
+                            onMenuRequested: function (anchorItem) {
+                                window.focusRecent(index)
+                                window.openGameMenu(anchorItem)
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                z: -1
+                                onClicked: { window.focusRecent(index); window.openDetail() }
+                            }
+                        }
+                    }
+
+                    Keys.onReturnPressed: window.openDetail()
+                    Keys.onEnterPressed: window.openDetail()
+                    Keys.onTabPressed: window.selectTab(1)
+                    Keys.onBacktabPressed: window.selectTab(1)
+                    Keys.onDownPressed: window.leaveRecent()
+                    // Kept here: unhandled, they reach the grid the row is
+                    // inside, and move its focus unseen.
+                    Keys.onUpPressed: {}
+                    Keys.onLeftPressed: decrementCurrentIndex()
+                    Keys.onRightPressed: incrementCurrentIndex()
+                    Keys.onMenuPressed: window.openGameMenu(currentItem ? currentItem.menuAnchor : null)
+                    Keys.onPressed: function (event) {
+                        if (event.key === Qt.Key_M) {
+                            window.openGameMenu(currentItem ? currentItem.menuAnchor : null)
+                            event.accepted = true
+                        }
+                    }
+                }
+            }
+
             // The delegate is the whole cell with the tile centred inside it.
             // Placed flush at the cell origin instead, a focused tile's 1.06
             // scale and its -2px focus ring both overflow the cell's left and
@@ -239,11 +339,14 @@ Window {
                     // Every game has a menu (openGameMenu); Steam's adds
                     // what only Steam can do.
                     hasMenu: true
+                    // The row inside the grid keeps the grid's activeFocus
+                    // true too, hence recentActive.
                     selected: gamesGrid.activeFocus && parent.GridView.isCurrentItem
-                              && !detailLoader.active
+                              && !window.recentActive && !detailLoader.active
 
                     onMenuRequested: function (anchorItem) {
                         gamesGrid.currentIndex = index
+                        window.leaveRecent()
                         window.openGameMenu(anchorItem)
                     }
 
@@ -251,7 +354,7 @@ Window {
                     MouseArea {
                         anchors.fill: parent
                         z: -1
-                        onClicked: { gamesGrid.currentIndex = index; window.openDetail() }
+                        onClicked: { gamesGrid.currentIndex = index; window.leaveRecent(); window.openDetail() }
                     }
                 }
             }
@@ -260,6 +363,12 @@ Window {
             Keys.onEnterPressed: window.openDetail()
             Keys.onTabPressed: window.selectTab(1)
             Keys.onBacktabPressed: window.selectTab(1)
+            // Up from the top row goes into "Continue playing"; anywhere
+            // else it is the grid's.
+            Keys.onUpPressed: function (event) {
+                var columns = Math.max(1, Math.floor(width / cellWidth))
+                event.accepted = currentIndex < columns && window.enterRecent()
+            }
             Keys.onMenuPressed: window.openGameMenu(window.tileMenuAnchor(currentIndex))
             Keys.onPressed: function (event) {
                 if (event.key === Qt.Key_M) {
@@ -413,11 +522,12 @@ Window {
         active: false
         sourceComponent: GameDetail {
             game: window.currentGame
-            onClosed: { detailLoader.active = false; gamesGrid.forceActiveFocus() }
+            // Back to the grid, or to "Continue playing" if opened from there.
+            onClosed: { detailLoader.active = false; window.restoreFocus() }
             onPlayed: {
                 if (Launcher.launch(window.currentGame.gameId)) {
                     detailLoader.active = false
-                    gamesGrid.forceActiveFocus()
+                    window.restoreFocus()
                 }
             }
         }
@@ -512,7 +622,8 @@ Window {
         else if (wifiPrompt.open) wifiPrompt.takeFocus()
         else if (menuPanel.visible) menuPanel.takeFocus()
         else if (detailLoader.item) detailLoader.item.forceActiveFocus()
-        else activeGrid.forceActiveFocus()
+        else if (currentTab === 0) focusGames()
+        else appsGrid.forceActiveFocus()
     }
 
     // ---- keys -------------------------------------------------------------
@@ -538,11 +649,53 @@ Window {
         }
     }
 
+    // Into the "Continue playing" row, on the game played last; false when
+    // there is no row. The grid's place is kept for coming back down.
+    function enterRecent() {
+        var list = gamesGrid.headerItem ? gamesGrid.headerItem.list : null
+        if (!list || RecentGames.count === 0) return false
+        gamesGrid.positionViewAtBeginning()
+        list.currentIndex = 0
+        list.positionViewAtBeginning()
+        recentActive = true
+        focusGames()
+        return true
+    }
+
+    function leaveRecent() {
+        recentActive = false
+        focusGames()
+    }
+
+    // A tile in the row picked with the pointer.
+    function focusRecent(index) {
+        var list = gamesGrid.headerItem ? gamesGrid.headerItem.list : null
+        if (!list) return
+        list.currentIndex = index
+        recentActive = true
+        focusGames()
+    }
+
+    // The Games tab's focus: the row while recentActive, else the grid. The
+    // row is inside the grid, a focus scope, so the grid given the focus
+    // hands it on to the row while the row still holds the scope's.
+    function focusGames() {
+        var list = gamesGrid.headerItem ? gamesGrid.headerItem.list : null
+        if (recentActive && RecentGames.count > 0 && list) {
+            list.forceActiveFocus()
+            return
+        }
+        recentActive = false
+        if (list) list.focus = false
+        gamesGrid.forceActiveFocus()
+    }
+
     function selectTab(index) {
         currentTab = index
         // Focus follows the tab, otherwise the arrow keys keep driving the
-        // grid that is no longer on screen.
-        activeGrid.forceActiveFocus()
+        // grid that is no longer on screen. The Games tab opens on its grid.
+        if (index === 0) leaveRecent()
+        else appsGrid.forceActiveFocus()
     }
 
     function openCurrentApp() {
@@ -679,6 +832,7 @@ Window {
         if (index >= 0) {
             detailLoader.active = false  // the tile is under a page left open
             if (window.currentTab !== 0) window.selectTab(0)
+            window.recentActive = false  // its tile in the grid, where the menu opens
             gamesGrid.currentIndex = index
             anchor = window.tileMenuAnchor(index)
         }

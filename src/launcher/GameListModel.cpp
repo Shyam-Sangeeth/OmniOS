@@ -64,6 +64,7 @@ QVariant GameListModel::data(const QModelIndex& index, int role) const {
         case DetectionRole:
             return QString::fromStdString(std::string(omnios::detectionSourceName(game.detectionSource)));
         case LastPlayedRole: return lastPlayedText(game);
+        case LastPlayedTimeRole: return static_cast<qint64>(game.lastPlayed);
         default: break;
     }
 
@@ -101,6 +102,7 @@ QHash<int, QByteArray> GameListModel::roleNames() const {
         {DetectionRole, "detectionSource"},
         {PlayableRole, "playable"},
         {LastPlayedRole, "lastPlayed"},
+        {LastPlayedTimeRole, "lastPlayedTime"},
     };
 }
 
@@ -117,6 +119,14 @@ void GameListModel::setCover(const QString& id, const QString& path) {
     if (row < 0) return;
     const QModelIndex changed = index(row, 0);
     emit dataChanged(changed, changed, {CoverRole});
+}
+
+void GameListModel::setLastPlayed(const QString& id, qint64 when) {
+    if (!library_.setLastPlayed(id.toStdString(), when)) return;
+    const int row = indexOfId(id);
+    if (row < 0) return;
+    const QModelIndex changed = index(row, 0);
+    emit dataChanged(changed, changed, {LastPlayedRole, LastPlayedTimeRole});
 }
 
 QVariantMap GameListModel::get(int row) const {

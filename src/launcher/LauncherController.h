@@ -21,11 +21,13 @@
 #include "GameListModel.h"
 #include "GamepadInput.h"
 #include "NotificationWatcher.h"
+#include "RecentGamesModel.h"
 #include "SystemStatus.h"
 
 class LauncherController : public QObject {
     Q_OBJECT
     Q_PROPERTY(GameListModel* games READ games CONSTANT)
+    Q_PROPERTY(RecentGamesModel* recentGames READ recentGames CONSTANT)
     Q_PROPERTY(AppListModel* apps READ apps CONSTANT)
     Q_PROPERTY(SystemStatus* system READ system CONSTANT)
     Q_PROPERTY(QString gamesPath READ gamesPath CONSTANT)
@@ -79,6 +81,7 @@ public:
     explicit LauncherController(QObject* parent = nullptr);
 
     GameListModel* games() { return &model_; }
+    RecentGamesModel* recentGames() { return &recent_; }
     AppListModel*  apps() { return &apps_; }
     SystemStatus*  system() { return &system_; }
     QString gamesPath() const;
@@ -329,6 +332,10 @@ private:
     // not what is being used.
     void offerKeyboardControls(const QString& gameId, const QString& title);
 
+    // Game `gameId` started now: its time in the library, saved, for the
+    // "Continue playing" row and the detail page.
+    void notePlayed(const QString& gameId);
+
     void saveRunningState();
     void adoptRunningGame();
     // An adopted game is not a child of this launcher, so nothing reports its
@@ -367,6 +374,8 @@ private:
     NotificationWatcher notifications_;
     SystemStatus   system_;
     GameListModel  model_;
+    // The Games tab's "Continue playing" row, over model_.
+    RecentGamesModel recent_{&model_};
     // Box art for games that have none, after each scan; the library cache
     // is saved a moment after covers arrive, once for a batch of them.
     CoverFetcher   covers_;

@@ -355,6 +355,9 @@ ScanReport GameScanner::scan(GameLibrary& library) const {
                 if (const Game* cached = library.find(game.id); cached != nullptr) {
                     if (game.coverPath.empty()) game.coverPath = cached->coverPath;
                     if (game.engineOverride.empty()) game.engineOverride = cached->engineOverride;
+                    // The launcher's record of a start can be newer than
+                    // Steam's, which it writes when the game ends.
+                    game.lastPlayed = std::max(game.lastPlayed, cached->lastPlayed);
                     ++report.updated;
                 } else {
                     ++report.added;
@@ -394,14 +397,15 @@ ScanReport GameScanner::scan(GameLibrary& library) const {
                 continue;
             }
 
-            // Preserve what a scan cannot rederive: fetched cover art and any
-            // engine the user pinned by hand.
+            // Preserve what a scan cannot rederive: fetched cover art, any
+            // engine the user pinned by hand, and when it was last played.
             if (const Game* cached = library.find(game.id); cached != nullptr) {
                 // A cover whose file has gone is dropped, so it is fetched again.
                 std::error_code coverEc;
                 if (game.coverPath.empty() && fs::is_regular_file(cached->coverPath, coverEc))
                     game.coverPath = cached->coverPath;
                 if (game.engineOverride.empty()) game.engineOverride = cached->engineOverride;
+                game.lastPlayed = std::max(game.lastPlayed, cached->lastPlayed);
                 ++report.updated;
             } else {
                 ++report.added;

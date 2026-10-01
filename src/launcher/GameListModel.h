@@ -35,6 +35,8 @@ public:
         PlayableRole,
         // "Played yesterday", "Never played", ... or empty when not known.
         LastPlayedRole,
+        // The same in seconds since 1970, 0 for never: for sorting by it.
+        LastPlayedTimeRole,
     };
     Q_ENUM(Role)
 
@@ -52,6 +54,8 @@ public:
 
     // One game's cover, arrived after the scan: that tile alone changes.
     void setCover(const QString& id, const QString& path);
+    // One game started just now (`when`): that row alone changes.
+    void setLastPlayed(const QString& id, qint64 when);
 
     // Index of a game by id, or -1. Used to restore focus after a rescan.
     Q_INVOKABLE int indexOfId(const QString& id) const;

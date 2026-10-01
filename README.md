@@ -689,7 +689,19 @@ can do, handed to it through its own links — *Open in Steam*
 (`steam://nav/games/details/<id>`, the game's library page, where Properties
 is), *Verify game files* (`steam://validate/<id>`) and *Uninstall*
 (`steam://uninstall/<id>`, which Steam confirms itself). The detail screen adds
-when it was last played, from the manifest's `LastPlayed`.
+when it was last played: for a Steam game the later of the manifest's
+`LastPlayed` and the launcher's own record, for any other game the launcher's.
+
+Above the library, *Continue playing* lists the games played last, newest
+first, up to ten (RecentGamesModel, a sorted view of the same library model),
+so the game you were on is a press away however long the library grows. The
+launcher notes the time whenever it starts a game, from the grid, the row, a
+game's page or its menu, and saves the library there and then. The row is the
+grid's header and scrolls with it; Up from the grid's top row moves into it,
+Down goes back to where the grid was, and Enter, M and a game's page work on
+the row's tiles as on the grid's. It is not there until something has been
+played. Verified in the VM: Nova and the Wii test in the order played, kept
+across a restart of Game Mode, and Nova back in front when played from the row.
 
 Games are installed in Steam's window, not through the launcher, so the Games
 tab watches for the result: when the launcher comes back to the front, and every
@@ -955,8 +967,10 @@ Plasma Wayland session crashed loading KDE's platform theme (it is given
 
 `~/.omnios/library.json` is only ever a faster copy of what a scan produces: it
 is written through a temp file and rename, version-stamped, and discarded rather
-than trusted if it is corrupt or stale. A rescan keeps the two things it cannot
-rederive — fetched cover art and an engine the user pinned by hand.
+than trusted if it is corrupt or stale. A rescan keeps the three things it
+cannot rederive — fetched cover art, an engine the user pinned by hand, and when
+a game was last played. Once the launcher has a library it rescans from the one
+it holds rather than the file, which can be a moment behind it.
 
 ## The core, on its own
 

@@ -180,6 +180,31 @@ TEST("scanner: a rescan removes titles whose files are gone") {
     CHECK(library.find("ps4.bloodborne") == nullptr);
 }
 
+TEST("scanner: a rescan keeps when the launcher last started a game") {
+    GamesTree tree;
+    tree.file("retro", "nova.nes", bytes({'N', 'E', 'S', 0x1A}), 64);
+
+    GameScanner scanner(tree.root());
+    GameLibrary library;
+    scanner.scan(library);
+    CHECK(library.find("retro.nova") != nullptr);
+    CHECK(library.setLastPlayed("retro.nova", 1790000000));
+    CHECK(!library.setLastPlayed("retro.missing", 1790000000));
+
+    scanner.scan(library);
+    const Game* again = library.find("retro.nova");
+    CHECK(again != nullptr && again->lastPlayed == 1790000000);
+
+    // And through the cache file, as the launcher starts the next session.
+    std::string error;
+    const std::filesystem::path cache = tree.root() / "library.json";
+    CHECK(library.save(cache, error));
+    GameLibrary loaded;
+    CHECK(loaded.load(cache, error));
+    const Game* reloaded = loaded.find("retro.nova");
+    CHECK(reloaded != nullptr && reloaded->lastPlayed == 1790000000);
+}
+
 TEST("scanner: a rescan keeps fetched art and a user-pinned engine") {
     GamesTree tree;
     tree.file("ps2", "ico.iso", bytes({}), 64);

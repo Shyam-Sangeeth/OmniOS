@@ -106,6 +106,7 @@ int main(int argc, char* argv[]) {
     engine.addImageProvider(QStringLiteral("pad"), new PadGlyphProvider);  // the engine owns it
     engine.rootContext()->setContextProperty(QStringLiteral("Launcher"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("GameLibrary"), controller.games());
+    engine.rootContext()->setContextProperty(QStringLiteral("RecentGames"), controller.recentGames());
     engine.rootContext()->setContextProperty(QStringLiteral("AppLibrary"), controller.apps());
     engine.rootContext()->setContextProperty(QStringLiteral("System"), controller.system());
 

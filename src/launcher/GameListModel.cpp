@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QLocale>
+#include <QMap>
 #include <QUrl>
 
 #include "omnios/Router.h"
@@ -37,13 +38,13 @@ GameListModel::GameListModel(QObject* parent) : QAbstractListModel(parent) {}
 
 int GameListModel::rowCount(const QModelIndex& parent) const {
     if (parent.isValid()) return 0;
-    return static_cast<int>(library_.size());
+    return static_cast<int>(rows_.size());
 }
 
 QVariant GameListModel::data(const QModelIndex& index, int role) const {
     if (!index.isValid() || index.row() < 0 || index.row() >= rowCount()) return {};
 
-    const omnios::Game& game = library_.games()[static_cast<std::size_t>(index.row())];
+    const omnios::Game& game = gameAt(index.row());
 
     switch (role) {
         case IdRole:           return QString::fromStdString(game.id);
@@ -107,10 +108,71 @@ QHash<int, QByteArray> GameListModel::roleNames() const {
 }
 
 void GameListModel::setLibrary(omnios::GameLibrary library) {
-    beginResetModel();
     library_ = std::move(library);
+    // A system whose last game has gone is no longer offered, so it could
+    // not be unticked: dropped from the filter too.
+    QStringList present;
+    for (const omnios::Game& game : library_.games())
+        present << QString::fromStdString(std::string(omnios::platformId(game.platform)));
+    systems_.removeIf([&](const QString& id) { return !present.contains(id); });
+    applyFilter();
+}
+
+void GameListModel::applyFilter() {
+    beginResetModel();
+    rows_.clear();
+    const std::string query = search_.toStdString();
+    const auto& games = library_.games();
+    for (std::size_t i = 0; i < games.size(); ++i) {
+        const QString system = QString::fromStdString(std::string(omnios::platformId(games[i].platform)));
+        if (!systems_.isEmpty() && !systems_.contains(system)) continue;
+        if (!omnios::matchesSearch(games[i], query)) continue;
+        rows_.push_back(i);
+    }
     endResetModel();
     emit countChanged();
+    emit filterChanged();
+}
+
+void GameListModel::setSearch(const QString& text) {
+    if (text == search_) return;
+    search_ = text;
+    applyFilter();
+}
+
+void GameListModel::toggleSystem(const QString& id) {
+    if (id.isEmpty()) systems_.clear();
+    else if (!systems_.removeOne(id)) systems_ << id;
+    applyFilter();
+}
+
+void GameListModel::clearFilter() {
+    if (!filtering()) return;
+    search_.clear();
+    systems_.clear();
+    applyFilter();
+}
+
+QVariantList GameListModel::systemOptions() const {
+    // Each system's count, in the order of their names.
+    QMap<QString, QPair<QString, int>> byName;
+    for (const omnios::Game& game : library_.games()) {
+        const QString name = QString::fromStdString(std::string(omnios::platformDisplayName(game.platform)));
+        auto& entry = byName[name];
+        entry.first = QString::fromStdString(std::string(omnios::platformId(game.platform)));
+        ++entry.second;
+    }
+    QVariantList options{QVariantMap{{QStringLiteral("id"), QString()},
+                                     {QStringLiteral("name"), tr("All systems")},
+                                     {QStringLiteral("detail"), QString::number(total())},
+                                     {QStringLiteral("checked"), systems_.isEmpty()}}};
+    for (auto it = byName.constBegin(); it != byName.constEnd(); ++it) {
+        options << QVariantMap{{QStringLiteral("id"), it.value().first},
+                               {QStringLiteral("name"), it.key()},
+                               {QStringLiteral("detail"), QString::number(it.value().second)},
+                               {QStringLiteral("checked"), systems_.contains(it.value().first)}};
+    }
+    return options;
 }
 
 void GameListModel::setCover(const QString& id, const QString& path) {
@@ -141,9 +203,8 @@ QVariantMap GameListModel::get(int row) const {
 
 int GameListModel::indexOfId(const QString& id) const {
     const std::string needle = id.toStdString();
-    const auto& games = library_.games();
-    for (std::size_t i = 0; i < games.size(); ++i) {
-        if (games[i].id == needle) return static_cast<int>(i);
+    for (std::size_t row = 0; row < rows_.size(); ++row) {
+        if (gameAt(static_cast<int>(row)).id == needle) return static_cast<int>(row);
     }
     return -1;
 }

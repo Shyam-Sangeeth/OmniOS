@@ -164,17 +164,25 @@ std::vector<const Game*> GameLibrary::byPlatform(Platform platform) const {
     return matches;
 }
 
+bool matchesSearch(const Game& game, std::string_view query) {
+    std::size_t pos = 0;
+    while (pos < query.size()) {
+        const std::size_t start = query.find_first_not_of(" \t", pos);
+        if (start == std::string_view::npos) break;
+        const std::size_t end = std::min(query.find_first_of(" \t", start), query.size());
+        const std::string_view word = query.substr(start, end - start);
+        if (!containsFold(game.title, word) && !containsFold(game.developer, word) &&
+            !containsFold(game.publisher, word))
+            return false;
+        pos = end;
+    }
+    return true;
+}
+
 std::vector<const Game*> GameLibrary::search(std::string_view query) const {
     std::vector<const Game*> matches;
-    if (query.empty()) {
-        for (const Game& game : games_) matches.push_back(&game);
-        return matches;
-    }
     for (const Game& game : games_) {
-        if (containsFold(game.title, query) || containsFold(game.developer, query) ||
-            containsFold(game.publisher, query)) {
-            matches.push_back(&game);
-        }
+        if (matchesSearch(game, query)) matches.push_back(&game);
     }
     return matches;
 }

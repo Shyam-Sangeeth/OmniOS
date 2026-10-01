@@ -351,16 +351,16 @@ void LauncherController::refresh() {
     apps_.refresh();
     emit storageChanged();
 
-    if (model_.rowCount() == 0) {
+    if (model_.total() == 0) {
         setStatus(tr("No games in %1").arg(gamesPath()));
     } else if (!report.unidentified.empty()) {
         // Surfaced rather than swallowed: a file the scanner could not place is
         // the most likely reason a user's game is missing from the grid.
         setStatus(tr("%1 games · %2 file(s) not recognised")
-                      .arg(model_.rowCount())
+                      .arg(model_.total())
                       .arg(static_cast<int>(report.unidentified.size())));
     } else {
-        setStatus(tr("%1 games").arg(model_.rowCount()));
+        setStatus(tr("%1 games").arg(model_.total()));
     }
 
     scanning_ = false;

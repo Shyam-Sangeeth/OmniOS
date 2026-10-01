@@ -83,6 +83,16 @@ TEST("library: search matches title, developer and publisher, case-insensitively
     CHECK(library.search("nothing here").empty());
 }
 
+TEST("library: a search needs every word, each anywhere") {
+    Game kart = make("Mario Kart 8 Deluxe", Platform::Switch);
+    kart.publisher = "Nintendo";
+    CHECK(matchesSearch(kart, "mario kart"));
+    CHECK(matchesSearch(kart, "kart  mario"));
+    CHECK(matchesSearch(kart, "deluxe nintendo"));
+    CHECK(matchesSearch(kart, "  "));
+    CHECK(!matchesSearch(kart, "mario party"));
+}
+
 TEST("library: byPlatform filters") {
     GameLibrary library;
     library.add(make("A", Platform::PS4));

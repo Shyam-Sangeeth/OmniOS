@@ -71,6 +71,11 @@ struct Game {
 // Builds the library id for a title with no manifest of its own.
 std::string makeGameId(Platform platform, std::string_view title);
 
+// Whether `game` answers a search: every word of `query` somewhere in its
+// title, developer or publisher, case-insensitively, so "mario kart" finds
+// "Mario Kart 8". An empty query matches everything.
+bool matchesSearch(const Game& game, std::string_view query);
+
 class GameLibrary {
 public:
     // Inserts, or replaces the existing entry with the same id. Returns true
@@ -94,7 +99,7 @@ public:
     bool                     empty() const { return games_.empty(); }
 
     std::vector<const Game*> byPlatform(Platform platform) const;
-    // Case-insensitive substring match over title, developer and publisher.
+    // The games matchesSearch() lets through.
     std::vector<const Game*> search(std::string_view query) const;
 
     // Sorts by title, case-insensitively. The launcher's "All Games" order.

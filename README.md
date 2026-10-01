@@ -703,6 +703,34 @@ the row's tiles as on the grid's. It is not there until something has been
 played. Verified in the VM: Nova and the Wii test in the order played, kept
 across a restart of Game Mode, and Nova back in front when played from the row.
 
+Above that row, two filters narrow the library: *System*, a list of the systems
+the library has with how many games each, any number of them ticked (the TV
+app's FilterDropdown and FilterPopup), and *Search*, which keeps the games with
+every word typed somewhere in their title, developer or publisher
+(`matchesSearch()`, GameLibrary.h), as the letters are typed. Up from
+*Continue playing*, or from the grid's top row when it is not there, reaches
+them; Ctrl+F goes straight to the search box from either tab; with a pad, A on
+the search box opens the on-screen keyboard. Return (or Done) goes down to what
+is left. While filtering the row steps aside, the row of filters says how many
+games are left ("6 of 10"), an empty result says so, and Escape (B) on the grid
+clears both filters. The filtering is GameListModel's own rows, so the grid,
+its menus, its pages and Meta's menu all work by row as before.
+
+One thing the grid does was in the way: on every reset of its model it gives
+its new current tile the focus within its own focus scope, and the search box
+and the row are inside that scope. Each letter typed refilters, so the second
+letter went to the grid. Main.qml gives the focus back after each reset
+(keepGamesZone), and keeps the filters in view meanwhile. And Start and Y, the
+system menu and Rescan everywhere else, are Done and Space on the on-screen
+keyboard: the window's shortcuts for them (F10, F5) took the key first, so
+Done also opened the system menu. They now stand aside while an on-screen
+keyboard, the System list or a password prompt is open.
+
+Verified in the VM with the keyboard (Ctrl+F, typing, Return, Escape, the System
+list) and with the virtual Xbox pad (Up to the filters, A, the on-screen
+keyboard, Start for Done, A on System to tick, B to close and again to clear,
+Down back into the grid).
+
 Games are installed in Steam's window, not through the launcher, so the Games
 tab watches for the result: when the launcher comes back to the front, and every
 ten seconds while it is there, it compares the Steam games it would show — ids,

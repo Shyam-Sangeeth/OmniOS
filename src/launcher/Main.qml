@@ -54,11 +54,19 @@ Window {
         function onPackageStatusChanged() { window.showStatus(Launcher.packageStatus) }
     }
 
-    // The focused game: the "Continue playing" row's while that row has the
-    // focus (it stays its own while a menu or page opened from it is up),
-    // otherwise the grid's. recentRevision makes it follow the row's order,
-    // which changes under the same index when a game is played.
-    property bool recentActive: false
+    // Where the Games tab's focus is: "grid", "recent" (the "Continue
+    // playing" row) or "filters" (System and Search, above it). Kept by hand:
+    // the row and the filters are inside the grid, a focus scope, so the
+    // grid's activeFocus is true for all three.
+    //
+    // The focused game is the row's while the row has the focus (it stays
+    // its own while a menu or page opened from it is up), otherwise the
+    // grid's. recentRevision makes it follow the row's order, which changes
+    // under the same index when a game is played.
+    property string gamesZone: "grid"
+    readonly property bool recentActive: gamesZone === "recent"
+    // Which filter had the focus last: "system" or "search".
+    property string filtersFocus: "system"
     property int recentIndex: 0
     property int recentRevision: 0
     Connections {
@@ -92,7 +100,21 @@ Window {
                        ? GameLibrary.get(gamesGrid.currentIndex) : null
             window.focusedGameId = (game && game.gameId) || ""
         }
-        function onModelReset() { Qt.callLater(window.refocusGame) }
+        // The grid gives its new current tile the focus within its scope on
+        // a reset, taking it from the search box (or the row) inside it:
+        // every letter typed refilters, so the next one went nowhere. Given
+        // back at once, and after refocusGame moves the current tile again.
+        function onModelReset() {
+            window.keepGamesZone()
+            Qt.callLater(window.refocusGame)
+        }
+    }
+    function keepGamesZone() {
+        if (window.gamesZone === "grid" || window.currentTab !== 0) return
+        window.restoreFocus()
+        // And in sight: a new current tile scrolls the grid to itself,
+        // taking the filters and the row above it off the top.
+        gamesGrid.positionViewAtBeginning()
     }
     function refocusGame() {
         var index = window.focusedGameId !== "" ? GameLibrary.indexOfId(window.focusedGameId) : -1
@@ -104,6 +126,7 @@ Window {
         if (index < 0 && GameLibrary.count > 0)
             index = Math.max(0, Math.min(gamesGrid.currentIndex, GameLibrary.count - 1))
         gamesGrid.currentIndex = GameLibrary.count > 0 ? index : -1
+        window.keepGamesZone()
     }
 
     // Background tint follows whatever is focused, in any tab.
@@ -237,18 +260,94 @@ Window {
             model: GameLibrary
             highlightMoveDuration: Theme.focusDuration
 
-            // "Continue playing": the games played last, newest first, above
-            // the library and scrolling with it, so the one you were on is
-            // a press away however long the library grows. Gone until
-            // something has been played.
+            // Above the library, and scrolling with it: the filters (a
+            // system and a search), then "Continue playing" — the games
+            // played last, newest first, so the one you were on is a press
+            // away however long the library grows. That row is there once
+            // something has been played, and steps aside while filtering.
             header: Item {
                 readonly property ListView list: recentList
+                readonly property Item systemFilter: systemFilter
+                readonly property Item searchInput: searchField.input
+                readonly property bool recentShown: RecentGames.count > 0 && !GameLibrary.filtering
                 width: gamesGrid.width
-                height: RecentGames.count > 0 ? recentTitle.height + 6 + gamesGrid.cellHeight + 14 : 0
-                visible: RecentGames.count > 0
+                height: (filterRow.visible ? filterRow.height + 18 : 0)
+                        + (recentShown ? recentTitle.height + 6 + gamesGrid.cellHeight + 14 : 0)
+
+                Row {
+                    id: filterRow
+                    visible: GameLibrary.total > 0
+                    spacing: 16
+
+                    FilterDropdown {
+                        id: systemFilter
+                        label: qsTr("System")
+                        options: GameLibrary.systemOptions
+                        facet: 0
+                        width: 230
+                        onOpenRequested: typed => filterPopup.openFor(systemFilter, typed)
+                        onActiveFocusChanged: if (activeFocus) { window.gamesZone = "filters"; window.filtersFocus = "system" }
+                        // Kept in the row: unhandled, these reach the grid
+                        // around it and move its focus unseen.
+                        Keys.onUpPressed: {}
+                        Keys.onLeftPressed: {}
+                        Keys.onRightPressed: searchField.input.forceActiveFocus()
+                        Keys.onDownPressed: window.leaveFilters()
+                    }
+                    Field {
+                        id: searchField
+                        keyboard: fieldKeyboard
+                        label: qsTr("Search")
+                        width: 320
+                        doneMovesOn: false
+                        Connections {
+                            target: searchField.input
+                            function onActiveFocusChanged() {
+                                if (!searchField.input.activeFocus) return
+                                window.gamesZone = "filters"
+                                window.filtersFocus = "search"
+                            }
+                        }
+                        onEdited: GameLibrary.setSearch(text)
+                        // Return, or Done on the on-screen keyboard: on to
+                        // what it found.
+                        onSubmitted: { GameLibrary.setSearch(text); window.leaveFilters() }
+                        // TextInput passes Return on after submitting, and the
+                        // grid it reached opened the first game's page.
+                        Keys.onReturnPressed: {}
+                        Keys.onEnterPressed: {}
+                        Keys.onUpPressed: {}
+                        Keys.onDownPressed: window.leaveFilters()
+                        Keys.onLeftPressed: event => {
+                            if (input.cursorPosition === 0) systemFilter.forceActiveFocus()
+                            else event.accepted = false
+                        }
+                        Keys.onRightPressed: event => { event.accepted = input.cursorPosition === text.length }
+                        // Cleared from elsewhere (Escape on the grid).
+                        Connections {
+                            target: GameLibrary
+                            function onFilterChanged() {
+                                if (searchField.text !== GameLibrary.search) searchField.text = GameLibrary.search
+                            }
+                        }
+                    }
+                    // How much of the library the filters leave.
+                    Text {
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 12
+                        visible: GameLibrary.filtering
+                        text: Theme.hint(qsTr("%1 of %2    %3 Clear")
+                                         .arg(GameLibrary.count).arg(GameLibrary.total)
+                                         .arg(Launcher.usingController ? Launcher.buttonNames.east : "[Esc]"))
+                        color: Theme.textSecondary
+                        font.pixelSize: 13
+                    }
+                }
 
                 Text {
                     id: recentTitle
+                    y: filterRow.visible ? filterRow.height + 18 : 0
+                    visible: parent.recentShown
                     text: qsTr("CONTINUE PLAYING")
                     color: Theme.textSecondary
                     font.pixelSize: 12
@@ -259,12 +358,14 @@ Window {
                     id: recentList
                     anchors { top: recentTitle.bottom; topMargin: 6; left: parent.left; right: parent.right }
                     height: gamesGrid.cellHeight
+                    visible: parent.recentShown
                     orientation: ListView.Horizontal
                     clip: true
                     model: RecentGames
                     highlightMoveDuration: Theme.focusDuration
 
                     onCurrentIndexChanged: window.recentIndex = currentIndex
+                    onActiveFocusChanged: if (activeFocus) window.gamesZone = "recent"
 
                     // A whole cell with the tile centred, as in the grid, so
                     // the focused tile's scale and ring are not clipped.
@@ -303,9 +404,9 @@ Window {
                     Keys.onTabPressed: window.selectTab(1)
                     Keys.onBacktabPressed: window.selectTab(1)
                     Keys.onDownPressed: window.leaveRecent()
+                    Keys.onUpPressed: window.enterFilters(false)
                     // Kept here: unhandled, they reach the grid the row is
                     // inside, and move its focus unseen.
-                    Keys.onUpPressed: {}
                     Keys.onLeftPressed: decrementCurrentIndex()
                     Keys.onRightPressed: incrementCurrentIndex()
                     Keys.onMenuPressed: window.openGameMenu(currentItem ? currentItem.menuAnchor : null)
@@ -339,10 +440,10 @@ Window {
                     // Every game has a menu (openGameMenu); Steam's adds
                     // what only Steam can do.
                     hasMenu: true
-                    // The row inside the grid keeps the grid's activeFocus
-                    // true too, hence recentActive.
+                    // The row and filters inside the grid keep the grid's
+                    // activeFocus true too, hence gamesZone.
                     selected: gamesGrid.activeFocus && parent.GridView.isCurrentItem
-                              && !window.recentActive && !detailLoader.active
+                              && window.gamesZone === "grid" && !detailLoader.active
 
                     onMenuRequested: function (anchorItem) {
                         gamesGrid.currentIndex = index
@@ -363,11 +464,17 @@ Window {
             Keys.onEnterPressed: window.openDetail()
             Keys.onTabPressed: window.selectTab(1)
             Keys.onBacktabPressed: window.selectTab(1)
-            // Up from the top row goes into "Continue playing"; anywhere
-            // else it is the grid's.
+            // Up from the top row goes into "Continue playing", or to the
+            // filters above it; anywhere else it is the grid's.
             Keys.onUpPressed: function (event) {
                 var columns = Math.max(1, Math.floor(width / cellWidth))
-                event.accepted = currentIndex < columns && window.enterRecent()
+                event.accepted = (currentIndex < columns || count === 0)
+                                 && (window.enterRecent() || window.enterFilters(false))
+            }
+            // Back to the whole library, while filtered.
+            Keys.onEscapePressed: function (event) {
+                event.accepted = GameLibrary.filtering
+                if (event.accepted) GameLibrary.clearFilter()
             }
             Keys.onMenuPressed: window.openGameMenu(window.tileMenuAnchor(currentIndex))
             Keys.onPressed: function (event) {
@@ -378,11 +485,35 @@ Window {
             }
         }
 
+        // Filtered down to nothing: said where the tiles would be.
+        Column {
+            anchors.centerIn: parent
+            anchors.verticalCenterOffset: 40
+            spacing: 10
+            visible: window.currentTab === 0 && GameLibrary.total > 0 && GameLibrary.count === 0
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: GameLibrary.search.trim() !== ""
+                      ? qsTr("Nothing matches \"%1\"").arg(GameLibrary.search.trim())
+                      : qsTr("No games for that system")
+                color: Theme.textPrimary
+                font.pixelSize: 22
+            }
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: Theme.hint(qsTr("%1  Show every game")
+                                 .arg(Launcher.usingController ? Launcher.buttonNames.east : "[Esc]"))
+                color: Theme.textSecondary
+                font.pixelSize: 14
+            }
+        }
+
         // Only covers the games tab; the other tabs are useful with no games.
         Column {
             anchors.centerIn: parent
             spacing: 12
-            visible: window.currentTab === 0 && GameLibrary.count === 0 && !Launcher.scanning
+            visible: window.currentTab === 0 && GameLibrary.total === 0 && !Launcher.scanning
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -505,8 +636,8 @@ Window {
                              .arg(b.south).arg(b.east).arg(b.west).arg(b.l1).arg(b.r1).arg(b.start))
                     : window.currentTab === 0
                       ? (window.currentGame
-                         ? qsTr("[↑][↓][←][→] Move    [Enter] Open    [M] Game menu    [Tab] Switch tab    [F10] Menu    [F5] Rescan")
-                         : qsTr("[↑][↓][←][→] Move    [Enter] Open    [Tab] Switch tab    [F10] Menu    [F5] Rescan"))
+                         ? qsTr("[↑][↓][←][→] Move    [Enter] Open    [M] Game menu    [Ctrl][F] Search    [Tab] Switch tab    [F10] Menu    [F5] Rescan")
+                         : qsTr("[↑][↓][←][→] Move    [Enter] Open    [Ctrl][F] Search    [Tab] Switch tab    [F10] Menu    [F5] Rescan"))
                       : qsTr("[↑][↓][←][→] Move    [Enter] Open    [M] App menu    [Tab] Switch tab    [F10] Menu"))
             color: Theme.textSecondary
             font.pixelSize: 12
@@ -532,6 +663,24 @@ Window {
             }
         }
         onLoaded: item.forceActiveFocus()
+    }
+
+    // ---- filters ----------------------------------------------------------
+    // The System filter's list, over everything.
+    FilterPopup {
+        id: filterPopup
+        z: 15
+        dropdowns: gamesGrid.headerItem ? [gamesGrid.headerItem.systemFilter] : []
+        keyboard: fieldKeyboard
+        controller: Launcher.usingController
+        onToggled: (facet, id) => GameLibrary.toggleSystem(id)
+    }
+
+    // Typing a search with a controller: A on the search box opens this.
+    FieldKeyboard {
+        id: fieldKeyboard
+        inputMode: Launcher
+        z: 20
     }
 
     // ---- menus ------------------------------------------------------------
@@ -614,6 +763,14 @@ Window {
         return passwordPrompt.open || wifiPrompt.open
     }
 
+    // Something open that has keys of its own for F10 and F5 — a
+    // controller's Start and Y: Done and Space on the on-screen keyboards.
+    // The window's shortcuts for them stand aside meanwhile; enabled, they
+    // took the key first, so Start opened the system menu as well as
+    // finishing a search, and Y rescanned rather than typing a space.
+    readonly property bool keysTaken: passwordPrompt.open || wifiPrompt.open
+                                      || fieldKeyboard.open || filterPopup.isOpen
+
     // Focus back where it belongs: an open prompt if there is one, then a
     // game's page if one is open (the grid is only behind it; with focus
     // there, the page's Play and Back stopped answering), then the grid.
@@ -621,6 +778,8 @@ Window {
         if (passwordPrompt.open) passwordPrompt.takeFocus()
         else if (wifiPrompt.open) wifiPrompt.takeFocus()
         else if (menuPanel.visible) menuPanel.takeFocus()
+        // These hold the focus themselves while open.
+        else if (filterPopup.isOpen || fieldKeyboard.open) {}
         else if (detailLoader.item) detailLoader.item.forceActiveFocus()
         else if (currentTab === 0) focusGames()
         else appsGrid.forceActiveFocus()
@@ -638,56 +797,98 @@ Window {
     // Shortcut works and reaches it from either tab.
     Shortcut {
         sequence: "F10"
-        onActivated: if (!window.promptOpen()) window.openPowerMenu()
+        enabled: !window.keysTaken
+        onActivated: window.openPowerMenu()
     }
 
     Shortcut {
         sequence: "F5"
+        enabled: !window.keysTaken
         onActivated: {
             Launcher.refresh()
             AppLibrary.refresh()
         }
     }
 
+    // Straight to the search box, from anywhere on either tab.
+    Shortcut {
+        sequence: StandardKey.Find
+        enabled: !window.keysTaken
+        onActivated: {
+            if (menuPanel.visible || detailLoader.active) return
+            if (window.currentTab !== 0) window.selectTab(0)
+            window.enterFilters(true)
+        }
+    }
+
     // Into the "Continue playing" row, on the game played last; false when
     // there is no row. The grid's place is kept for coming back down.
     function enterRecent() {
-        var list = gamesGrid.headerItem ? gamesGrid.headerItem.list : null
-        if (!list || RecentGames.count === 0) return false
+        var header = gamesGrid.headerItem
+        if (!header || !header.recentShown) return false
         gamesGrid.positionViewAtBeginning()
-        list.currentIndex = 0
-        list.positionViewAtBeginning()
-        recentActive = true
+        header.list.currentIndex = 0
+        header.list.positionViewAtBeginning()
+        gamesZone = "recent"
         focusGames()
         return true
     }
 
     function leaveRecent() {
-        recentActive = false
+        gamesZone = "grid"
         focusGames()
     }
 
     // A tile in the row picked with the pointer.
     function focusRecent(index) {
-        var list = gamesGrid.headerItem ? gamesGrid.headerItem.list : null
-        if (!list) return
-        list.currentIndex = index
-        recentActive = true
+        var header = gamesGrid.headerItem
+        if (!header) return
+        header.list.currentIndex = index
+        gamesZone = "recent"
         focusGames()
     }
 
-    // The Games tab's focus: the row while recentActive, else the grid. The
-    // row is inside the grid, a focus scope, so the grid given the focus
-    // hands it on to the row while the row still holds the scope's.
+    // Into the filters: the search box when `search`, else the System
+    // filter. False when there are none (no games at all).
+    function enterFilters(search) {
+        if (!gamesGrid.headerItem || GameLibrary.total === 0) return false
+        gamesGrid.positionViewAtBeginning()
+        gamesZone = "filters"
+        filtersFocus = search ? "search" : "system"
+        focusGames()
+        return true
+    }
+
+    // Down from the filters: "Continue playing" if it is there, else what
+    // they left in the grid.
+    function leaveFilters() {
+        if (!enterRecent()) leaveRecent()
+    }
+
+    // The Games tab's focus, by gamesZone. Inside the grid's focus scope,
+    // the grid given the focus hands it on to whichever of the row and the
+    // filters still holds the scope's, so those let go of it first.
     function focusGames() {
-        var list = gamesGrid.headerItem ? gamesGrid.headerItem.list : null
-        if (recentActive && RecentGames.count > 0 && list) {
-            list.forceActiveFocus()
+        var header = gamesGrid.headerItem
+        if (header && gamesZone === "recent" && header.recentShown) {
+            header.list.forceActiveFocus()
             return
         }
-        recentActive = false
-        if (list) list.focus = false
+        if (header && gamesZone === "filters" && GameLibrary.total > 0) {
+            if (filtersFocus === "search") header.searchInput.forceActiveFocus()
+            else header.systemFilter.forceActiveFocus()
+            return
+        }
+        gamesZone = "grid"
+        if (header) {
+            header.list.focus = false
+            header.systemFilter.focus = false
+            header.searchInput.focus = false
+        }
         gamesGrid.forceActiveFocus()
+        // Its tile in sight: the view may have been kept at the top for the
+        // row or the filters while the current tile was further down.
+        if (gamesGrid.currentIndex >= 0) gamesGrid.positionViewAtIndex(gamesGrid.currentIndex, GridView.Contain)
     }
 
     function selectTab(index) {
@@ -832,7 +1033,7 @@ Window {
         if (index >= 0) {
             detailLoader.active = false  // the tile is under a page left open
             if (window.currentTab !== 0) window.selectTab(0)
-            window.recentActive = false  // its tile in the grid, where the menu opens
+            window.gamesZone = "grid"  // its tile in the grid, where the menu opens
             gamesGrid.currentIndex = index
             anchor = window.tileMenuAnchor(index)
         }

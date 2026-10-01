@@ -11,6 +11,7 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -36,6 +37,8 @@ public:
         // What the tile's badge shows, so where an app came from is visible
         // without opening its menu.
         KindRole,
+        // The last update check found an update for it (setUpdatable).
+        UpdateRole,
     };
     Q_ENUM(Role)
 
@@ -68,10 +71,19 @@ public:
     };
     Removal removalFor(const QString& appId) const;
 
+    // Every tile's id, in order.
+    QStringList ids() const;
+
+    // The apps the last update check found updates for, by id. Kept across
+    // refresh(): the tiles are rebuilt, the check's answer is not.
+    void setUpdatable(const QSet<QString>& ids);
+    bool hasUpdate(const QString& appId) const { return updatable_.contains(appId); }
+
 signals:
     void countChanged();
 
 private:
+    QSet<QString> updatable_;
     // Flattened so row order and the built-in/discovered split are decided in
     // one place instead of in every data() branch.
     struct Row {

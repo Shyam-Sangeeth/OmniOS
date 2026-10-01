@@ -11,7 +11,9 @@
 
 #include <QElapsedTimer>
 #include <QObject>
+#include <QHash>
 #include <QProcess>
+#include <QSet>
 #include <QString>
 #include <QTimer>
 #include <QVariantMap>
@@ -263,7 +265,10 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
-    void setStatus(const QString& text);
+    // A sentence for the status line. The same sentence twice is said once,
+    // unless `again`: an answer to something asked twice, such as one app's
+    // Check for update.
+    void setStatus(const QString& text, bool again = false);
     void setUsingController(bool on);
 
     // Turns a controller press into the key the shell already answers to, and
@@ -427,6 +432,19 @@ private:
     int            updateCount_ = -1;
     bool           restartRequired_ = false;
     bool           updating_ = false;
+    // From the last update check (omni-update check): the pacman packages and
+    // the Flatpak apps with an update waiting.
+    QSet<QString>  pacmanUpdates_;
+    QSet<QString>  flatpakUpdates_;
+    // Which pacman package each app's tile belongs to, as pacman said; asked
+    // once per app, and only while some package has an update.
+    QHash<QString, QString> appPackages_;
+    QProcess*      ownerCheck_ = nullptr;
+    // An app's "Check for update", answered when the check is done.
+    QString        appCheck_;
+    // Which apps have an update, from the sets above, into the Apps model.
+    void markAppUpdates();
+    void finishAppCheck();
     QProcess*      updateCheck_ = nullptr;
     QTimer         updateTimer_;
     QProcess*     running_ = nullptr;

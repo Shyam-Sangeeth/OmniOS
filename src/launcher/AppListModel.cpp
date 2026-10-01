@@ -57,6 +57,7 @@ QVariant AppListModel::data(const QModelIndex& index, int role) const {
         case AvailableRole:   return row.available;
         case RemovableRole:   return row.removable;
         case KindRole:        return row.kind;
+        case UpdateRole:      return updatable_.contains(row.id);
         default:              return {};
     }
 }
@@ -75,7 +76,20 @@ QHash<int, QByteArray> AppListModel::roleNames() const {
         {IconRole, "iconSource"},
         {RemovableRole, "removable"},
         {KindRole, "kind"},
+        {UpdateRole, "hasUpdate"},
     };
+}
+
+QStringList AppListModel::ids() const {
+    QStringList out;
+    for (const Row& row : rows_) out << row.id;
+    return out;
+}
+
+void AppListModel::setUpdatable(const QSet<QString>& ids) {
+    if (ids == updatable_) return;
+    updatable_ = ids;
+    if (!rows_.isEmpty()) emit dataChanged(index(0, 0), index(static_cast<int>(rows_.size()) - 1, 0), {UpdateRole});
 }
 
 QVariantMap AppListModel::get(int row) const {

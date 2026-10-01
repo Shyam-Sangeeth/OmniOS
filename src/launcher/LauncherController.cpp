@@ -320,8 +320,8 @@ QString LauncherController::gamesPath() const {
 
 QString LauncherController::version() const { return QStringLiteral("0.1.0"); }
 
-void LauncherController::setStatus(const QString& text) {
-    if (status_ == text) return;
+void LauncherController::setStatus(const QString& text, bool again) {
+    if (status_ == text && !again) return;
     status_ = text;
     emit statusChanged();
 }
@@ -1115,37 +1115,87 @@ void LauncherController::removeApp(const QString& appId) {
 }
 
 void LauncherController::checkForUpdate(const QString& appId) {
-    if (packageBusy()) return;
-
     const AppListModel::Removal ref = apps_.removalFor(appId);
     if (!ref.known) {
-        setPackageStatus(tr("Nothing known as %1").arg(appId));
+        setStatus(tr("Nothing known as %1").arg(appId));
+        return;
+    }
+    // The whole system's check, the one behind the update count: it lists
+    // every package and Flatpak app with an update (omni-update check), so
+    // its answer marks every tile, not only this one. checkupdates compares
+    // against a throwaway database rather than running "pacman -Sy", which
+    // would leave the system one partial upgrade away from a mismatched libc.
+    appCheck_ = appId;
+    setStatus(tr("Checking %1 for updates ...").arg(ref.title), true);
+    checkSystemUpdates();  // one already running answers this too
+}
+
+void LauncherController::markAppUpdates() {
+    // A pacman app's package, asked of pacman for the apps not asked yet, in
+    // one process; only while some package has an update, since otherwise no
+    // pacman app has one whatever its package.
+    QStringList unasked;
+    if (!pacmanUpdates_.isEmpty()) {
+        for (const QString& id : apps_.ids())
+            if (!apps_.removalFor(id).flatpak && !appPackages_.contains(id)) unasked << id;
+    }
+    if (!unasked.isEmpty()) {
+        if (ownerCheck_ != nullptr) return;  // its end marks them
+        const auto quoted = [](const QString& text) {
+            return QStringLiteral("'") + QString(text).replace(QLatin1Char('\''), QStringLiteral("'\\''")) +
+                   QStringLiteral("'");
+        };
+        QString script;
+        for (const QString& id : unasked) {
+            // packagePathFor, as Uninstall uses: a desktop file's path, or for
+            // a built-in tile "$(command -v program)", for the shell to expand.
+            const QString path = packagePathFor(id);
+            const QString target = path.startsWith(QLatin1String("$(")) ? QStringLiteral("\"%1\"").arg(path)
+                                                                        : quoted(path);
+            script += QStringLiteral("printf '%s\\t%s\\n' %1 \"$(pacman -Qoq %2 2>/dev/null)\"\n")
+                          .arg(quoted(id), target);
+        }
+        auto* check = new QProcess(this);
+        ownerCheck_ = check;
+        connect(check, &QProcess::finished, this, [this, check, unasked]() {
+            const QStringList lines = QString::fromUtf8(check->readAllStandardOutput()).split(QLatin1Char('\n'));
+            for (const QString& id : unasked) appPackages_.insert(id, QString());  // none, unless said
+            for (const QString& line : lines) {
+                const QString id = line.section(QLatin1Char('\t'), 0, 0);
+                if (!id.isEmpty()) appPackages_.insert(id, line.section(QLatin1Char('\t'), 1).trimmed());
+            }
+            ownerCheck_ = nullptr;
+            check->deleteLater();
+            markAppUpdates();
+        });
+        connect(check, &QProcess::errorOccurred, this, [this, check](QProcess::ProcessError error) {
+            if (error != QProcess::FailedToStart) return;
+            ownerCheck_ = nullptr;
+            check->deleteLater();
+            finishAppCheck();
+        });
+        check->start(QStringLiteral("sh"), {QStringLiteral("-c"), script});
         return;
     }
 
-    if (ref.flatpak) {
-        // flatpak has no dry run, so this asks the remote what it has and
-        // compares commits. Nothing is downloaded.
-        runSystemCommand(
-            QStringLiteral("flatpak remote-info --show-commit flathub %1 >/dev/null 2>&1 && "
-                           "echo \"%2: use Update, or the Store\" || echo \"%2: no update info\"")
-                .arg(ref.target, ref.title),
-            tr("Checking %1 ...").arg(ref.title), QString());
-        return;
+    QSet<QString> updatable;
+    for (const QString& id : apps_.ids()) {
+        const AppListModel::Removal ref = apps_.removalFor(id);
+        if (ref.flatpak ? flatpakUpdates_.contains(ref.target)
+                        : pacmanUpdates_.contains(appPackages_.value(id)))
+            updatable.insert(id);
     }
+    apps_.setUpdatable(updatable);
+    finishAppCheck();
+}
 
-    // checkupdates compares against a throwaway database rather than running
-    // "pacman -Sy", which on Arch would leave the system one partial upgrade
-    // away from a mismatched libc. It exits 2 with no output when everything is
-    // current, which is not a failure — awk decides the message and the exit
-    // code, so "up to date" cannot be confused with a mirror being down.
-    const QString script =
-        QStringLiteral("pkg=$(pacman -Qoq %1 2>/dev/null) || { echo \"error: no package owns %1\"; "
-                       "exit 1; }; checkupdates 2>/dev/null | awk -v p=\"$pkg\" "
-                       "'$1==p {print \"Update available: \" $2 \" -> \" $4; f=1} "
-                       "END {if (!f) print p \" is up to date\"}'")
-            .arg(packagePathFor(appId));
-    runSystemCommand(script, tr("Checking %1 for updates ...").arg(ref.title), QString());
+void LauncherController::finishAppCheck() {
+    if (appCheck_.isEmpty()) return;
+    const QString title = apps_.removalFor(appCheck_).title;
+    setStatus(apps_.hasUpdate(appCheck_) ? tr("An update is available for %1").arg(title)
+                                         : tr("%1 is up to date").arg(title),
+              true);
+    appCheck_.clear();
 }
 
 void LauncherController::updateApp(const QString& appId) {
@@ -1158,6 +1208,7 @@ void LauncherController::updateApp(const QString& appId) {
     }
 
     if (ref.flatpak) {
+        updating_ = true;  // looked for again afterwards, so its mark goes
         runSystemCommand(QStringLiteral("flatpak update --assumeyes %1").arg(ref.target),
                           tr("Updating %1 ...").arg(ref.title),
                           tr("%1 is up to date").arg(ref.title));
@@ -1184,9 +1235,20 @@ void LauncherController::checkSystemUpdates(bool announce) {
         // hours about a machine that is simply offline helps nobody; asked
         // for, it is said.
         if (code != 0) {
-            if (announce) setStatus(tr("Could not check for updates  -  is the network up?"));
+            if (announce || !appCheck_.isEmpty())
+                setStatus(tr("Could not check for updates  -  is the network up?"), true);
+            appCheck_.clear();
             return;
         }
+        // "pacman NAME OLD NEW" and "flatpak APP-ID", one per update.
+        pacmanUpdates_.clear();
+        flatpakUpdates_.clear();
+        for (const QString& line : lines) {
+            const QStringList words = line.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            if (words.size() >= 2 && words[0] == QLatin1String("pacman")) pacmanUpdates_.insert(words[1]);
+            if (words.size() >= 2 && words[0] == QLatin1String("flatpak")) flatpakUpdates_.insert(words[1]);
+        }
+        markAppUpdates();
         for (const QString& line : lines) {
             if (!line.startsWith(QLatin1String("total "))) continue;
             bool ok = false;
@@ -1203,9 +1265,11 @@ void LauncherController::checkSystemUpdates(bool announce) {
             }
         }
     });
-    connect(check, &QProcess::errorOccurred, this, [this, check](QProcess::ProcessError) {
+    connect(check, &QProcess::errorOccurred, this, [this, check](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart) return;  // anything else ends in finished, above
         updateCheck_ = nullptr;
         check->deleteLater();
+        appCheck_.clear();
     });
     check->start(QStringLiteral("omni-update"), {QStringLiteral("check")});
 }

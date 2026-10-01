@@ -558,6 +558,7 @@ Window {
                     cover: ""
                     iconSource: model.iconSource
                     playable: model.playable
+                    hasUpdate: model.hasUpdate
                     hasMenu: true
                     selected: appsGrid.activeFocus && parent.GridView.isCurrentItem
 
@@ -565,7 +566,7 @@ Window {
                         appsGrid.currentIndex = index
                         menuPanel.openFor(anchorItem, model.title,
                                           window.appMenuEntries(model.removable,
-                                                                model.playable),
+                                                                model.playable, model.hasUpdate),
                                           "app", model.appId)
                     }
 
@@ -920,12 +921,19 @@ Window {
     // disabled with its reason. That is a rule, not a state — dropping it
     // silently would leave someone wondering whether the tile was special or
     // the menu was broken.
-    function appMenuEntries(removable, installed) {
+    //
+    // Update when the last check found one for it (its tile shows the mark),
+    // otherwise Check for update; neither on the live image, which is not
+    // updated.
+    function appMenuEntries(removable, installed, hasUpdate) {
         var entries = []
         if (installed) {
-            entries.push({ action: "open",   label: qsTr("Open"),             enabled: true })
-            entries.push({ action: "check",  label: qsTr("Check for update"), enabled: true })
-            entries.push({ action: "update", label: qsTr("Update"),           enabled: true })
+            entries.push({ action: "open", label: qsTr("Open"), enabled: true })
+            if (!Launcher.liveImage) {
+                entries.push(hasUpdate
+                             ? { action: "update", label: qsTr("Update"),           enabled: !Launcher.packageBusy }
+                             : { action: "check",  label: qsTr("Check for update"), enabled: true })
+            }
         }
         if (removable)
             entries.push({ action: "uninstall", label: qsTr("Uninstall"), enabled: installed })
@@ -941,7 +949,7 @@ Window {
         var entry = currentEntry()
         if (!entry || !appsGrid.currentItem) return
         menuPanel.openFor(appsGrid.currentItem, entry.title,
-                          appMenuEntries(entry.removable, entry.playable),
+                          appMenuEntries(entry.removable, entry.playable, entry.hasUpdate),
                           "app", entry.appId)
     }
 

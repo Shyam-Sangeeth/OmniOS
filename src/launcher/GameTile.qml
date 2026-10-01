@@ -22,6 +22,9 @@ Item {
     // Shows the overflow button. Games have nothing to put in a menu yet, so
     // they leave it off rather than opening an empty one.
     property bool   hasMenu: false
+    // An update is waiting for this app: a mark in the artwork's corner, and
+    // Update in its menu.
+    property bool   hasUpdate: false
     // Emitted with the button itself, so the menu can anchor to it.
     signal menuRequested(var anchorItem)
     // What the tile's menu opens beside, however it was asked for: the three
@@ -142,6 +145,36 @@ Item {
                     font.pixelSize: 9
                     font.bold: true
                 }
+            }
+        }
+
+        // An update waiting: an arrow down into a tray, on the accent colour,
+        // in the top-right corner of the artwork, away from the menu button.
+        Rectangle {
+            anchors { right: parent.right; top: parent.top; margins: 6 }
+            width: 22
+            height: 22
+            radius: 11
+            visible: tile.hasUpdate
+            color: Theme.accent
+            border.width: 1
+            border.color: "#40FFFFFF"
+
+            Rectangle {  // the shaft
+                x: 10; y: 5; width: 2; height: 8
+                color: "#FFFFFF"
+            }
+            Rectangle {  // the head, a square turned on its corner
+                x: 7.5; y: 6; width: 7; height: 7
+                rotation: 45
+                color: "transparent"
+                border.width: 0
+                Rectangle { anchors.right: parent.right; anchors.bottom: parent.bottom; width: 7; height: 2; color: "#FFFFFF" }
+                Rectangle { anchors.right: parent.right; anchors.bottom: parent.bottom; width: 2; height: 7; color: "#FFFFFF" }
+            }
+            Rectangle {  // the tray
+                x: 6; y: 16; width: 10; height: 2
+                color: "#FFFFFF"
             }
         }
 

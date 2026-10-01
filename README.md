@@ -561,10 +561,27 @@ KWin switches its outputs back on by itself.
 
 ### The tile menu
 
-Every app tile carries three dots (or press **M**): open, check for update,
-update, uninstall. Entries that do not apply are left out rather than greyed —
-except uninstalling a system app, which stays visible and disabled with the
-reason, because that is a rule rather than a state.
+Every app tile carries three dots (or press **M**): open, then *Update* if an
+update is waiting for it or *Check for update* if none is known, then
+uninstall. Entries that do not apply are left out rather than greyed — except
+uninstalling a system app, which stays visible and disabled with the reason,
+because that is a rule rather than a state. On the live image, which is not
+updated, neither update entry is there.
+
+What is waiting comes from the system's own update check (`omni-update check`,
+a minute after the launcher starts and every six hours, the one behind the
+update count in the top bar), which lists every pacman package and Flatpak app
+with an update. A Flatpak tile has one when its app id is on that list; a
+pacman tile when the package that owns its desktop entry (or, for a built-in
+tile, its program) is, which pacman is asked once per tile and only while some
+package has an update. Such a tile shows an arrow into a tray in the corner of
+its artwork. *Check for update* runs that check again, now, and says what it
+found for the app ("TV is up to date"); *Update* updates a Flatpak app on its
+own, and a pacman app by updating the whole system, since updating one package
+alone is a partial upgrade. Either way the check runs again afterwards, so the
+mark goes. Verified in the VM with a Steam update added to the check's answer
+for the test: Steam's tile got the mark and *Update*, TV's kept *Check for
+update*, which said it was up to date.
 
 The rule belongs to the **package**, not the tile: two tiles can share one
 package, and removing it from either would break both.

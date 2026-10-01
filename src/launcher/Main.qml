@@ -698,6 +698,8 @@ Window {
             else if (context === "running" && action === "quit") Launcher.quitRunningGame()
             else if (context === "running" && action === "library") {}
             else if (context === "running" && action === "system") window.openPowerMenu()
+            else if ((context === "running" || context === "game") && action === "savestate") Launcher.saveState()
+            else if ((context === "running" || context === "game") && action === "loadstate") Launcher.loadState()
             else if (context === "running") Launcher.steamAction(Launcher.runningGameId, action)
             else if (context === "power" && action === "clearnotes") Launcher.clearNotifications()
             else if (context === "power" && action === "sysupdate") window.confirmUpdate()
@@ -1046,9 +1048,10 @@ Window {
             anchor = window.tileMenuAnchor(index)
         }
         menuPanel.openFor(anchor || menuAnchor, Launcher.runningTitle.toUpperCase(), [
-            { action: "resume", label: qsTr("Resume"), enabled: true },
+            { action: "resume", label: qsTr("Resume"), enabled: true }
+        ].concat(window.stateEntries(), [
             { action: "quit",   label: qsTr("Quit game"), enabled: true }
-        ].concat(isSteam ? [{ action: "details", label: qsTr("Open in Steam"), enabled: true }] : [], [
+        ], isSteam ? [{ action: "details", label: qsTr("Open in Steam"), enabled: true }] : [], [
             { action: "library", label: qsTr("Library"), enabled: true },
             { action: "system",  label: qsTr("System menu"), enabled: true }
         ]), "running")
@@ -1065,6 +1068,14 @@ Window {
         }
     }
 
+    // Save state and Load state, for a running game that can (RetroArch's):
+    // after Resume, before Quit. Load only once there is a state to load.
+    function stateEntries() {
+        if (!Launcher.canSaveState) return []
+        return [{ action: "savestate", label: qsTr("Save state"), enabled: true },
+                { action: "loadstate", label: qsTr("Load state"), enabled: Launcher.hasSavedState() }]
+    }
+
     // A game's menu, from its three dots (or M, or the pad's left face
     // button): play it or, while it runs, resume or quit it; its page; and
     // what only Steam can do for a Steam game, or another look for cover art
@@ -1074,8 +1085,8 @@ Window {
         if (!game || !anchorItem) return
         var isRunning = Launcher.runningGameId === game.gameId
         var first = isRunning
-            ? [{ action: "resume", label: qsTr("Resume"),    enabled: true },
-               { action: "quit",   label: qsTr("Quit game"), enabled: true }]
+            ? [{ action: "resume", label: qsTr("Resume"),    enabled: true }].concat(window.stateEntries(),
+              [{ action: "quit",   label: qsTr("Quit game"), enabled: true }])
             : [{ action: "play",   label: qsTr("Play"),      enabled: game.playable }]
         var rest = [{ action: "page", label: qsTr("Details"), enabled: true }]
         if (game.platformId === "steam") {

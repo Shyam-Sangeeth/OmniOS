@@ -174,6 +174,25 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
                 else takeBackFromSteam();
             });
 
+    // A save asked for, watched until RetroArch has written the file: it
+    // says nothing back on its standard input, and its own message about it
+    // is drawn in the game, behind the launcher.
+    stateWatch_.setInterval(250);
+    connect(&stateWatch_, &QTimer::timeout, this, [this]() {
+        const std::filesystem::path state = runningContent_.isEmpty()
+                                                ? std::filesystem::path()
+                                                : omnios::retroarchStateFile(runningContent_.toStdString());
+        const qint64 written = state.empty() ? 0
+            : QFileInfo(QString::fromStdString(state.string())).lastModified().toMSecsSinceEpoch();
+        if (written > stateBefore_) {
+            stateWatch_.stop();
+            setStatus(tr("Saved  -  Load state in this menu comes back to here"), true);
+        } else if (!canSaveState() || stateAsked_.elapsed() > 5000) {
+            stateWatch_.stop();
+            setStatus(tr("The state was not saved  -  see %1").arg(kAppLog), true);
+        }
+    });
+
     coverSave_.setSingleShot(true);
     coverSave_.setInterval(2000);
     connect(&coverSave_, &QTimer::timeout, this, [this]() {
@@ -631,6 +650,7 @@ bool LauncherController::launch(const QString& gameId) {
     runningTitle_ = QString::fromStdString(game->title);
     runningGameId_ = gameId;
     runningEngine_ = QString::fromStdString(plan.engineId);
+    runningContent_ = QString::fromStdString(plan.target);
 
     // Phase 9.4: when the game exits, the grid comes back. Without this the
     // shell would be left staring at whatever the game left on screen.
@@ -676,6 +696,32 @@ bool LauncherController::launch(const QString& gameId) {
     offerKeyboardControls(gameId, runningTitle_);
     notePlayed(gameId);
     return true;
+}
+
+bool LauncherController::canSaveState() const {
+    return running_ != nullptr && running_->state() == QProcess::Running
+           && runningEngine_ == QLatin1String("retroarch") && !runningContent_.isEmpty();
+}
+
+bool LauncherController::hasSavedState() const {
+    return canSaveState() && !omnios::retroarchStateFile(runningContent_.toStdString()).empty();
+}
+
+void LauncherController::saveState() {
+    if (!canSaveState() || stateWatch_.isActive()) return;
+    const std::filesystem::path before = omnios::retroarchStateFile(runningContent_.toStdString());
+    stateBefore_ = before.empty()
+                       ? 0
+                       : QFileInfo(QString::fromStdString(before.string())).lastModified().toMSecsSinceEpoch();
+    stateAsked_.start();
+    running_->write("SAVE_STATE\n");
+    stateWatch_.start();
+}
+
+void LauncherController::loadState() {
+    if (!hasSavedState()) return;
+    running_->write("LOAD_STATE\n");
+    resumeRunningGame();
 }
 
 void LauncherController::notePlayed(const QString& gameId) {
@@ -747,6 +793,7 @@ bool LauncherController::startApp(const QString& title, const QString& program,
     startedAt.start();
     runningTitle_ = title;
     runningEngine_.clear();
+    runningContent_.clear();
 
     connect(process, &QProcess::finished, this,
             [this, process, startedAt](int, QProcess::ExitStatus) {

@@ -22,6 +22,7 @@
 // the emulator is left as they chose it.
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -91,5 +92,13 @@ bool prepareEmulator(std::string_view engineId, const std::vector<Controller>& c
 // over the library) and Ryubing (it leaves full screen, then stops the game).
 // RetroArch, DuckStation, PCSX2 and RPCS3 open their own on Escape.
 bool escapeOpensGameMenu(std::string_view engineId);
+
+// RetroArch's save state in slot 0 for game file `content`, as RetroArch
+// names it: the file's name less its extension, then ".state". It is in
+// savestate_directory (~/.config/retroarch/states unless the user's
+// retroarch.cfg says otherwise), or in the folder there for the core
+// (sort_savestates_enable, on by default), or beside the game
+// (savestates_in_content_dir). The newest of those; empty when there is none.
+std::filesystem::path retroarchStateFile(const std::filesystem::path& content);
 
 }  // namespace omnios

@@ -979,6 +979,24 @@ On the desktop, Meta is Plasma's start menu as always. Verified in the VM:
 Meta over Nova opened its menu, Enter resumed it, and back on the desktop Meta
 opened the start menu.
 
+**Save state and Load state** are in that menu, and in the running game's own
+three-dot menu, for a game in RetroArch: slot 0, the one RetroArch's Quick
+Menu also saves to. The launcher started RetroArch, so it holds its standard
+input, and `/usr/share/omnios/retroarch.cfg` turns on RetroArch's command
+interface there (`stdin_cmd_enable`): *Save state* writes `SAVE_STATE` to it,
+*Load state* `LOAD_STATE` and then goes back into the game. Not the network
+command interface, which would take commands from anyone on the network while
+a game runs. RetroArch answers nothing on its standard input, and its own
+"Saved state" message is drawn in the game, behind the launcher, so the
+launcher watches for the state file to be written (`retroarchStateFile()`,
+EmulatorSetup.h: savestate_directory, a folder per core, or beside the game,
+as the user's retroarch.cfg says) and says "Saved", or after five seconds that
+it was not. *Load state* is greyed out until there is a state. Saving works
+while RetroArch is paused behind the launcher. A game the launcher took up
+again after starting afresh (back from Desktop Mode) is not its child, so it
+has neither entry. Verified in the VM with Nova: saved by the first block,
+played on past it, and *Load state* put her back by the block.
+
 **Which key is which is shown along the bottom of the game** for as long as it
 is played from the keyboard: one slim line of keycaps and the console's own
 names for what they play, grouped to stay short — "Z X A S ✕ ○ □ △" on a

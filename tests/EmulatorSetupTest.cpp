@@ -371,3 +371,45 @@ TEST("emulator setup: Escape opens OmniOS's game menu only where the emulator ha
     CHECK(!escapeOpensGameMenu("steam"));
     CHECK(!escapeOpensGameMenu(""));
 }
+
+TEST("emulator setup: RetroArch's save state is found where its settings put it") {
+    namespace fs = std::filesystem;
+    const fs::path home = fs::temp_directory_path() / "omnios-state-home";
+    fs::remove_all(home);
+    const char* old = std::getenv("HOME");
+    const std::string oldHome = old ? old : "";
+#ifdef _WIN32
+    _putenv_s("HOME", home.string().c_str());
+#else
+    setenv("HOME", home.string().c_str(), 1);
+#endif
+    const fs::path game = home / "Games/retro/Nova The Squirrel.nes";
+    const auto touch = [](const fs::path& file) {
+        fs::create_directories(file.parent_path());
+        std::ofstream(file) << "state";
+    };
+
+    // None yet.
+    CHECK(retroarchStateFile(game).empty());
+    // RetroArch's default: a folder per core in ~/.config/retroarch/states.
+    const fs::path sorted = home / ".config/retroarch/states/Nestopia/Nova The Squirrel.state";
+    touch(sorted);
+    CHECK(retroarchStateFile(game) == sorted);
+    // Another game's state is not this one's.
+    CHECK(retroarchStateFile(home / "Games/retro/Gothicvania.sfc").empty());
+    // A directory of the user's own, written with "~".
+    touch(home / ".config/retroarch/retroarch.cfg");
+    std::ofstream(home / ".config/retroarch/retroarch.cfg") << "savestate_directory = \"~/My States\"\n";
+    CHECK(retroarchStateFile(game).empty());
+    const fs::path mine = home / "My States/Nova The Squirrel.state";
+    touch(mine);
+    CHECK(retroarchStateFile(game) == mine);
+
+#ifdef _WIN32
+    _putenv_s("HOME", oldHome.c_str());
+#else
+    setenv("HOME", oldHome.c_str(), 1);
+#endif
+    std::error_code ec;
+    fs::remove_all(home, ec);
+}

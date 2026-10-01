@@ -734,6 +734,40 @@ bool escapeOpensGameMenu(std::string_view engineId) {
     return engineId == "dolphin" || engineId == "azahar" || engineId == "ryubing";
 }
 
+fs::path retroarchStateFile(const fs::path& content) {
+    // The user's own settings: savestate_directory = "~/somewhere", with
+    // "default" or nothing meaning RetroArch's own.
+    fs::path dir = homeDir() / ".config/retroarch/states";
+    bool inContentDir = false;
+    for (const Line& line : parse(readFile(homeDir() / ".config/retroarch/retroarch.cfg"))) {
+        std::string value = line.value;
+        if (value.size() >= 2 && value.front() == '"' && value.back() == '"') value = value.substr(1, value.size() - 2);
+        if (line.key == "savestate_directory" && !value.empty() && value != "default")
+            dir = value.front() == '~' ? fs::path(homeDir().string() + value.substr(1)) : fs::path(value);
+        if (line.key == "savestates_in_content_dir") inContentDir = value == "true";
+    }
+
+    const std::string name = content.stem().string() + ".state";
+    std::vector<fs::path> candidates{dir / name};
+    std::error_code ec;
+    for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
+        if (it->is_directory(ec)) candidates.push_back(it->path() / name);
+    if (inContentDir) candidates.push_back(content.parent_path() / name);
+
+    fs::path newest;
+    fs::file_time_type newestTime;
+    for (const fs::path& candidate : candidates) {
+        if (!fs::is_regular_file(candidate, ec)) continue;
+        const fs::file_time_type time = fs::last_write_time(candidate, ec);
+        if (ec) continue;
+        if (newest.empty() || time > newestTime) {
+            newest = candidate;
+            newestTime = time;
+        }
+    }
+    return newest;
+}
+
 bool prepareEmulator(std::string_view engineId, const std::vector<Controller>& controllers) {
     const auto ini = [](const fs::path& file, const std::string& fresh, const std::vector<IniSetting>& settings) {
         return updateFile(file, fresh, [&](const std::string& text) { return applyIniSettings(text, settings); });

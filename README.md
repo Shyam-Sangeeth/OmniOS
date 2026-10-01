@@ -12,6 +12,8 @@ README is what exists.
 > **Status:** early. Everything below has been built and exercised in QEMU.
 > None of it has run on real hardware yet, and that is the next test.
 
+![Game Mode's library: the System and Search filters, Continue playing, and the games found in ~/Games](docs/screenshots/game-mode-library.png)
+
 ## What you get
 
 - **A boot menu** on the USB stick: *Try OmniOS*, *Install OmniOS*, *Try OmniOS
@@ -30,6 +32,37 @@ README is what exists.
 - **A sign-in screen**, on installs where "sign in automatically" is off.
 - **A store** — Discover on the desktop, on Flathub. What it installs turns up
   in Game Mode's Apps tab too, next to Steam.
+
+## Screenshots
+
+Taken in QEMU, on the free homebrew games the VM tests use. Only Nova the
+Squirrel is in the cover art collection, so the other tiles show their
+system's colour.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/game-page.png" alt="A game's page"><br>
+      <sub>A game's page: its box art, what runs it, and when it was last played.</sub></td>
+    <td width="50%"><img src="docs/screenshots/playing-keyboard-bar.png" alt="Nova the Squirrel playing, with the keyboard bar"><br>
+      <sub>Playing from the keyboard: the bar along the bottom says which key is which button.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/game-menu.png" alt="The game menu over a running game"><br>
+      <sub>Meta (or Guide) in a game opens its menu at its tile: Resume, Quit game, Library.</sub></td>
+    <td><img src="docs/screenshots/filter-systems.png" alt="The System filter's list"><br>
+      <sub>Narrowing the library by system, or by searching it.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/system-menu.png" alt="The system menu over the Apps tab"><br>
+      <sub>The system menu (Start, or F10): updates, sound, network, Bluetooth, the desktop, power.</sub></td>
+    <td><img src="docs/screenshots/tv.png" alt="OmniOS TV"><br>
+      <sub>TV: free-to-air channels by country, category and language, with what is on now.</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/desktop.png" alt="Desktop Mode with the application launcher open"><br>
+      <sub>Desktop Mode: KDE Plasma, with Game Mode one click away in the launcher.</sub></td>
+  </tr>
+</table>
 
 ## Getting started
 

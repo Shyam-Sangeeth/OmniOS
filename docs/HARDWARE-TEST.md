@@ -10,7 +10,7 @@ UEFI mode, since the VM tests were mostly BIOS.
 ## 1. Live USB
 
 - [ ] The boot menu appears (Try / Install / Game Mode) and starts "Try" on its own after 10 s.
-- [ ] The splash screen leads into the desktop with the OmniOS mark, and there's no black gap.
+- [ ] The splash screen leads into the desktop with the OmniOS mark, with no console text in between (no "omnios login" line; a moment of black is expected while the splash hands the screen over).
 - [ ] The Game Mode boot entry lands in Game Mode with an empty taskbar.
 - [ ] Wired network works, and sound plays through the right output.
 

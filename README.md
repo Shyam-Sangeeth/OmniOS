@@ -576,8 +576,9 @@ APIs: the shell already shells out for everything else.
 
 ### Switching, and turning the machine off
 
-**F10** (or Start on a controller) opens the launcher's system menu in its
-top-left corner: sound, network, Bluetooth, pairing, *Switch to desktop*,
+**F10** (or Start on a controller, or the OmniOS mark in the panel) opens the
+launcher's system menu in its bottom-left corner, rising from just above the
+mark as a start menu does: sound, network, Bluetooth, pairing, *Switch to desktop*,
 *Install OmniOS* on the live image, Sleep, Restart and Shut down. Power actions
 go through a fixed table and `systemctl` rather than sudo, so logind still runs
 its inhibitors.

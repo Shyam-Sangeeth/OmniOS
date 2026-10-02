@@ -149,12 +149,13 @@ Window {
         Behavior on opacity { NumberAnimation { duration: Theme.backgroundDuration } }
     }
 
-    // Where the system menu (F10, Start) opens from: the top-left corner.
-    // Nothing is drawn here — the menu is for the keyboard and the controller,
-    // and Plasma's panel underneath has the same things for the pointer.
+    // Where the system menu (F10, Start, or the OmniOS mark in the panel)
+    // opens from: the bottom-left corner, so it rises from just above the
+    // mark, as a start menu does. MenuPanel opens upwards from an anchor with
+    // no room below it. Nothing is drawn here.
     Item {
         id: menuAnchor
-        anchors { left: parent.left; leftMargin: Theme.gutter - 12; top: parent.top; topMargin: 16 }
+        anchors { left: parent.left; leftMargin: Theme.gutter - 12; bottom: parent.bottom; bottomMargin: 6 }
         width: 1
         height: 1
     }

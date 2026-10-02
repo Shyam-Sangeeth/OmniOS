@@ -54,7 +54,7 @@ system's colour.
   </tr>
   <tr>
     <td><img src="docs/screenshots/system-menu.png" alt="The system menu over the Apps tab"><br>
-      <sub>The system menu (Start, or F10): updates, sound, network, Bluetooth, the desktop, power.</sub></td>
+      <sub>The system menu (Start, or F10): updates, sound, network and Bluetooth with a pad, the desktop, power.</sub></td>
     <td><img src="docs/screenshots/tv.png" alt="OmniOS TV"><br>
       <sub>TV: free-to-air channels by country, category and language, with what is on now.</sub></td>
   </tr>
@@ -562,9 +562,11 @@ image, which runs from RAM, and while Discover holds pacman's lock.
 ### The system menu
 
 KDE's panel under Game Mode has sound, network, Bluetooth and the clock for the
-pointer. A controller cannot reach the panel, so the launcher's own system menu
-(**F10**, or Start) has them too: sound opens volume, mute and the output list;
-network lists Wi-Fi in range with signal strength; Bluetooth lists devices.
+pointer, so with a keyboard or mouse the launcher's system menu leaves those
+three to it. A controller cannot reach the panel, so while a pad is in use the
+system menu (Start) has them too: sound opens volume, mute and the output list;
+network lists Wi-Fi in range with signal strength (and joins one, its password
+typed on the on-screen keyboard); Bluetooth lists devices.
 
 Messages that matter — "the disk is full", "Steam could not start" — appear in
 the launcher's top-right corner for a few seconds when they happen, then get
@@ -578,7 +580,8 @@ APIs: the shell already shells out for everything else.
 
 **F10** (or Start on a controller, or the OmniOS mark in the panel) opens the
 launcher's system menu in its bottom-left corner, rising from just above the
-mark as a start menu does: sound, network, Bluetooth, pairing, *Switch to desktop*,
+mark as a start menu does: sound, network and Bluetooth with a pad in hand,
+pairing, *Switch to desktop*,
 *Install OmniOS* on the live image, Sleep, Restart and Shut down. Power actions
 go through a fixed table and `systemctl` rather than sudo, so logind still runs
 its inhibitors.

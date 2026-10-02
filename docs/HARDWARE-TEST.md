@@ -31,7 +31,7 @@ UEFI mode, since the VM tests were mostly BIOS.
 
 ## 3. Wi-Fi from Game Mode
 
-- [ ] Join a WPA2 network by typing its password on the on-screen keyboard.
+- [ ] With the pad (Start → *Network*; with a keyboard or mouse the menu leaves Sound, Network and Bluetooth to the taskbar), join a WPA2 network by typing its password on the on-screen keyboard.
 - [ ] Type a wrong password: you should see an error, and no saved network left behind.
 
 ## 4. Install (erases the target disk)

@@ -1010,15 +1010,17 @@ Window {
               label: qsTr("Clear notifications  ·  %1").arg(Launcher.standingNotifications), enabled: true }
         ] : []
         menuPanel.openFor(menuAnchor, qsTr("OMNIOS %1").arg(Launcher.version), running.concat(notes, updates, [
-            // Plasma's panel has these a pointer away, and a console often has
-            // no pointer. Everything they offer is reachable from here too, so
-            // the keyboard and the controller are not second-class.
+            // Sound, Network and Bluetooth are the taskbar's tray icons, a
+            // pointer away, so with a keyboard or mouse they are left to it.
+            // A controller has no pointer to reach the tray with, so with a
+            // pad in hand (pad: true) they are here: changing the volume and
+            // joining Wi-Fi with the on-screen keyboard.
             //
             // The benign entries come first, so the menu opens on one of them
             // rather than one press from ending the session.
-            { action: "sound",     label: qsTr("Sound"),     enabled: true },
-            { action: "network",   label: qsTr("Network"),   enabled: true },
-            { action: "bluetooth", label: qsTr("Bluetooth"), enabled: true },
+            { action: "sound",     label: qsTr("Sound"),     enabled: true, pad: true },
+            { action: "network",   label: qsTr("Network"),   enabled: true, pad: true },
+            { action: "bluetooth", label: qsTr("Bluetooth"), enabled: true, pad: true },
             { action: "pair",     label: qsTr("Pair a controller"), enabled: true },
             { action: "desktop",   label: qsTr("Switch to desktop"), enabled: true },
             // Only on the live image; see LauncherController::liveImage.
@@ -1026,7 +1028,9 @@ Window {
             { action: "suspend",  label: qsTr("Sleep"),     enabled: true },
             { action: "reboot",   label: qsTr("Restart"),   enabled: true },
             { action: "poweroff", label: qsTr("Shut down"), enabled: true }
-        ]).filter(function (entry) { return entry.live !== true || Launcher.liveImage }), "power")
+        ]).filter(function (entry) {
+            return (entry.live !== true || Launcher.liveImage) && (entry.pad !== true || Launcher.usingController)
+        }), "power")
     }
 
     function runTileAction(action) {

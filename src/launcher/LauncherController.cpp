@@ -211,12 +211,12 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
             if (stateTime(slot) <= stateBefore_[slot]) continue;
             stateWatch_.stop();
             stateSlotNow_ = slot;
-            setStatus(tr("Saved in slot %1  -  Load state comes back to here").arg(slot + 1), true);
+            setStatus(tr("Saved in slot %1  -  Load state comes back to here").arg(slot + 1));
             return;
         }
         if (!canSaveState() || stateAsked_.elapsed() > 5000) {
             stateWatch_.stop();
-            setStatus(tr("The state was not saved  -  see %1").arg(kAppLog), true);
+            setStatus(tr("The state was not saved  -  see %1").arg(kAppLog));
         }
     });
 
@@ -366,8 +366,7 @@ QString LauncherController::gamesPath() const {
 
 QString LauncherController::version() const { return QStringLiteral("0.1.0"); }
 
-void LauncherController::setStatus(const QString& text, bool again) {
-    if (status_ == text && !again) return;
+void LauncherController::setStatus(const QString& text) {
     status_ = text;
     emit statusChanged();
 }
@@ -998,7 +997,7 @@ QString LauncherController::packagePathFor(const QString& appId) const {
 }
 
 void LauncherController::setPackageStatus(const QString& text) {
-    if (packageStatus_ == text) return;
+    // Said each time, as setStatus is.
     packageStatus_ = text;
     emit packageStatusChanged();
 }
@@ -1249,7 +1248,7 @@ void LauncherController::checkForUpdate(const QString& appId) {
     // against a throwaway database rather than running "pacman -Sy", which
     // would leave the system one partial upgrade away from a mismatched libc.
     appCheck_ = appId;
-    setStatus(tr("Checking %1 for updates ...").arg(ref.title), true);
+    setStatus(tr("Checking %1 for updates ...").arg(ref.title));
     checkSystemUpdates();  // one already running answers this too
 }
 
@@ -1316,8 +1315,7 @@ void LauncherController::finishAppCheck() {
     if (appCheck_.isEmpty()) return;
     const QString title = apps_.removalFor(appCheck_).title;
     setStatus(apps_.hasUpdate(appCheck_) ? tr("An update is available for %1").arg(title)
-                                         : tr("%1 is up to date").arg(title),
-              true);
+                                         : tr("%1 is up to date").arg(title));
     appCheck_.clear();
 }
 
@@ -1359,7 +1357,7 @@ void LauncherController::checkSystemUpdates(bool announce) {
         // for, it is said.
         if (code != 0) {
             if (announce || !appCheck_.isEmpty())
-                setStatus(tr("Could not check for updates  -  is the network up?"), true);
+                setStatus(tr("Could not check for updates  -  is the network up?"));
             appCheck_.clear();
             return;
         }

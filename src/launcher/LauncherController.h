@@ -282,10 +282,11 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
-    // A sentence for the status line. The same sentence twice is said once,
-    // unless `again`: an answer to something asked twice, such as one app's
-    // Check for update.
-    void setStatus(const QString& text, bool again = false);
+    // A sentence for the status line, said each time it is set: the same
+    // sentence again is an answer again (a second rescan finding the same
+    // games, a second check finding nothing new), and was swallowed when
+    // repeats were dropped. Nothing sets one over and over on a timer.
+    void setStatus(const QString& text);
     void setUsingController(bool on);
 
     // Turns a controller press into the key the shell already answers to, and

@@ -13,6 +13,9 @@ sudo
 git
 curl
 wget
+# Progress for the live system copying itself into RAM (archiso's copytoram);
+# without it the boot image's build warns, and falls back to plain cp.
+pv
 vim
 nano
 

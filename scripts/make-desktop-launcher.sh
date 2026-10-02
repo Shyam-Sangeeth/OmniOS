@@ -3,9 +3,9 @@
 #
 #   make-desktop-launcher.sh <airootfs> <pacman.conf>
 #
-# It is Plasma's own launcher (Kickoff) with two changes: the OmniOS mark in the
-# panel corner instead of the KDE logo, and a "Game Mode" button beside Sleep,
-# Restart and Shut Down.
+# It is Plasma's own launcher (Kickoff) with three changes: the OmniOS mark in
+# the panel corner instead of the KDE logo, a "Game Mode" button beside Sleep,
+# Restart and Shut Down, and in Game Mode the mark opening Game Mode's own menu.
 #
 # Neither can be done by configuration. The icon could be, per user, but only
 # by writing into a layout file whose applet ids are assigned at first login.
@@ -209,6 +209,67 @@ mv "$leave.new" "$leave"
 sed -i 's|^import org.kde.plasma.plasmoid$|import org.kde.plasma.plasmoid\nimport org.kde.plasma.plasma5support as P5Support|' "$leave"
 grep -q '^import org.kde.plasma.plasma5support as P5Support$' "$leave" \
     || keep_stock "LeaveButtons.qml in $TAG does not import org.kde.plasma.plasmoid where expected"
+
+# ---- the mark, in Game Mode -----------------------------------------------------
+# In Game Mode the mark in the corner opens Game Mode's own menu, the library's
+# system menu (the launcher's ShowSystemMenu on the session bus), rather than
+# this menu, which is the desktop's. omni-session-select says which mode is on
+# through a setting of the applet's own, omniGameMode, set as Game Mode starts
+# and cleared as it ends: the click has to decide at once, not after asking a
+# program. Unpatched, the setting reads as unset and the mark does what it
+# always did, so a step here that fails only warns.
+main="$ui/main.qml"
+click="$work/click.qml"
+cat > "$click" <<'QML'
+        // OmniOS: in Game Mode, Game Mode's own menu instead of this one.
+        // Added by scripts/make-desktop-launcher.sh; not Kickoff's.
+        onClicked: {
+            if (Plasmoid.configuration.omniGameMode) {
+                omniMenu.connectSource("dbus-send --session --type=method_call --dest=org.omnios.Launcher /Launcher org.omnios.Launcher.ShowSystemMenu");
+                return;
+            }
+            kickoff.expanded = !wasExpanded;
+        }
+        P5Support.DataSource {
+            id: omniMenu
+            engine: "executable"
+            connectedSources: []
+            // Disconnected so the same command runs again on the next click.
+            onNewData: sourceName => disconnectSource(sourceName)
+        }
+QML
+if awk -v click="$click" '
+        /^[ \t]*onClicked: kickoff\.expanded = !wasExpanded[ \t]*$/ {
+            while ((getline line < click) > 0) print line
+            done++
+            next
+        }
+        { print }
+        END { exit done == 1 ? 0 : 1 }
+    ' "$main" > "$main.new" \
+    && awk '
+        /<group name="General">/ { armed = 1 }
+        armed && /<\/group>/ {
+            print "        <entry name=\"omniGameMode\" type=\"Bool\">"
+            print "            <label>OmniOS: Game Mode is on, and the mark opens its menu.</label>"
+            print "            <default>false</default>"
+            print "        </entry>"
+            armed = 0; done = 1
+        }
+        { print }
+        END { exit done ? 0 : 1 }
+    ' "$APPLET/contents/config/main.xml" > "$APPLET/contents/config/main.xml.new"; then
+    mv "$main.new" "$main"
+    mv "$APPLET/contents/config/main.xml.new" "$APPLET/contents/config/main.xml"
+    grep -q '^import org.kde.plasma.plasma5support as P5Support$' "$main" \
+        || sed -i 's|^import org.kde.plasma.plasmoid$|import org.kde.plasma.plasmoid\nimport org.kde.plasma.plasma5support as P5Support|' "$main"
+    grep -q '^import org.kde.plasma.plasma5support as P5Support$' "$main" \
+        || keep_stock "main.qml in $TAG does not import org.kde.plasma.plasmoid where expected"
+else
+    rm -f "$main.new" "$APPLET/contents/config/main.xml.new"
+    echo "    warning: Kickoff $TAG's mark is not clicked the way this script expects;" >&2
+    echo "    in Game Mode it will open this menu, not Game Mode's" >&2
+fi
 
 # ---- metadata ------------------------------------------------------------------
 # A new id so it cannot collide with the real Kickoff, and a name that says what

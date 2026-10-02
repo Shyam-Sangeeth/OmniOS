@@ -1589,6 +1589,12 @@ void LauncherController::showMenu() {
     emit menuWanted();
 }
 
+void LauncherController::showSystemMenu() {
+    guidePressed_.invalidate();
+    focusLauncherWindow();
+    emit systemMenuWanted();
+}
+
 void LauncherController::resumeRunningGame() {
     guidePressed_.invalidate();
     QStringList pids;

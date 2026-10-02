@@ -136,6 +136,7 @@ int main(int argc, char* argv[]) {
     // and goes without.
     LauncherBus bus;
     QObject::connect(&bus, &LauncherBus::menuWanted, &controller, &LauncherController::showMenu);
+    QObject::connect(&bus, &LauncherBus::systemMenuWanted, &controller, &LauncherController::showSystemMenu);
     QDBusConnection session = QDBusConnection::sessionBus();
     if (!session.registerService(QStringLiteral("org.omnios.Launcher")) ||
         !session.registerObject(QStringLiteral("/Launcher"), &bus, QDBusConnection::ExportScriptableSlots))

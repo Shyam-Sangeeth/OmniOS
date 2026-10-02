@@ -112,6 +112,14 @@ panel_to_game_mode() {
             if (state.floating === null) state.floating = p.floating;
             p.floating = false;
             for (const w of p.widgets()) {
+                // The mark in the corner opens Game Mode's menu now
+                // (org.omnios.kickoff, scripts/make-desktop-launcher.sh).
+                if (w.type === 'org.omnios.kickoff') {
+                    w.currentConfigGroup = ['General'];
+                    w.writeConfig('omniGameMode', true);
+                    w.reloadConfig();
+                    continue;
+                }
                 if (!($task_managers)) continue;
                 w.currentConfigGroup = ['General'];
                 const current = w.readConfig('launchers', '__default__');
@@ -139,6 +147,12 @@ panel_to_desktop() {
         for (const p of panels()) {
             if (typeof state.floating === 'boolean') p.floating = state.floating;
             for (const w of p.widgets()) {
+                if (w.type === 'org.omnios.kickoff') {
+                    w.currentConfigGroup = ['General'];
+                    w.writeConfig('omniGameMode', false);
+                    w.reloadConfig();
+                    continue;
+                }
                 if (!($task_managers)) continue;
                 w.currentConfigGroup = ['General'];
                 // readConfig hands a list back as one comma-joined string, and

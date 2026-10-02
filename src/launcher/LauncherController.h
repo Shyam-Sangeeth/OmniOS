@@ -196,6 +196,9 @@ public:
     // Meta pressed in Game Mode (LauncherBus): the launcher to the front, and
     // the menu for what is running.
     Q_INVOKABLE void showMenu();
+    // The OmniOS mark in the panel's corner, clicked in Game Mode: the
+    // launcher to the front, and its system menu.
+    Q_INVOKABLE void showSystemMenu();
     // Whether libretro's collection could have box art for the game, and a
     // look for it now (the game's menu, "Look for cover art").
     Q_INVOKABLE bool coverFindable(const QString& gameId) const;
@@ -275,6 +278,8 @@ signals:
     // Meta in Game Mode (showMenu): the shell opens the running game's menu,
     // or the system menu when nothing runs.
     void menuWanted();
+    // The mark in the panel's corner (showSystemMenu): the system menu.
+    void systemMenuWanted();
 
 protected:
     // Watches the whole application's input for keys and clicks that did not

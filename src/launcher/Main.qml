@@ -1077,6 +1077,13 @@ Window {
     // while it is open, it closes.
     Connections {
         target: Launcher
+        // The mark in the panel's corner: the system menu, whatever runs;
+        // clicked again while it is open, it closes.
+        function onSystemMenuWanted() {
+            if (saveSlots.visible) saveSlots.close()
+            if (menuPanel.visible && menuPanel.context === "power") menuPanel.close()
+            else if (!window.promptOpen()) window.openPowerMenu()
+        }
         function onMenuWanted() {
             if (saveSlots.visible) saveSlots.close()
             else if (menuPanel.visible) menuPanel.close()

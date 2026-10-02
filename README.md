@@ -251,6 +251,18 @@ and the OmniOS mark, and installs it as its own widget, which the default panel
 uses instead. If anything about that fails, the build keeps Plasma's own
 launcher: a KDE logo in the corner is fine, a desktop with no menu is not.
 
+In Game Mode the mark opens Game Mode's own menu — the library's system menu,
+the one Start or F10 opens — rather than this desktop menu; clicked again, it
+closes it. The patched click calls the launcher on the session bus
+(`org.omnios.Launcher`, `ShowSystemMenu`; LauncherBus.h) when the widget's own
+setting `omniGameMode` is on, which `omni-session-select` sets as Game Mode
+starts and clears as it ends: the click has to decide at once, not after asking
+a program. If that part cannot be patched into some future Kickoff, the mark
+just keeps opening this menu, with a warning in the build. Verified in the VM
+with Kickoff 6.7.5, built by the script there: the start menu on the desktop,
+the system menu in Game Mode (entered with the menu's own *Game Mode* button),
+closed on a second click, and the start menu again back on the desktop.
+
 The screen shown while Plasma starts is the boot splash continued — the same
 images, same size, same place — so from the power button to the desktop there is
 one OmniOS screen rather than an OmniOS one followed by a KDE one.

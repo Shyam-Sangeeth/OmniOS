@@ -63,6 +63,7 @@ file_permissions=(
   ["/usr/local/bin/omni-session-select"]="0:0:755"
   ["/usr/local/bin/omni-kwin-activate"]="0:0:755"
   ["/usr/local/bin/omni-update"]="0:0:755"
+  ["/usr/local/bin/omni-nvidia"]="0:0:755"
   ["/usr/local/bin/omni-install"]="0:0:755"
   ["/usr/local/bin/omni-greeter"]="0:0:755"
   # Plasma runs a desktop-file shortcut on the desktop without asking whether

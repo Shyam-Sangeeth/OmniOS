@@ -18,4 +18,5 @@ omnios-mirrorlist.service        multi-user.target
 etc-pacman.d-gnupg.mount         multi-user.target
 omnios-pacman-init.service       multi-user.target
 omnios-flathub.service           multi-user.target
+omnios-nvidia.service            multi-user.target
 bluetooth.service                multi-user.target

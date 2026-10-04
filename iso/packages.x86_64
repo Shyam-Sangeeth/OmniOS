@@ -44,6 +44,9 @@ ntfs-3g
 
 ## GPU — Phase 2.1. All three vendors ship on the image; the right one binds at
 ## boot. lib32 variants are required by Proton and every 32-bit Windows title.
+## Nvidia's is NVK, Mesa's open driver over nouveau. Nvidia's own (~430 MB) is
+## not carried: an installed system with a card it supports downloads it
+## (omni-nvidia, omnios-nvidia.service).
 mesa
 lib32-mesa
 vulkan-icd-loader
@@ -52,6 +55,8 @@ vulkan-radeon
 lib32-vulkan-radeon
 vulkan-intel
 lib32-vulkan-intel
+vulkan-nouveau
+lib32-vulkan-nouveau
 vulkan-mesa-layers
 lib32-vulkan-mesa-layers
 libva-mesa-driver

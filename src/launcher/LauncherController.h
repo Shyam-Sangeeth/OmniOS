@@ -10,6 +10,7 @@
 #include <string>
 
 #include <QElapsedTimer>
+#include <QFileSystemWatcher>
 #include <QObject>
 #include <QHash>
 #include <QProcess>
@@ -470,6 +471,10 @@ private:
     void finishAppCheck();
     QProcess*      updateCheck_ = nullptr;
     QTimer         updateTimer_;
+    // /run/omnios, for reboot-required written by something other than this
+    // launcher's own update: omni-nvidia, installing the driver at boot.
+    QFileSystemWatcher restartWatch_;
+    void readRestartMarker();
     QProcess*     running_ = nullptr;
     QString       runningTitle_;
     QString       runningGameId_;

@@ -1,0 +1,29 @@
+[Unit]
+Description=Install Nvidia's graphics driver for this machine's card
+Documentation=https://wiki.archlinux.org/title/NVIDIA
+# The reasoning lives in omni-nvidia itself. Installed systems only: the live
+# image stays on NVK.
+ConditionPathExists=!/run/archiso
+ConditionPathExists=/usr/local/bin/omni-nvidia
+After=network-online.target
+Wants=network-online.target
+# Offline is retried until it is not, however long that takes.
+StartLimitIntervalSec=0
+
+[Service]
+# Not oneshot: the target that wants a oneshot waits for it to finish, and
+# this is minutes of download and compiling. Nothing waits for it.
+Type=exec
+ExecStart=/usr/local/bin/omni-nvidia install
+# 75: offline, or another package operation running. Tried again in a quarter
+# of an hour; anything else is final for this boot.
+RestartForceExitStatus=75
+SuccessExitStatus=75
+RestartSec=15min
+# A download and a kernel module build, behind whatever is being played.
+Nice=19
+CPUSchedulingPolicy=idle
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

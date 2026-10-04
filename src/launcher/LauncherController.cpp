@@ -245,6 +245,9 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
     // Never on the live image, which is not updated.
     restartRequired_ = QFile::exists(QStringLiteral("/run/omnios/reboot-required"));
     if (!liveImage()) {
+        restartWatch_.addPath(QStringLiteral("/run/omnios"));
+        connect(&restartWatch_, &QFileSystemWatcher::directoryChanged, this,
+                &LauncherController::readRestartMarker);
         QTimer::singleShot(60 * 1000, this, [this]() { checkSystemUpdates(); });
         updateTimer_.setInterval(6 * 60 * 60 * 1000);
         connect(&updateTimer_, &QTimer::timeout, this, [this]() { checkSystemUpdates(); });
@@ -1341,6 +1344,21 @@ void LauncherController::updateApp(const QString& appId) {
     // package follows them, and everything it links against stays behind —
     // Arch's best-known way to end up with a system that does not start.
     updateSystem();
+}
+
+void LauncherController::readRestartMarker() {
+    QFile marker(QStringLiteral("/run/omnios/reboot-required"));
+    const bool required = marker.exists();
+    if (required == restartRequired_) return;
+    restartRequired_ = required;
+    emit updatesChanged();
+    // omni-update's marker is empty, and its own result already said why.
+    // omni-nvidia's says what was installed: it ran at boot, unasked, so
+    // the restart would otherwise come out of nowhere.
+    if (required && marker.open(QIODevice::ReadOnly)) {
+        const QString reason = QString::fromUtf8(marker.readLine()).trimmed();
+        if (!reason.isEmpty()) setStatus(reason);
+    }
 }
 
 void LauncherController::checkSystemUpdates(bool announce) {

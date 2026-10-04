@@ -564,6 +564,41 @@ narrates pacman's progress (*12 of 340 · mesa*) while it runs. After a kernel
 update the menu offers *Restart to finish updating*. It refuses on the live
 image, which runs from RAM, and while Discover holds pacman's lock.
 
+### Graphics drivers
+
+AMD and Intel need nothing: Mesa's RADV and ANV are on the image and bind at
+boot. So does Nvidia's open driver, NVK (`vulkan-nouveau`, over the nouveau
+kernel driver), which is what every Nvidia card runs on the live USB.
+
+Nvidia's own driver is faster, but ~430 MB, so the ISO does not carry it.
+An installed system with a card it supports fetches it instead:
+[omni-nvidia](iso/airootfs/usr/local/bin/omni-nvidia), run at every boot by
+`omnios-nvidia.service` until it is done, in the background at idle priority.
+
+- **Which cards.** RTX 20 / GTX 16 series (Turing) and newer: since the 590
+  series Arch packages only Nvidia's open kernel modules, and those start at
+  Turing. Every Nvidia GPU from Turing on has a PCI device ID of 0x1e00 or
+  above, and every one before it below, so `omni-nvidia detect` needs no table.
+  GTX 900 / 1000 cards stay on NVK; the 580 driver that still covers them is
+  only in the AUR. A laptop's Nvidia GPU counts too (a "3D controller" beside
+  the Intel or AMD one).
+- **How.** `nvidia-open-dkms`, since linux-zen has no prebuilt Nvidia module:
+  DKMS compiles one against `linux-zen-headers`, and again after every kernel
+  update. It comes in with a full upgrade, as `omni-update apply` does one —
+  installing it after a bare `pacman -Sy` would be a partial upgrade.
+- **Checked, then committed.** `nvidia-utils` blacklists nouveau, so a module
+  that failed to build would leave the restart with no graphics driver at
+  all. omni-nvidia checks the module exists for every installed linux-zen and,
+  if not, removes the driver again, stays on NVK, and does not try again
+  (`omni-nvidia install --force` does).
+- **Then a restart.** The startup image is rebuilt with the blacklist in it,
+  and `/run/omnios/reboot-required` written with the reason: Game Mode watches
+  for it, says *Nvidia's graphics driver is installed - restart to use it*, and
+  offers *Restart to finish updating* in the system menu; the desktop gets a
+  notification.
+- **Offline**, or with another package operation running, it tries again every
+  quarter of an hour. Its log is `journalctl -u omnios-nvidia`.
+
 ### The system menu
 
 KDE's panel under Game Mode has sound, network, Bluetooth and the clock for the
@@ -1177,7 +1212,10 @@ the boot-os skill.
   with a real game and BIOS — only with test files — so no pad has been seen
   moving anything inside one.
 - **Phase 6's `.opkg` installer** — extracting a package into `~/Games` with
-  checksum verification — and **Phase 7.4 cover art**.
+  checksum verification.
+- **Nvidia's driver on a real card.** The install was run end to end in a
+  container (download, module build, startup image), but no Nvidia GPU has
+  booted on it yet.
 - **Sleep on real hardware** is untested. In QEMU the system resumes, but the
   VM's own faults — its watchdog, its virtual GPU, its ACPI timer under WHPX —
   get in the way; Desktop Mode's sleep works there with the workarounds in the

@@ -13,6 +13,7 @@ UEFI mode, since the VM tests were mostly BIOS.
 - [ ] The splash screen leads into the desktop with the OmniOS mark, with no console text in between (no "omnios login" line; a moment of black is expected while the splash hands the screen over).
 - [ ] The Game Mode boot entry lands in Game Mode with an empty taskbar.
 - [ ] Wired network works, and sound plays through the right output.
+- [ ] On an Nvidia card: the desktop comes up at the screen's resolution, and `vulkaninfo --summary` in Konsole lists the card with driver NVK (not llvmpipe).
 
 ## 2. Controller
 
@@ -71,6 +72,8 @@ UEFI mode, since the VM tests were mostly BIOS.
 - [ ] Discover can install an app.
 - [ ] Last, since it removes Steam: Uninstall Steam from its menu on the Apps tab. It asks for your password first.
 - [ ] Sleep and wake from the desktop and from Game Mode: the screen comes back, and the pad and Wi-Fi still work.
+- [ ] On an RTX 20 / GTX 16 series or newer card, with the network up: within ~15 minutes of the first start (download and module build), Game Mode says *Nvidia's graphics driver is installed - restart to use it* (the desktop shows a notification). Restart: the screen comes back at full resolution, `nvidia-smi` shows the card, `vulkaninfo --summary` says NVIDIA, and a Steam game runs. Then sleep and wake once more. On a laptop with Intel or AMD graphics as well, also check the built-in screen still works.
+- [ ] On a GTX 900 / 1000 series card: `journalctl -u omnios-nvidia` says the card predates Turing and NVK stays, and nothing is downloaded.
 
 ## If something fails
 
@@ -82,5 +85,6 @@ Run these from Konsole on the desktop:
 | The sign-in screen | `journalctl -u greetd -b` |
 | Sleep that didn't come back | `journalctl -b -1 \| tail -100`, after rebooting |
 | Installs, uninstalls and updates | `/tmp/omnios-pkg.log` |
+| Nvidia's driver | `journalctl -u omnios-nvidia -b`, `omni-nvidia detect`, `lspci -nnk \| grep -A3 -i nvidia` |
 
 A photo of the screen is enough for anything visual.

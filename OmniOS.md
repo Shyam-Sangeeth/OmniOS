@@ -81,7 +81,7 @@ Both modes are one Plasma session, sharing one user, one home folder, one game l
 - PC with at least 8 GB RAM, 50 GB free disk
 - USB drive (8 GB+) for Arch install
 - AMD GPU recommended (best open-source Vulkan support)
-- Nvidia works but needs extra driver steps
+- Nvidia runs on NVK out of the box; an installed system downloads Nvidia's own driver for RTX 20 / GTX 16 series and newer
 
 ---
 
@@ -752,7 +752,7 @@ Flathub packages, so the system update covers them.
 ```
 13.1  Build custom Arch ISO with all phases included (archiso tool)
 13.2  Installer (boots ISO → installs OmniOS, typed confirmation before erasing)
-13.3  First-run setup (language, keyboard, account and time zone are in the installer; GPU driver, theme)
+13.3  First-run setup (language, keyboard, account and time zone are in the installer; Nvidia's driver installs itself at first boot; theme)
 13.4  Test on real hardware
 13.5  Release OmniOS v0.1
 ```

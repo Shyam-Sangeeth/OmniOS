@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# omni-nvidia — Nvidia's own graphics driver, for the cards it supports.
+#
+#   omni-nvidia detect
+#       Which driver this machine's Nvidia card wants, one line:
+#           nvidia-open SLOT DEVICE   RTX 20 / GTX 16 series and newer
+#           nvk SLOT DEVICE           older: GTX 900 / 1000 series and before
+#           none                      no Nvidia graphics at all
+#
+#   omni-nvidia install [--force]
+#       As root, on an installed system: when detect says nvidia-open and the
+#       driver is not there yet, update the system with the driver in it, check
+#       the kernel module was built, and ask for a restart. What
+#       omnios-nvidia.service runs, in the background, at every boot until it
+#       is done.
+#
+# The image itself carries only NVK, Mesa's open Vulkan driver (vulkan-nouveau),
+# which every Nvidia card gets with the nouveau kernel driver. Nvidia's driver
+# is ~430 MB more, so it is downloaded by the machines that have the card
+# rather than carried by every ISO. It is the open kernel modules
+# (nvidia-open-dkms): since the 590 series that is the only one Arch packages,
+# and it supports Turing and newer only. Older cards stay on NVK; the 580
+# series that still covers them is in the AUR, not here.
+#
+# -dkms because linux-zen has no prebuilt Nvidia module. DKMS compiles one
+# against linux-zen-headers, which the image carries, and again by itself
+# after every kernel update.
+#
+# Exit codes, for the unit: 0 done or nothing to do, 75 try again later
+# (offline, pacman busy), anything else failed for good.
+set -uo pipefail
+
+readonly PCI="${OMNI_PCI_DEVICES:-/sys/bus/pci/devices}"
+readonly REBOOT_MARKER=/run/omnios/reboot-required
+readonly FAILED_MARKER=/var/lib/omnios/nvidia-failed
+readonly PACKAGES=(nvidia-open-dkms nvidia-utils lib32-nvidia-utils libva-nvidia-driver)
+readonly EX_TEMPFAIL=75
+
+# Turing's first device ID. Every Nvidia GPU from Turing on has an ID at or
+# above it, and every one before it below — Volta's GV100 tops out at 0x1dbe,
+# Pascal's last mobile parts at 0x1d52 — and Turing is exactly where the open
+# kernel modules begin.
+readonly FIRST_TURING=$((0x1e00))
+
+detect() {
+    local dev vendor class device best="none"
+    for dev in "$PCI"/*; do
+        [[ -r $dev/vendor && -r $dev/class && -r $dev/device ]] || continue
+        vendor="$(<"$dev/vendor")"
+        class="$(<"$dev/class")"
+        device="$(<"$dev/device")"
+        [[ $vendor == 0x10de ]] || continue
+        # Display controllers only: 0x0300 VGA, 0x0302 3D (a laptop's second
+        # GPU). The card's own HDMI audio and USB-C controller are Nvidia's
+        # too, with IDs of their own.
+        [[ $class == 0x0300* || $class == 0x0302* ]] || continue
+        if (( device >= FIRST_TURING )); then
+            echo "nvidia-open ${dev##*/} $device"
+            return
+        fi
+        best="nvk ${dev##*/} $device"
+    done
+    echo "$best"
+}
+
+# Every installed linux-zen kernel has the module. DKMS builds for each kernel
+# whose headers are installed; a build that failed leaves nothing to load, and
+# nvidia-utils has already blacklisted nouveau — a machine that would come back
+# from its restart with no graphics driver at all.
+modules_built() {
+    local dir found=0
+    for dir in /usr/lib/modules/*/; do
+        [[ "$(cat "$dir/pkgbase" 2>/dev/null)" == linux-zen ]] || continue
+        found=1
+        compgen -G "$dir/updates/dkms/nvidia.ko*" >/dev/null || return 1
+    done
+    (( found ))
+}
+
+# A desktop notification for whoever is signed in. Game Mode has no
+# notification daemon; its launcher watches the restart marker instead.
+notify() {
+    local bus uid user
+    for bus in /run/user/*/bus; do
+        [[ -S $bus ]] || continue
+        uid="$(basename "$(dirname "$bus")")"
+        user="$(id -nu "$uid" 2>/dev/null)" || continue
+        timeout 10 runuser -u "$user" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
+            gdbus call --session --dest org.freedesktop.Notifications \
+                --object-path /org/freedesktop/Notifications \
+                --method org.freedesktop.Notifications.Notify \
+                OmniOS 0 video-display "$1" "$2" '[]' '{}' 5000 >/dev/null 2>&1 || true
+    done
+}
+
+install_driver() {
+    local force=0
+    [[ ${1:-} == --force ]] && force=1
+    if (( EUID != 0 )); then
+        echo "error: omni-nvidia install has to run as root"
+        exit 1
+    fi
+    # The live image runs from RAM, and stays on NVK: a 430 MB download and a
+    # module build for one session is no way to try a system out.
+    if [[ -d /run/archiso ]]; then
+        echo "The live image uses NVK; Nvidia's driver is installed after OmniOS is"
+        exit 0
+    fi
+
+    local found kind slot device
+    found="$(detect)"
+    read -r kind slot device <<<"$found"
+    case $kind in
+        none) echo "No Nvidia graphics"; exit 0 ;;
+        nvk)  echo "Nvidia $device at $slot predates Turing: Nvidia's current driver does not support it, NVK stays"; exit 0 ;;
+    esac
+
+    if pacman -Q nvidia-open-dkms >/dev/null 2>&1 && modules_built; then
+        echo "Nvidia's driver is installed"
+        exit 0
+    fi
+    if [[ -e $FAILED_MARKER ]] && (( !force )); then
+        echo "Nvidia's driver failed to install before ($(<"$FAILED_MARKER")); staying on NVK. omni-nvidia install --force tries again"
+        exit 0
+    fi
+    if [[ -e /var/lib/pacman/db.lck ]]; then
+        echo "Another package operation is running; trying again later"
+        exit "$EX_TEMPFAIL"
+    fi
+
+    echo "==> Nvidia $device at $slot: installing Nvidia's driver"
+    # As omni-update does it: the keyring first, then everything. The driver
+    # comes in with a full upgrade, never after a bare sync — installing one
+    # package against newer databases than the rest of the system is a
+    # partial upgrade, and nvidia-utils is built against current libraries.
+    if ! pacman -Sy --noconfirm --needed archlinux-keyring; then
+        echo "Could not reach the package mirrors; trying again later"
+        exit "$EX_TEMPFAIL"
+    fi
+    if ! pacman -Su --noconfirm --needed "${PACKAGES[@]}"; then
+        echo "The update did not finish; trying again later"
+        exit "$EX_TEMPFAIL"
+    fi
+
+    if ! modules_built; then
+        echo "error: the Nvidia kernel module was not built for linux-zen; removing the driver again, NVK stays"
+        dkms status 2>&1 | sed 's/^/    /'
+        pacman -Rns --noconfirm "${PACKAGES[@]}"
+        mkinitcpio -P
+        install -d "$(dirname "$FAILED_MARKER")"
+        echo "module build failed, $(date -I)" >"$FAILED_MARKER"
+        exit 1
+    fi
+
+    # The startup image carries nouveau (the kms hook) and the modprobe rules
+    # (modconf); rebuilt, it has nvidia-utils' blacklist of nouveau, so the
+    # restart comes up on Nvidia's driver instead.
+    if ! mkinitcpio -P; then
+        echo "error: the startup image could not be rebuilt"
+        exit 1
+    fi
+    rm -f "$FAILED_MARKER"
+
+    install -d "$(dirname "$REBOOT_MARKER")"
+    echo "Nvidia's graphics driver is installed  -  restart to use it" >"$REBOOT_MARKER"
+    notify "Nvidia graphics driver installed" "Restart to start using it."
+    echo "Installed. Restart to use Nvidia's driver"
+}
+
+case "${1:-}" in
+    detect)  detect ;;
+    install) shift; install_driver "$@" ;;
+    *) echo "usage: omni-nvidia detect | install [--force]" >&2; exit 2 ;;
+esac

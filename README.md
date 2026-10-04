@@ -22,9 +22,13 @@ README is what exists.
   OmniOS loading screen. The application launcher has a *Game Mode* button next
   to Sleep, Restart and Shut Down.
 - **Game Mode** — the tile launcher, open over the desktop with KDE's own panel
-  still along the bottom: a Games tab built by scanning `~/Games` and Steam's
-  library, an Apps tab, and full controller support. Switching modes is
-  instant; *Switch to desktop* is in its menu.
+  still along the bottom: a Games tab built from `~/Games` and Steam's
+  library (a game copied in gets its tile by itself), an Apps tab, and full
+  controller support. Switching modes is instant; *Switch to desktop* is in
+  its menu.
+- **Graphics for every vendor** — AMD, Intel and Nvidia (NVK) work from the USB
+  stick; an installed system with an RTX 20 / GTX 16 series or newer card
+  fetches Nvidia's own driver by itself.
 - **An installer** that puts OmniOS on a disk of its own: a language and
   keyboard layout, an account (or none, for a controller-only console), a time
   zone, and a typed confirmation before
@@ -118,6 +122,9 @@ firmware's boot menu instead.
 | [iso/airootfs/usr/local/bin/](iso/airootfs/usr/local/bin) | The system scripts: `omni-install`, `omni-session-select`, `omni-greeter`, and the rest. |
 | [scripts/](scripts) | Building the ISO; running and driving it in QEMU (`vm-boot`, `vm-job`, a virtual mouse and pad); GitHub issues (`gh-issues.py`). |
 | [tests/](tests) | Tests for the core, and for `omni-nvidia detect`. |
+| [docs/](docs) | Building the ISO, the real-hardware checklist, and the screenshots above. |
+| [tools/](tools) | Regenerating the boot splash's images. |
+| `out/`, `vm/`, `testgames/` | Local only, git-ignored: the built ISO, the VM's test disk, and free homebrew games to test with. |
 
 ## How it works
 

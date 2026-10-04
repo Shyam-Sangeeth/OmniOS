@@ -169,13 +169,15 @@ Compile-check launcher changes in a container before building an image:
 ```bash
 docker run --rm -v "//c/path/to/OmniOS:/src:ro" archlinux:latest bash -c '
   pacman -Sy --noconfirm --needed cmake ninja gcc pkgconf qt6-base qt6-declarative qt6-svg sdl3 zlib mpv layer-shell-qt >/dev/null 2>&1
-  cp -r /src /work && cd /work && rm -rf build
+  mkdir /work && tar -C /src --exclude=./out --exclude=./vm --exclude=./testgames --exclude=./build -cf - . | tar -C /work -xf - && cd /work
   cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release >/dev/null 2>&1
   cmake --build build 2>&1 | grep -Ev "^\[" | head -30'
 ```
 
 It takes about a minute against a warm image and it is the only thing that
-proves the shell still compiles.
+proves the shell still compiles. The source is copied without `out/` (the
+ISO), `vm/` (the test disk) and `testgames/`: about 19 MB rather than several
+GB, all of it read through the slow Windows bind mount.
 
 ## Two ways a build "fails" without failing
 

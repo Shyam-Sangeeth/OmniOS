@@ -113,6 +113,43 @@ screenshot:
   'konsole -e sh -c "tail -20 /tmp/omnios-session.log; sleep 300"', '<WAIT:2>', '<ENTER>', '<WAIT:15>'
 ```
 
+## Many steps: the relay
+
+vm-console.ps1 spends the monitor's one connection on one script. For a test
+of many small steps with a look between each, boot with
+[vm-boot.ps1](../../../scripts/vm-boot.ps1) instead: it retries past the
+IO-APIC panic and frozen starts (below), and leaves
+[vm-relay.ps1](../../../scripts/vm-relay.ps1) holding the connection.
+[vm-job.ps1](../../../scripts/vm-job.ps1) then hands it one batch at a time
+and prints the screenshot's path:
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/vm-boot.ps1 -FromDisk
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/vm-job.ps1 -Name step1 '<KEY:alt-f2>' '<WAIT:4>' 'omni-session-select game' '<ENTER>' '<WAIT:40>'
+```
+
+Run vm-boot.ps1 through powershell.exe from Bash, not the PowerShell tool,
+which cannot see the old relays it has to stop. `<POLL:n>` in a job takes a
+screendump every 0.4 s for n seconds; [ppm-stats.py](../../../scripts/ppm-stats.py)
+finds the interesting frames among them.
+
+**Files into the guest:** serve a folder from the host
+(`python -m http.server 8765 --bind 127.0.0.1`) and fetch from 10.0.2.2:8765
+in a KRunner command. That is also how a launcher built in a container gets
+into a running VM without an ISO rebuild: install it over
+`/usr/local/bin/omni-launcher-qml`, then `omni-session-select desktop` and
+`game` to restart it.
+
+**A mouse:** [vm-mouse.c](../../../scripts/vm-mouse.c), built in the guest, is
+a uinput mouse that does reach the screen — for the panel's corner mark and
+anything else with no keyboard path. **A pad:**
+[vm-gamepad.c](../../../scripts/vm-gamepad.c), the same way. On an installed
+disk with a password, `echo PASSWORD | sudo -S true; sudo -n setsid -f
+/tmp/vpad ... </dev/null` — a `</dev/null` on the first sudo eats the password.
+
+**ssh** on the live ISO: [vm-ssh.ps1](../../../scripts/vm-ssh.ps1)
+`'command'` runs as omni without a prompt.
+
 ## Testing the installer
 
 `-Disk` attaches a 40 GB qcow2 at `%LOCALAPPDATA%\OmniOS\vm\omnios-test.qcow2`,

@@ -116,8 +116,8 @@ firmware's boot menu instead.
 | [src/launcher/](src/launcher) | The Qt 6 / QML shell: the Game Mode launcher, the installer (`--install`) and the sign-in screen (`--greeter`), all one binary. |
 | [iso/](iso) | The archiso profile: packages, boot menus, and the files laid over the image. |
 | [iso/airootfs/usr/local/bin/](iso/airootfs/usr/local/bin) | The system scripts: `omni-install`, `omni-session-select`, `omni-greeter`, and the rest. |
-| [scripts/](scripts) | Building the ISO, and running and driving it in QEMU. |
-| [tests/](tests) | Tests for the core. |
+| [scripts/](scripts) | Building the ISO; running and driving it in QEMU (`vm-boot`, `vm-job`, a virtual mouse and pad); GitHub issues (`gh-issues.py`). |
+| [tests/](tests) | Tests for the core, and for `omni-nvidia detect`. |
 
 ## How it works
 
@@ -1220,11 +1220,13 @@ machine with no emulators installed.
 
 ## Tests
 
-95 tests, run by `ctest` or directly as `build/tests/omnios_tests`. The harness
+169 tests, run by `ctest` or directly as `build/tests/omnios_tests`. The harness
 is [tests/Test.h](tests/Test.h) — self-registering `TEST`/`CHECK`, so building
 the ISO never needs to fetch a test framework. They cover the core; the shell,
 the installer and the sign-in screen are tested by booting them, as described in
-the boot-os skill.
+the boot-os skill. `bash tests/omni-nvidia-detect.sh` checks which cards
+omni-nvidia would give Nvidia's driver, against fake PCI trees; Git Bash runs
+it too.
 
 ## Not done yet
 

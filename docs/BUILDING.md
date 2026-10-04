@@ -55,6 +55,14 @@ package fail signature verification for no obvious reason.
 `-KeepCache` persists pacman's package cache in a named volume, so a second
 build does not re-download several GB.
 
+**Disk space.** Docker Desktop keeps everything in one virtual disk
+(`%LOCALAPPDATA%\Docker\wsl\disk\docker_data.vhdx`) that grows with every
+build and container and never shrinks by itself: it reached 26 GB holding
+10 GB. `.\scripts\compact-docker.ps1` gives the freed space back to Windows
+(an administrator prompt; nothing inside Docker is deleted). Of the images,
+only `archlinux:latest` (builds) and `debian:stable` (build-openbios.sh) are
+used; the `omnios-pacman-cache` volume is the cache above.
+
 The ISO lands in `out/`. Boot it from Windows:
 
 ```powershell

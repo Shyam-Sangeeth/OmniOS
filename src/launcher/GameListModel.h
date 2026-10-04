@@ -99,8 +99,10 @@ signals:
     void filterChanged();
 
 private:
-    // rows_ again, from the library and the filters.
+    // rows_ again, from the library and the filters, as a model reset.
     void applyFilter();
+    // Just rows_, inside a reset already begun.
+    void rebuildRows();
     const omnios::Game& gameAt(int row) const { return library_.games()[rows_[static_cast<std::size_t>(row)]]; }
 
     omnios::GameLibrary library_;

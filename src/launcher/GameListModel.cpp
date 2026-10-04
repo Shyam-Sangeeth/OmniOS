@@ -108,6 +108,10 @@ QHash<int, QByteArray> GameListModel::roleNames() const {
 }
 
 void GameListModel::setLibrary(omnios::GameLibrary library) {
+    // The reset begins before anything changes: views read the old rows in
+    // modelAboutToBeReset (Main.qml notes the focused game there), and the
+    // old rows index the old library.
+    beginResetModel();
     library_ = std::move(library);
     // A system whose last game has gone is no longer offered, so it could
     // not be unticked: dropped from the filter too.
@@ -115,11 +119,21 @@ void GameListModel::setLibrary(omnios::GameLibrary library) {
     for (const omnios::Game& game : library_.games())
         present << QString::fromStdString(std::string(omnios::platformId(game.platform)));
     systems_.removeIf([&](const QString& id) { return !present.contains(id); });
-    applyFilter();
+    rebuildRows();
+    endResetModel();
+    emit countChanged();
+    emit filterChanged();
 }
 
 void GameListModel::applyFilter() {
     beginResetModel();
+    rebuildRows();
+    endResetModel();
+    emit countChanged();
+    emit filterChanged();
+}
+
+void GameListModel::rebuildRows() {
     rows_.clear();
     const std::string query = search_.toStdString();
     const auto& games = library_.games();
@@ -129,9 +143,6 @@ void GameListModel::applyFilter() {
         if (!omnios::matchesSearch(games[i], query)) continue;
         rows_.push_back(i);
     }
-    endResetModel();
-    emit countChanged();
-    emit filterChanged();
 }
 
 void GameListModel::setSearch(const QString& text) {

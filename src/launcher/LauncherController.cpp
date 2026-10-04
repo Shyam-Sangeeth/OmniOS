@@ -168,12 +168,19 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
     // Steam installs and removes games in its own window, not through the
     // shell, so the Games tab watches for the result rather than being told.
     steamPoll_.setInterval(10000);
-    connect(&steamPoll_, &QTimer::timeout, this, &LauncherController::refreshIfSteamChanged);
+    connect(&steamPoll_, &QTimer::timeout, this, &LauncherController::refreshIfLibraryChanged);
     steamPoll_.start();
+    // Everything else in ~/Games is copied there by someone, and watched.
+    // Steam's folder is the poll's; bios holds no games.
+    connect(&gamesWatch_, &GamesWatcher::settled, this, [this]() {
+        gamesChanged_ = true;
+        refreshIfLibraryChanged();
+    });
+    gamesWatch_.start(gamesPath(), {QStringLiteral("Steam"), QStringLiteral("bios")});
     connect(qGuiApp, &QGuiApplication::applicationStateChanged, this,
             [this](Qt::ApplicationState state) {
                 updatePadRouting();
-                if (state == Qt::ApplicationActive) refreshIfSteamChanged();
+                if (state == Qt::ApplicationActive) refreshIfLibraryChanged();
                 else takeBackFromSteam();
             });
 
@@ -258,11 +265,12 @@ LauncherController::LauncherController(QObject* parent) : QObject(parent) {
     refresh();
 }
 
-void LauncherController::refreshIfSteamChanged() {
+void LauncherController::refreshIfLibraryChanged() {
     // Behind a game or Steam itself nobody is looking at the grid; the
     // activation check catches up the moment the launcher is back.
     if (QGuiApplication::applicationState() != Qt::ApplicationActive || scanning_) return;
-    if (omnios::steamLibraryStamp(omnios::GameScanner().steamLibraries()) == steamStamp_) return;
+    if (!gamesChanged_ && omnios::steamLibraryStamp(omnios::GameScanner().steamLibraries()) == steamStamp_)
+        return;
     refresh();
 }
 
@@ -381,6 +389,7 @@ void LauncherController::refresh() {
     // Taken before the scan, so a change landing during it is seen next time
     // rather than lost.
     steamStamp_ = omnios::steamLibraryStamp(omnios::GameScanner().steamLibraries());
+    gamesChanged_ = false;
 
     // From the library in hand once there is one: the cache on disk can be
     // a moment behind it (covers are saved two seconds after they arrive).
@@ -1548,7 +1557,7 @@ void LauncherController::steamAction(const QString& gameId, const QString& actio
         said = tr("Steam is checking %1's files").arg(title);
     } else if (action == QLatin1String("uninstall")) {
         // Steam's own dialog, which asks first. When it is done the tile goes
-        // by itself: the Games tab watches Steam's library (refreshIfSteamChanged).
+        // by itself: the Games tab watches Steam's library (refreshIfLibraryChanged).
         url = QStringLiteral("steam://uninstall/") + appId;
         said = tr("Steam will ask before uninstalling %1").arg(title);
     } else {

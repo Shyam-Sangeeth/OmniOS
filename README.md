@@ -289,6 +289,28 @@ Two cases the design doc's table doesn't separate, and this does:
 `~/Games/pc/` is shared by Linux and Windows, so it supplies no folder hint —
 those two are always separated by their headers.
 
+### Watching ~/Games
+
+A game copied into `~/Games` gets its tile by itself, a couple of seconds after
+the copy ends; one deleted loses it. [GamesWatcher](src/launcher/GamesWatcher.h)
+puts an inotify watch on every folder in the tree, new ones as they appear, and
+the launcher rescans once the tree has been quiet for two seconds.
+
+- **Not mid-copy.** A file is noticed the moment it is created, long before its
+  last byte arrives, and a tile for half an ISO would fail to start. A file
+  created and not yet closed holds the rescan back until it closes, and every
+  write starts the two seconds again — the second covers the first file of a
+  copied folder, written before the folder had a watch to report it. A game in
+  many files (a `.cue` and its tracks, a PS3 folder) settles once, after the
+  last. A file left open for half an hour, from a copy that died, stops holding
+  it.
+- **Not behind a game.** Changes made while something else is in front are
+  noted, and the rescan waits until the launcher is back, as Steam's check does.
+- **Not Steam's folder,** which its own check covers (a download writes
+  thousands of files), nor `bios`, which holds no games.
+
+The focused tile stays focused across a rescan, wherever the new game lands.
+
 ### Apps and the store
 
 OmniOS does not have a store of its own: the desktop has **Discover**, KDE's,

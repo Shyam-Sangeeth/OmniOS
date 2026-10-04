@@ -22,6 +22,7 @@
 #include "AppListModel.h"
 #include "CoverFetcher.h"
 #include "GameListModel.h"
+#include "GamesWatcher.h"
 #include "GamepadInput.h"
 #include "NotificationWatcher.h"
 #include "RecentGamesModel.h"
@@ -393,11 +394,12 @@ private:
     uint notificationInhibit_ = 0;  // Plasma's cookie; 0 while not inhibited
     bool inhibitPending_ = false;
 
-    // Rescans when the Steam games the tab would show have changed since the
-    // last scan: a game finished installing, or was uninstalled, in Steam. Checked when
+    // Rescans when the games the tab would show have changed since the last
+    // scan: something copied into or removed from ~/Games (gamesWatch_), or a
+    // game finished installing, or was uninstalled, in Steam. Checked when
     // the launcher comes back to the front and every few seconds while it is
     // there, so a download finishing behind it still gets its tile.
-    void refreshIfSteamChanged();
+    void refreshIfLibraryChanged();
 
     GamepadInput   gamepad_;
     NotificationWatcher notifications_;
@@ -429,6 +431,10 @@ private:
     QElapsedTimer  activityPinged_;
     // Steam's games as of the last scan (omnios::steamLibraryStamp).
     std::string    steamStamp_;
+    // ~/Games outside Steam's folder: changed since the last scan, by the
+    // watcher's account.
+    GamesWatcher   gamesWatch_;
+    bool           gamesChanged_ = false;
     QTimer         steamPoll_;
     // The Steam game started from a tile, while it is starting or running.
     struct SteamGame {

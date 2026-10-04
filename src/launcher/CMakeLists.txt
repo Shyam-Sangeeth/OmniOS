@@ -20,6 +20,7 @@ qt_add_executable(omni-launcher
     NotificationWatcher.cpp
     ControlsOverlay.cpp
     CoverFetcher.cpp
+    GamesWatcher.cpp
     TvController.cpp)
 
 # The QML forms a module named "omnios". The files sit beside this file rather

@@ -29,3 +29,10 @@ iso/airootfs/etc/localtime
 # scripts/make-desktop-launcher.sh for whichever release the image installs.
 iso/airootfs/usr/share/plasma/plasmoids/org.omnios.kickoff/
 iso/airootfs/usr/local/share/plasma/
+
+# Free homebrew games for testing in the VM (see the boot-os skill). Kept on
+# this machine only: binaries, under several licences.
+testgames/
+# The VM's test disk (scripts/run-qemu.ps1 -Disk): gigabytes, and changed by
+# every install.
+vm/

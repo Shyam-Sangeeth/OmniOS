@@ -13,7 +13,7 @@
 set -euo pipefail
 
 readonly REPO="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly DISK="$REPO/out/omnios-test.qcow2"
+readonly DISK="$REPO/vm/omnios-test.qcow2"  # vm/ is git-ignored
 
 iso=""
 uefi=0
@@ -79,6 +79,7 @@ fi
 
 if [[ $with_disk -eq 1 ]]; then
     if [[ ! -f "$DISK" ]]; then
+        mkdir -p "$(dirname "$DISK")"
         printf '==> creating a 40G test disk at %s\n' "$DISK"
         qemu-img create -f qcow2 "$DISK" 40G >/dev/null
     fi

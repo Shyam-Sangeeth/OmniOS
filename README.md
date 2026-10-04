@@ -89,7 +89,7 @@ other routes (WSL2, a real Arch machine) and everything that goes wrong.
 .\scripts\run-qemu.ps1 -BlankDisk         # start again from an empty disk
 ```
 
-The test disk lives in `%LOCALAPPDATA%\OmniOS\vm`, not in the repository.
+The test disk lives in `vm/` at the repository root, which git ignores.
 [.claude/skills/boot-os/SKILL.md](.claude/skills/boot-os/SKILL.md) is the
 detailed guide to driving the VM — screenshots, keys, logs, and the ways it
 misleads.

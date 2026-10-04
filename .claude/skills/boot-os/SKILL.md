@@ -140,6 +140,12 @@ into a running VM without an ISO rebuild: install it over
 `/usr/local/bin/omni-launcher-qml`, then `omni-session-select desktop` and
 `game` to restart it.
 
+**Games to test with:** `testgames/` at the repo root holds free homebrew,
+one or more per system (Nova the Squirrel for NES, Blind Jump for GBA,
+Tetrade for PS1, BeatRush for 3DS, ...). It is git-ignored and exists on the
+development machine only; `testgames/place.sh`, fetched through the server
+above, puts the NES, GameCube, 3DS and Switch ones where the scanner looks.
+
 **A mouse:** [vm-mouse.c](../../../scripts/vm-mouse.c), built in the guest, is
 a uinput mouse that does reach the screen — for the panel's corner mark and
 anything else with no keyboard path. **A pad:**
@@ -152,10 +158,10 @@ disk with a password, `echo PASSWORD | sudo -S true; sudo -n setsid -f
 
 ## Testing the installer
 
-`-Disk` attaches a 40 GB qcow2 at `%LOCALAPPDATA%\OmniOS\vm\omnios-test.qcow2`,
-created when missing and kept between boots; `-BlankDisk` starts it empty. It
-is outside the repo so a file that grows by gigabytes on every install stays
-out of the working tree. It is attached with
+`-Disk` attaches a 40 GB qcow2 at `vm/omnios-test.qcow2` in the repo,
+created when missing and kept between boots; `-BlankDisk` starts it empty.
+`vm/` is git-ignored, since the file grows by gigabytes on every install. It
+is attached with
 discard, so a reinstall reuses the space the last one freed: two installs in a
 row measured 8.76 then 8.84 GB, where without discard the file had crept to
 16.5 GB and was heading for 40. It never shrinks, though; `-BlankDisk` is how

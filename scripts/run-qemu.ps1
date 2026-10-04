@@ -16,9 +16,9 @@
     Boot through OVMF instead of BIOS.
 
 .PARAMETER Disk
-    Attach a 40 GB qcow2 disk to install onto. It lives in
-    %LOCALAPPDATA%\OmniOS\vm, not in the repo: a disk image that changes by
-    gigabytes on every install has no business in the working tree.
+    Attach a 40 GB qcow2 disk to install onto. It lives in vm\ at the repo
+    root, which git ignores: a disk image that changes by gigabytes on every
+    install has no business in version control.
 
 .PARAMETER BlankDisk
     Start from an empty test disk, throwing away whatever the last install left
@@ -259,16 +259,19 @@ if ($Uefi) {
 if ($BlankDisk) { $Disk = $true }
 
 if ($Disk) {
-    $diskDir = Join-Path $env:LOCALAPPDATA 'OmniOS\vm'
+    $diskDir = Join-Path $repo 'vm'
     $diskPath = Join-Path $diskDir 'omnios-test.qcow2'
     if (-not (Test-Path $diskDir)) { New-Item -ItemType Directory -Path $diskDir | Out-Null }
 
-    # Where it used to be. Moved rather than left, so an existing test install
-    # is not silently traded for an empty disk.
-    $oldPath = Join-Path $out 'omnios-test.qcow2'
-    if ((Test-Path $oldPath) -and -not (Test-Path $diskPath)) {
-        Write-Host "==> moving the test disk out of the repo to $diskPath"
-        Move-Item $oldPath $diskPath
+    # Where it used to be: out\, then %LOCALAPPDATA%\OmniOS\vm. Moved rather
+    # than left, so an existing test install is not silently traded for an
+    # empty disk.
+    foreach ($oldPath in (Join-Path $out 'omnios-test.qcow2'),
+                         (Join-Path $env:LOCALAPPDATA 'OmniOS\vm\omnios-test.qcow2')) {
+        if ((Test-Path $oldPath) -and -not (Test-Path $diskPath)) {
+            Write-Host "==> moving the test disk to $diskPath"
+            Move-Item $oldPath $diskPath
+        }
     }
 
     if ($BlankDisk -and (Test-Path $diskPath)) {

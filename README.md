@@ -257,8 +257,13 @@ closes it. The patched click calls the launcher on the session bus
 (`org.omnios.Launcher`, `ShowSystemMenu`; LauncherBus.h) when the widget's own
 setting `omniGameMode` is on, which `omni-session-select` sets as Game Mode
 starts and clears as it ends: the click has to decide at once, not after asking
-a program. If that part cannot be patched into some future Kickoff, the mark
-just keeps opening this menu, with a warning in the build. Verified in the VM
+a program. Its tooltip follows: "Game Mode menu" in Game Mode, Plasma's own
+("OmniOS Launcher", "Launcher to start applications") on the desktop. QML
+Bindings that are only in force in Game Mode set it, rather than a value for
+each mode: naming Plasma's defaults in a binding (`Plasmoid.title`,
+`Plasmoid.metaData.description`) left the mark with no tooltip at all. If that
+part cannot be patched into some future Kickoff, the mark just keeps opening
+this menu, with a warning in the build. Verified in the VM
 with Kickoff 6.7.5, built by the script there: the start menu on the desktop,
 the system menu in Game Mode (entered with the menu's own *Game Mode* button),
 closed on a second click, and the start menu again back on the desktop.

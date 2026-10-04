@@ -261,6 +261,45 @@ if awk -v click="$click" '
     ' "$APPLET/contents/config/main.xml" > "$APPLET/contents/config/main.xml.new"; then
     mv "$main.new" "$main"
     mv "$APPLET/contents/config/main.xml.new" "$APPLET/contents/config/main.xml"
+    # And the tooltip says so, in Game Mode only. Bindings rather than a
+    # value for each mode: Kickoff leaves its tooltip to Plasma's defaults
+    # (the applet's name and description, "Launcher to start applications"),
+    # and naming those defaults in a binding of its own (Plasmoid.title,
+    # Plasmoid.metaData.description) left the mark with no tooltip at all.
+    # A Binding that is not in force leaves the default alone. A Kickoff that
+    # one day sets its own tooltip leaves this out, with a warning.
+    tooltip="$work/tooltip.qml"
+    cat > "$tooltip" <<'QML'
+    // OmniOS: in Game Mode the mark opens Game Mode's menu; the tooltip says so.
+    Binding {
+        target: kickoff
+        property: "toolTipMainText"
+        value: i18n("Game Mode menu")
+        when: Plasmoid.configuration.omniGameMode
+        restoreMode: Binding.RestoreBindingOrValue
+    }
+    Binding {
+        target: kickoff
+        property: "toolTipSubText"
+        value: i18n("Updates, controllers, the desktop, sleep and shut down")
+        when: Plasmoid.configuration.omniGameMode
+        restoreMode: Binding.RestoreBindingOrValue
+    }
+QML
+    if ! grep -q 'toolTipMainText\|toolTipSubText' "$main" \
+        && awk -v tooltip="$tooltip" '
+            { print }
+            !done && /^    id: kickoff$/ {
+                while ((getline line < tooltip) > 0) print line
+                done = 1
+            }
+            END { exit done ? 0 : 1 }
+        ' "$main" > "$main.new"; then
+        mv "$main.new" "$main"
+    else
+        rm -f "$main.new"
+        echo "    warning: Kickoff $TAG sets its own tooltip; in Game Mode it will not say what the mark opens" >&2
+    fi
     grep -q '^import org.kde.plasma.plasma5support as P5Support$' "$main" \
         || sed -i 's|^import org.kde.plasma.plasmoid$|import org.kde.plasma.plasmoid\nimport org.kde.plasma.plasma5support as P5Support|' "$main"
     grep -q '^import org.kde.plasma.plasma5support as P5Support$' "$main" \
